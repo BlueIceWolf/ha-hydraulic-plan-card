@@ -134,7 +134,7 @@
     check(invalid, 'Invalid generator configuration is rejected');
     const Free = customElements.get('hydraulic-plan-card');
     const stub = Free.getStubConfig();
-    check(stub.plan_mode === 'free' && Array.isArray(stub.plan.components), 'New cards open the free hydraulic plan');
+    check(Array.isArray(stub.plan.components) && !stub.plan_mode, 'New card configures components directly, without a view mode');
 
     const sample = [
       { id: 'holz', type: 'wood_gasifier', name: 'Fröling S3 Turbo', x: 50, y: 80,
@@ -154,51 +154,53 @@
     const edges=[
       {id:'holz_puffer',from:'holz',from_port:'flow',to:'puffer1',to_port:'top_in',
        flow_entity:ids.pump,temperature_entity:ids.flow},
-      {id:'puffer_reihe',from:'puffer1',from_port:'bottom_out',to:'puffer2',to_port:'top_in'}
+      {id:'puffer_reihe',from:'puffer1',from_port:'bottom_out',to:'puffer2',to_port:'top_in',flow_entity:ids.pump,temperature_entity:ids.flow}
     ];
     const hassFree=hassOf({
       'sensor.buffer_25':state('sensor.buffer_25',65,'°C'),
       'sensor.buffer_75':state('sensor.buffer_75',42,'°C'),
     });
-    const free=await mount({type:'custom:hydraulic-plan-card',plan_mode:'free',
+    const free=await mount({type:'custom:hydraulic-plan-card',
       plan:{components:sample,connections:edges}},hassFree);
-    const freeSvg=free.shadowRoot.getElementById('hpc-free-svg');
-    check(!!freeSvg, 'Free topology renderer produces an SVG');
-    check(freeSvg?.querySelectorAll('g.hpc-node').length===10,'Multiple independently placed generators, tanks and circuits');
-    check(freeSvg?.querySelectorAll('g.hpc-connection, g.hpc-route').length===2,'Connected pipes render');
-    check(freeSvg?.querySelectorAll('linearGradient stop').length>=5,'Five buffer temperature points generate multiple stratification stops');
-    check(!!freeSvg?.querySelector('g.hpc-tank rect.hpc-tank-main') &&
-      !!freeSvg?.querySelector('g.hpc-appliance .hpc-component-icon'),
-      'Free schematic uses illustrated original-style heating components, not flat tiles');
-    check(freeSvg?.textContent?.includes('65') && freeSvg.textContent.includes('42'),
-      'Intermediate buffer sensors show their live measured values');
-    const firstGrad=freeSvg?.querySelector('linearGradient');
-    check(firstGrad?.innerHTML.includes('25%') && firstGrad?.innerHTML.includes('75%'),
-      'Buffer stratification uses sensor installation heights');
-    check(freeSvg?.querySelectorAll('path.hpc-pulse').length===1,
-      'Pipe animation only appears with an explicitly mapped active pump');
+    const freeSvg=free.shadowRoot.getElementById('svg');
+    check(!!freeSvg, 'Original Heat Pump Hydraulic Card SVG remains the only drawing');
+    check(!!freeSvg?.querySelector('#hp-box'), 'Original heat-source illustration is retained');
+    check(!!freeSvg?.querySelector('rect.tank[x="520"][y="320"]'), 'Original buffer tank remains in place');
+    check(!free.shadowRoot.getElementById('hpc-free-svg'), 'No second standalone hydraulic view');
+    check(freeSvg?.querySelectorAll('g.hpi-component').length===6,
+      'Additional boilers, buffers, heater and mixer are appended as original-style units');
+    check(freeSvg?.querySelectorAll('g.hpi-link').length===1,
+      'Only additional pipes are appended, original circuit pipes remain');
+    const newTank=freeSvg?.querySelector('g[data-hpi-node="puffer2"] rect.tank');
+    check(!!newTank, 'Additional tanks use the original .tank drawing, not a flat node');
+    const firstGradient=freeSvg?.querySelector('linearGradient[id="hpi-puffer1"]');
+    check(firstGradient?.innerHTML.includes('25%') && firstGradient.innerHTML.includes('75%'),
+      'Existing first tank gets the five-point temperature gradient');
+    check(freeSvg?.querySelector('rect.tank[x="520"][y="320"]')?.getAttribute('fill')==='url(#hpi-puffer1)',
+      'Original tank fill adopts the configurable temperature gradient');
+    check(freeSvg?.querySelectorAll('g.hpi-link path.flow.on').length===1,
+      'Pipe animation requires an explicitly mapped active pump');
     free.hass=hassOf({
       [ids.pump]:state(ids.pump,'off'),
       'sensor.buffer_25':state('sensor.buffer_25',65,'°C'),
       'sensor.buffer_75':state('sensor.buffer_75',42,'°C'),
     });
-    check(free.shadowRoot.querySelectorAll('path.hpc-pulse').length===0,
-      'Pump off stops the explicit pipe animation');
-
-    const untouchedSvg=free.shadowRoot.getElementById('hpc-free-svg');
+    check(free.shadowRoot.querySelectorAll('g.hpi-link path.flow.on').length===0,
+      'A stopped pump also stops its animated extra pipe');
+    const untouchedSvg=free.shadowRoot.getElementById('svg');
     free.hass=hassOf({
       'sensor.buffer_25':state('sensor.buffer_25',65,'°C'),
       'sensor.buffer_75':state('sensor.buffer_75',42,'°C'),
       'sensor.unrelated_thing':state('sensor.unrelated_thing',900,'W'),
       [ids.pump]:state(ids.pump,'off'),
     });
-    check(free.shadowRoot.getElementById('hpc-free-svg') === untouchedSvg,
-      'Unrelated HA entity changes do not rebuild the card SVG');
+    check(free.shadowRoot.getElementById('svg') === untouchedSvg,
+      'Unrelated HA entity changes do not rebuild the original schematic');
 
     const editor=document.createElement('hydraulic-plan-card-editor');
-    editor.setConfig({type:'custom:hydraulic-plan-card',plan_mode:'free',plan:{components:sample,connections:edges}});
+    editor.setConfig({type:'custom:hydraulic-plan-card',plan:{components:sample,connections:edges}});
     document.body.appendChild(editor);editor.hass=hassFree;
-    check(!!editor.querySelector('#hpc-free-svg'),'Free plan is previewed in the editor');
+    check(!editor.querySelector('#hpc-free-svg') && !editor.querySelector('[data-action="classic"]'), 'Editor extends original view without separate canvas or view switch');
     const select=editor.querySelector('[data-select="puffer1"]');select?.click();
     check(!!editor.querySelector('input[data-sensor="puffer1"]'),'Editor exposes buffer entity fields');
     const focusInput=editor.querySelector('input[data-name="puffer1"]');
