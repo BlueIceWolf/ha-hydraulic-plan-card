@@ -1,86 +1,89 @@
 const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
   class HydraulicPlanCard extends HeatpumpFlowCard {
-    static getConfigElement() { return document.createElement("hydraulic-plan-card-editor"); }
-    static getStubConfig() { return { type:"custom:hydraulic-plan-card", plan_mode:"free", plan:{components:[],connections:[]} }; }
-    _isFree() { return this._config?.plan_mode==="free" || Array.isArray(this._config?.plan?.components); }
+    static getConfigElement() { return document.createElement('hydraulic-plan-card-editor'); }
+    static getStubConfig() {
+      return {type:'custom:hydraulic-plan-card',preset:'none',plan:{components:[],connections:[]}};
+    }
     setConfig(config) {
-      if (!config || typeof config!=="object") throw Error("Invalid card configuration");
-      if (config.plan_mode==="free" || Array.isArray(config.plan?.components)) {
-        const next={...config,plan_mode:"free",plan:HPC_FREE.normalize(config.plan)};
-        const changed=JSON.stringify(this._config)!==JSON.stringify(next);
-        this._config=next;
-        if(changed){this._freeLayoutSig=null;this._freeLiveSig=null;}
-        if(this._hass&&(changed||!this._rendered))this._renderFree();
-      } else super.setConfig(config);
+      if(!config||typeof config!=='object')throw Error('Invalid card configuration');
+      this._integratedPlan=HPC_FREE.normalize(config.plan);
+      this._integratedSig=null;
+      // The original schematic is the primary and only display. Extra components
+      // are merged into its original SVG, never a separate dashboard/card.
+      super.setConfig(HPC_INTEGRATED.coreConfig({...config,plan:this._integratedPlan}));
     }
-    _liveSignature(){
-      const ids=new Set();
-      const p=this._config?.plan||{};
-      for(const n of p.components||[]){
-        for(const id of Object.values(n.sensors||{}))if(id)ids.add(id);
-        for(const point of n.level_sensors||[])if(point.entity)ids.add(point.entity);
-      }
-      for(const edge of p.connections||[])
-        for(const id of [edge.flow_entity,edge.temperature_entity])if(id)ids.add(id);
-      return [...ids].sort().map(id=>{
-        const st=this._hass?.states?.[id];
-        return id+":"+(st?.state??"unavailable")+":"+(st?.attributes?.unit_of_measurement??"");
-      }).join("|");
+    _startState() {
+      if(this._integratedPlan?.components.length)return false;
+      return super._startState();
     }
-    set hass(hass) {
-      if (!this._isFree()) { super.hass=hass; return; }
-      this._hass=hass;
-      const sig=this._liveSignature();
-      if(sig!==this._freeLiveSig||!this._rendered)this._renderFree();
-    }
-    getCardSize() { return this._isFree()?12:super.getCardSize(); }
-    getGridOptions() { return {columns:"full",min_columns:6,rows:"auto"}; }
     _render() {
-      if (this._isFree()) { this._renderFree();return; }
-      if (this._hass&&this._config&&this._startState()) {
-        const de=String(this._hass.locale?.language||navigator.language||"de").startsWith("de");
-        const title=this._esc(this._config.title||"Hydraulic Plan Card");
-        const head=de?"Heizungsanlage einrichten":"Set up heating system";
-        const message=de?"Füge im Karteneditor Wärmeerzeuger, Pufferspeicher, Heizkreise und Verbindungen hinzu. Eine Wärmepumpen-Integration ist nicht notwendig.":"Add heat sources, buffer tanks, circuits and connections in the card editor. No heat pump integration is needed.";
-        const root=this._renderRoot();
-        root.innerHTML=`<style>${HeatpumpFlowCard.styles}${HPC_FREE.css}
-          .hpc-empty{padding:20px;border-radius:14px;background:var(--secondary-background-color,rgba(100,130,180,.11))}
-          .hpc-empty h3{margin:0 0 10px;font-size:1.1em}.hpc-empty p{margin:0;line-height:1.45}</style>
-          <ha-card><h2 style="font-size:1.15em;margin:0 0 12px">${title}</h2>
-          <div class="hpc-empty" id="start-hint"><h3>${head}</h3><p>${this._esc(message)}</p></div></ha-card>`;
+      if(!this._integratedPlan?.components.length&&this._hass&&this._config&&this._startState()){
+        const lang=String(this._hass?.locale?.language||navigator.language||'de').startsWith('de')?'de':'en';
+        const message=lang==='de'
+          ? 'Noch keine Bauteile eingerichtet. Öffne den Karteneditor und ergänze Wärmeerzeuger, Speicher und Heizkreise.'
+          : 'No components configured. Open the card editor to add heat sources, tanks and circuits.';
+        this._renderRoot().innerHTML='<style>'+HeatpumpFlowCard.styles+'</style><ha-card class="start">'
+          +'<div class="head"><div class="title">Hydraulic Plan Card</div></div><div class="hint" id="start-hint">'
+          +this._esc(message)+'</div></ha-card>';
         this._rendered=true;return;
       }
       super._render();
+      this._syncAdditional(true);
     }
-    _renderFree() {
-      if (!this._config||!this._hass)return;
-      const plan=HPC_FREE.normalize(this._config.plan);
-      const lang=String(this._hass.locale?.language||navigator.language||"de").startsWith("de")?"de":"en";
-      const title=HPC_FREE.esc(this._config.title||"Hydraulic Plan Card");
-      const layoutSig=JSON.stringify(plan);
-      const root=this._renderRoot();
-      if(this._freeLayoutSig!==layoutSig||!root.querySelector(".hpc-board")){
-        root.innerHTML=`<style>${HeatpumpFlowCard.styles}${HPC_FREE.css}</style><ha-card>
-          <div class="head"><div class="title">${title}</div></div>
-          ${!plan.components.length?`<div class="hpc-note">${lang==="de"?"Noch keine Bauteile. Öffne den Karteneditor und lege die Hydraulik an.":"No components yet. Open the card editor to build your hydraulic system."}</div>`:""}
-          <div class="hpc-board"></div>
-          <div class="hpc-note">${lang==="de"?"Die Rohrrichtung ist konfiguriert. Eine Animation zeigt nur einen zugeordneten aktiven Pumpenstatus, keinen gemessenen Durchfluss.":"Directions are configured. Animation indicates a mapped active pump signal, not measured flow."}</div>
-          </ha-card>`;
-        this._freeLayoutSig=layoutSig;
+    set hass(hass) {
+      super.hass=hass;
+      this._syncAdditional();
+    }
+    _syncAdditional(force=false) {
+      const p=this._integratedPlan;
+      if(!this._hass||!p?.components.length)return;
+      const svg=this._$('svg');if(!svg)return;
+      const model=HPC_INTEGRATED.layout(p,this._hcCount||1);
+      const ids=new Set();
+      for(const n of p.components){
+        Object.values(n.sensors||{}).forEach(id=>{if(id)ids.add(id);});
+        (n.level_sensors||[]).forEach(point=>{if(point.entity)ids.add(point.entity);});
       }
-      const board=root.querySelector(".hpc-board");
-      if(board)board.innerHTML=HPC_FREE.draw(plan,this._hass,{lang});
-      this._freeLiveSig=this._liveSignature();
-      this._renderRoot().querySelectorAll("[data-node]").forEach(node=>node.addEventListener("click",()=>{
-        const c=plan.components.find(c=>c.id===node.dataset.node);
-        const entity=c&&(c.sensors.state||c.sensors.flow||c.sensors.top||c.level_sensors?.[0]?.entity);
-        if(entity)this.dispatchEvent(new CustomEvent("hass-more-info",{bubbles:true,composed:true,detail:{entityId:entity}}));
-      }));
-      this._rendered=true;
+      for(const edge of p.connections){
+        if(edge.flow_entity)ids.add(edge.flow_entity);
+        if(edge.temperature_entity)ids.add(edge.temperature_entity);
+      }
+      const tick=[...ids].sort().map(id=>{
+        const st=this._hass?.states?.[id];
+        return id+':'+(st?.state??'unavailable')+':'+(st?.attributes?.unit_of_measurement??'');
+      }).join('|');
+      const signature=JSON.stringify(p)+'|'+tick;
+      if(!force&&signature===this._integratedSig&&svg.querySelector('#hpi-root'))return;
+      const rendered=HPC_INTEGRATED.svg(model,this._hass);
+      svg.querySelector('#hpi-root')?.remove();
+      svg.insertAdjacentHTML('beforeend','<g id="hpi-root"><defs>'+rendered.defs+'</defs>'+rendered.body+'</g>');
+      // First tank remains the upstream tank graphic. Only its fill gains the
+      // additional measured stratification points configured for that tank.
+      const firstBuffer=rendered.firstBuffer;
+      const firstDhw=rendered.firstDhw;
+      if(firstBuffer)svg.querySelector('rect.tank[x="520"][y="320"]')?.setAttribute('fill','url(#hpi-'+firstBuffer+')');
+      if(firstDhw)svg.querySelector('rect.tank[x="520"][y="40"]')?.setAttribute('fill','url(#hpi-'+firstDhw+')');
+      const height=Math.max(model.height,560+(this._hcCount-1)*250);
+      svg.setAttribute('viewBox','0 0 '+model.width+' '+height);
+      svg.style.width=model.width+'px';
+      svg.style.maxWidth='none';
+      const stage=this._renderRoot().querySelector('.stage');
+      if(stage){stage.style.overflowX='auto';stage.style.overscrollBehavior='contain';}
+      const root=this._renderRoot();
+      if(!root.querySelector('#hpi-styles')){
+        const style=document.createElement('style');
+        style.id='hpi-styles';
+        style.textContent='.hpi-component .tap{cursor:pointer}.hpi-component .tank-title{font-size:16px}'
+          +'.hpi-component .unit-title{font-size:15px}.hpi-component .small{font-size:13px}'
+          +'.hpi-component .heater{fill:none;stroke:var(--hfc-heat,#c8783d);stroke-width:5;stroke-linecap:round}'
+          +'.hpi-component .rib{fill:none;stroke:var(--hfc-muted,#94a3b8);stroke-width:8;stroke-linecap:round}';
+        root.append(style);
+      }
+      this._integratedSig=signature;
     }
   }
   class HydraulicPlanCardEditor extends HeatpumpFlowCardEditor {
-    _free(){return this._config?.plan_mode==="free"||Array.isArray(this._config?.plan?.components);}
+    _free(){return Array.isArray(this._config?.plan?.components);}
     _unconfigured(){return !this._free()&&this._config?.editor_mode!=="classic"&&(!this._config?.preset||this._config.preset==="none")&&
       !Object.values(this._config?.entities||{}).some(Boolean);}
     setConfig(config){
@@ -118,12 +121,12 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // User action (not a HA data refresh) is the only reason to redraw the form.
       this._render();
     }
-    _applyPlan(plan){this._save({...this._config,plan_mode:"free",plan:HPC_FREE.normalize(plan)});}
+    _applyPlan(plan){this._save({...this._config,plan:HPC_FREE.normalize(plan)});}
     _showFreeButton(){
       if(!this._config||!this._hass||this._free())return;
       if(this._switch?.isConnected)return;
       this._switch=document.createElement("div");
-      this._switch.innerHTML=`<style>${HPC_FREE.css}</style><div class="hpc-editor hpc-actions"><button type="button" class="hpc-primary">Freien Hydraulikplan erstellen</button></div>`;
+      this._switch.innerHTML=`<style>${HPC_FREE.css}</style><div class="hpc-editor hpc-actions"><button type="button" class="hpc-primary">Bauteile zur bestehenden Hydraulik ergänzen</button></div>`;
       this.prepend(this._switch);
       this._switch.querySelector("button").addEventListener("click",()=>this._applyPlan({components:[],connections:[]}));
     }
@@ -136,7 +139,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const lang=String(this._hass?.locale?.language||navigator.language||"de").startsWith("de")?"de":"en";
       const t=(de,en)=>lang==="de"?de:en,esc=HPC_FREE.esc;
       const p=HPC_FREE.normalize(this._config.plan);
-      const configured=this._free();
+      const configured=true;
       const selected=p.components.find(c=>c.id===this._selectedId)||p.components[0];
       if(selected)this._selectedId=selected.id;
       const sensors=Object.keys(this._hass?.states||{}).filter(id=>/^(sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/.test(id));
@@ -189,12 +192,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         ${!configured?`<h3>${t("Deine Heizungsanlage","Your heating system")}</h3>
           <p>${t("Wähle selbst, welche Wärmeerzeuger, Speicher und Heizkreise du hast und wie sie verbunden sind. Eine Wärmepumpe ist nicht erforderlich.","Choose your own heat generators, tanks, heating circuits and connections. No heat-pump integration required.")}</p>
           <div class="hpc-actions"><button type="button" class="hpc-primary" data-action="start">${t("Leeren Plan anlegen","Start blank plan")}</button>
-            <button type="button" data-action="example">${t("Beispiel: Elternanlage","Example: parents' system")}</button>
-            <button type="button" data-action="classic">${t("Klassische Wärmepumpenansicht","Classic heat-pump view")}</button></div>`:`
+            <button type="button" data-action="example">${t("Beispiel: Elternanlage","Example: parents' system")}</button></div>`:`
           <div class="hpc-row"><label>${t("Name der Anlage","System name")}<input id="hpc-free-title"
             value="${esc(this._config.title||"")}" placeholder="Hydraulic Plan Card"/></label></div>
-          <div class="hpc-actions"><button type="button" data-action="example">${t("Beispielanlage laden","Load example")}</button>
-            <button type="button" data-action="classic">${t("Zur klassischen Wärmepumpenansicht","Switch to classic heat-pump view")}</button></div>
+          <div class="hpc-actions"><button type="button" data-action="example">${t("Beispielkomponenten ergänzen","Add example components")}</button></div>
           <h3>${t("Bauteil hinzufügen","Add component")}</h3>
           <div class="hpc-row"><label>${t("Art","Type")}<select id="hpc-free-type">${typeOptions}</select></label>
             <button type="button" class="hpc-primary" data-action="add-component">${t("Hinzufügen","Add")}</button></div>
@@ -225,10 +226,6 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const action=button.dataset.action;
         if(action==="start")return this._applyPlan({components:[],connections:[]});
         if(action==="example")return this._applyPlan(HPC_FREE.sample());
-        if(action==="classic"){
-          const c={...this._config,editor_mode:"classic"};delete c.plan;delete c.plan_mode;
-          this._selectedId=null;this._save(c);return;
-        }
         if(action==="add-component"){
           const node=HPC_FREE.newNode(root.querySelector("#hpc-free-type")?.value,p);
           if(!node)return;this._selectedId=node.id;
@@ -282,33 +279,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       });
       const title=root.querySelector("#hpc-free-title");
       title?.addEventListener("change",()=>this._save({...this._config,title:title.value}));
-      root.querySelectorAll("g[data-node]").forEach(g=>{
-        g.style.cursor="grab";
-        let start=null;
-        g.addEventListener("pointerdown",ev=>{
-          if(ev.button!==0)return;
-          start={x:ev.clientX,y:ev.clientY,ox:p.components.find(c=>c.id===g.dataset.node)?.x,oy:p.components.find(c=>c.id===g.dataset.node)?.y};
-          g.setPointerCapture(ev.pointerId);
-        });
-        g.addEventListener("pointermove",ev=>{
-          if(!start)return;
-          const svg=g.ownerSVGElement;
-          const scale=svg.viewBox.baseVal.width/svg.getBoundingClientRect().width;
-          g.setAttribute("transform",`translate(${(ev.clientX-start.x)*scale},${(ev.clientY-start.y)*scale})`);
-        });
-        g.addEventListener("pointerup",ev=>{
-          if(!start)return;
-          const dx=ev.clientX-start.x,dy=ev.clientY-start.y,svg=g.ownerSVGElement;
-          const scale=svg.viewBox.baseVal.width/svg.getBoundingClientRect().width;
-          const id=g.dataset.node;const original=start;start=null;
-          this._selectedId=id;
-          if(Math.abs(dx)+Math.abs(dy)<4){this._renderFlex();return;}
-          changePlan(plan=>{
-            const c=plan.components.find(c=>c.id===id);
-            if(c){c.x=Math.round(Math.max(0,original.ox+dx*scale));c.y=Math.round(Math.max(0,original.oy+dy*scale));}
-          });
-        });
-      });
+
     }
   }
   return { HydraulicPlanCard, HydraulicPlanCardEditor };
