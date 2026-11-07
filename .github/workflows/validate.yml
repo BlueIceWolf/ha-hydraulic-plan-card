@@ -10,6 +10,17 @@ permissions:
   contents: read
 
 jobs:
+  hacs:
+    name: HACS repository validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate dashboard repository
+        uses: hacs/action@main
+        with:
+          category: plugin
+
   browser:
     name: Syntax and ${{ matrix.browser }} smoke tests
     runs-on: ubuntu-24.04
