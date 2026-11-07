@@ -3374,7 +3374,7 @@ class HeatpumpFlowCard extends HTMLElement {
     const misplaced = HFC_MAP_KEYS.filter((name) => config.entities && typeof config.entities === 'object' && name in config.entities)
       .map((name) => `- ${name} under entities: ignored, it belongs at the top level of the card configuration`);
     const lines = [
-      'Heat Pump Hydraulic Card diagnostic report',
+      'Hydraulic Plan Card diagnostic report',
       'Privacy: entity ids can contain personal names. Review this text before sharing it.',
       '',
       `Card version: ${HFC_VERSION}`,
@@ -3387,6 +3387,7 @@ class HeatpumpFlowCard extends HTMLElement {
       `Preset: ${clean(config.preset) || 'none'}`,
       `Preset detected: ${r.preset ? (r.ready ? 'yes' : 'no') : 'not used'}`,
       `Prefix: ${r.prefix || '(none)'}`,
+      `Main generator: ${config.generator_type || 'heat_pump'} · secondary boiler: ${config.boiler_type || 'not specified'}`,
       `Source type: ${config.source_type || 'air'}`,
       `Heating circuits: ${hfcHcCount(config)}`,
       // The hydraulic options decide what the schematic draws, so a report of a storage or flow problem needs them.
@@ -4014,7 +4015,7 @@ class HeatpumpFlowCard extends HTMLElement {
       configuredBuffer,
       dhwType: station || combined ? dhwType : 'coil',
       station,
-      power: this._powerMode(),
+      power: !HPC_BOILERS.includes(this._config.generator_type) && this._powerMode(),
       sources: `${this._powerMode() === 'energy' ? [this._energy.solar.length, this._energy.battery.length, this._energy.grid.length].join() : ''}|${this._srcKeys().join()}`,
       // A tank with only a lower sensor (e.g. HeishaMon's single sensor near the bottom) is still drawn.
       dhw,
@@ -4033,7 +4034,9 @@ class HeatpumpFlowCard extends HTMLElement {
       mixers: Array.from({ length: this._hcCount }, (_, n) => (this._hasMixer(n + 1) ? 1 : 0)).join(''),
       src: this._sourceType,
       unit: this._unitKey(),
-      boiler: ['boiler_state', 'boiler_power', 'boiler_flow'].some((k) => this._has(k)),
+      boilerPrimary: HPC_BOILERS.includes(this._config.generator_type),
+      boiler: !HPC_BOILERS.includes(this._config.generator_type)
+        && ['boiler_state', 'boiler_power', 'boiler_flow', 'boiler_pump', 'boiler_heater'].some((k) => this._has(k)),
       heaters: ['heater', ...HFC_TANK_HEATERS].map((k) => (this._has(k) ? 1 : 0)).join(''),
       middle: [this._has('dhw_middle') ? 1 : 0, this._has('buffer_middle') ? 1 : 0].join(''),
       // The gradient of a combined storage has one stop per sensor present: a sensor that appears later rebuilds it.
@@ -4742,6 +4745,11 @@ class HeatpumpFlowCard extends HTMLElement {
     const derive = this._preset?.refrigerant_derived !== false;
     rf.push(row('superheat') || (derive && ok('suction_temp') && ok('evap_temp') ? ['superheat', D.superheat, this._e.suction_temp, () => diff('suction_temp', 'evap_temp')] : null));
     rf.push(row('subcooling') || (derive && ok('cond_temp') && ok('liquid_temp') ? ['subcooling', D.subcooling, this._e.liquid_temp, () => diff('cond_temp', 'liquid_temp')] : null));
+    const boilerRows = ['boiler_state', 'boiler_power', 'boiler_flow', 'boiler_return', 'boiler_exhaust',
+      'boiler_o2', 'boiler_fan', 'boiler_pump', 'boiler_mixer', 'boiler_burner_starts',
+      'boiler_hours', 'boiler_fuel_level', 'boiler_heater'].map((key) => (
+      ok(key) ? [key, hpcText(this._lang)[key], this._e[key], () => this._fmtState(key)] : null
+    )).filter(Boolean);
     const more = (this._details || []).map((d, n) => (typeof d === 'string' ? { entity: d } : d)).filter((d) => d && this._hass.states[d.entity])
       .map((d, n) => [`x${n}`, d.name || this._hass.states[d.entity].attributes.friendly_name || d.entity, d.entity, () => this._fmtState(null, d)]);
     // Units of a cascade (#173): power → heat and COP of each unit; "heat not current" while its heat value is too old to pair.
@@ -4752,7 +4760,7 @@ class HeatpumpFlowCard extends HTMLElement {
       const w = `${this._fmt(cur.power, 0)} W`;
       return cur.fresh ? `${w} → ${this._fmt(cur.heat, 1)} kW${Number.isFinite(cur.cop) ? ` · COP ${this._fmt(cur.cop, 1)}` : ''}` : `${w} · ${i.unit_stale}`;
     }]);
-    return [[i.sec_operation, op.filter(Boolean)], [i.sec_units, units], [i.sec_hydraulic, hydraulic], [i.sec_refrigerant, rf.filter(Boolean)], [i.sec_cutouts, cutouts], [i.sec_more, more]].filter(([, r]) => r.length);
+    return [[i.sec_operation, op.filter(Boolean)], [hpcText(this._lang).boiler_details, boilerRows], [i.sec_units, units], [i.sec_hydraulic, hydraulic], [i.sec_refrigerant, rf.filter(Boolean)], [i.sec_cutouts, cutouts], [i.sec_more, more]].filter(([, r]) => r.length);
   }
 
   // Event counter: a whole number followed by "×"; text states stay as they are.
@@ -6228,9 +6236,13 @@ class HeatpumpFlowCard extends HTMLElement {
     const running = compOn || power > this._threshold || this._runningStates.includes(status) || !!this._units()?.some((u) => u.running)
       // The mode alone decides only without any running signal; the power of cascade units is one (#173).
       || (!this._has('compressor') && !this._has('power') && !this._has('status') && !this._units() && ['heating', 'dhw', 'cooling', 'defrost'].includes(hp));
-    const boilerRunning = !!P.boiler && this._boilerOn();
+    const boilerRunning = !!(P.boiler || P.boilerPrimary) && this._boilerOn();
+    // The burner and the loading pump can have independent states. Do not animate
+    // the boiler loop as flowing if its measured loading pump is explicitly off.
+    const boilerHydraulicOn = !!(P.boiler || P.boilerPrimary)
+      && (this._has('boiler_pump') ? this._pumpOn('boiler_pump') : boilerRunning);
     const generatorMode = running ? (boilerRunning ? 'both' : 'hp_only') : (boilerRunning ? 'boiler_only' : 'idle');
-    const generatorRunning = running || boilerRunning;
+    const generatorRunning = running || boilerHydraulicOn;
     const defrost = hp === 'defrost' || status.toUpperCase().includes('DEFROST') || (this._has('defrost') && this._on('defrost'));
     // Valve: binary (on = DHW) or a state such as "Tank" / "DHW".
     // A `valve_map` (raw state → dhw | heating) decides first, for valves that report 1 for heating or other texts.
@@ -6251,7 +6263,7 @@ class HeatpumpFlowCard extends HTMLElement {
     // The manually configured boiler feeds the same common flow as the heat pump. The existing valve remains the only routing
     // decision: boiler-only operation therefore goes to DHW when the valve says DHW, otherwise to the heating side. Without a drawn
     // tank a valve on DHW still closes the heating side, so the boiler does not move water through the circuits then.
-    const toHeat = !toDhw && ((boilerRunning && !valveDhw) || ['heating', 'defrost', 'cooling'].includes(hp) || ['heating', 'cooling'].includes(bufMode));
+    const toHeat = !toDhw && ((boilerHydraulicOn && !valveDhw) || ['heating', 'defrost', 'cooling'].includes(hp) || ['heating', 'cooling'].includes(bufMode));
     const loop = toDhw || toHeat;
     // The primary pump also runs without heating or hot water (Panasonic "sniffing", run-on): the water then circulates
     // slowly along the valve path (flow dashes 2000 / l/h seconds, 6 to 30 s). It only moves the water, so mode chip, valve text, spread and heat stay idle.
@@ -6285,7 +6297,7 @@ class HeatpumpFlowCard extends HTMLElement {
       vl: flowLoop || pumped, rl: flowLoop || pumped, 'vl-dhw': flowDhw, 'rl-dhw': flowDhw,
       'vl-buf': heatLoop, 'rl-buf': heatLoop, 'byp-vl': heatLoop, 'byp-rl': heatLoop,
     };
-    if (P.boiler) pipes.boiler = flowLoop || pumped;
+    if (P.boiler) pipes.boiler = boilerHydraulicOn && (flowLoop || pumped);
     if (P.series) Object.assign(pipes, { 'sb-vl': heatLoop && !bypass, 'sb-a': heatLoop && bypass, 'sb-b': heatLoop && !bypass });
     // A fresh-water station on the buffer has no diverter valve: hot-water operation heats the buffer along the heating path.
     // Its own pipes do not animate, because the card does not know when water is drawn.
@@ -6309,7 +6321,7 @@ class HeatpumpFlowCard extends HTMLElement {
     if (P.solar) { pipes.sol = solar; pipes['sol-rl'] = solar; }
 
     return {
-      rawMode, status, hp, dhwMode, bufMode, power, vol, running, boilerRunning, generatorMode, generatorRunning, defrost, cooling, valveDhw,
+      rawMode, status, hp, dhwMode, bufMode, power, vol, running, boilerRunning, boilerHydraulicOn, generatorMode, generatorRunning, defrost, cooling, valveDhw,
       toDhw, toHeat, loop, circ, flowDhw, flowHeat, flowLoop, bypass, heatLoop,
       // The heat pump's own primary pump runs with a flow rate, else with the hot-water or heating loop.
       primaryPump: Number.isFinite(vol) ? vol > 0 : loop,
@@ -7253,10 +7265,11 @@ class HeatpumpFlowCardEditor extends HTMLElement {
     const has = (k) => { const id = r.entities[k]; return !!(id && this._hass.states[id]); };
     const warn = [];
     if (!(r.preset && !r.ready)) {
-      if (!['mode', 'compressor', 'status', 'power'].some(has)) warn.push(L.warn_running);
-      if (!has('power')) warn.push(L.warn_power);
-      if (!has('flow') || !has('return')) warn.push(L.warn_temps);
-      if (!has('heat') && !has('volume')) warn.push(L.warn_heat);
+      const boilerOnly = HPC_BOILERS.includes(this._config.generator_type);
+      if (!(boilerOnly ? ['boiler_state', 'boiler_power', 'boiler_heater'].some(has) : ['mode', 'compressor', 'status', 'power'].some(has))) warn.push(L.warn_running);
+      if (!boilerOnly && !has('power')) warn.push(L.warn_power);
+      if (boilerOnly ? !has('boiler_flow') : (!has('flow') || !has('return'))) warn.push(L.warn_temps);
+      if (!boilerOnly && !has('heat') && !has('volume')) warn.push(L.warn_heat);
       // A numeric sensor as the valve without any map: 1 is read as hot water, which is wrong for valves that report 1 for heating.
       if (valveId && valveId.startsWith('sensor.') && /^-?\d+(\.\d+)?$/.test(String(valveState ?? '').trim()) && !Object.keys(valveMap).length) warn.push(L.warn_valve);
     }
