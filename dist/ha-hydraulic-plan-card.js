@@ -8070,6 +8070,21 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         stage.style.overscrollBehaviorX='contain';
         stage.style.overscrollBehaviorY='auto';
         stage.style.touchAction='pan-x pan-y';
+        stage.tabIndex=0;
+        stage.setAttribute('role','region');
+        stage.setAttribute('aria-label',String(this._hass?.locale?.language||'de').startsWith('de')
+          ? 'Hydraulikschema – horizontal verschiebbar' : 'Hydraulic diagram – scroll horizontally');
+        if(!stage.dataset.hpiWheelBound){
+          // Shift + mouse-wheel is a useful fallback for wide diagrams on
+          // desktop computers without a horizontal trackpad gesture.
+          stage.addEventListener('wheel',(event)=>{
+            if(!event.shiftKey||!event.deltaY||event.deltaX)return;
+            const previous=stage.scrollLeft;
+            stage.scrollLeft+=event.deltaY;
+            if(previous!==stage.scrollLeft)event.preventDefault();
+          },{passive:false});
+          stage.dataset.hpiWheelBound='1';
+        }
       }
       if(!root.querySelector('#hpi-styles')){
         const style=document.createElement('style');
@@ -8078,6 +8093,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           '.hpi-expanded .stage{overflow-x:auto;overscroll-behavior-x:contain;overscroll-behavior-y:auto;scrollbar-width:thin;}'
           +'.hpi-expanded.fullscreen{overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;}'
           +'.hpi-expanded .stage #svg{display:block;max-width:none;height:auto;}'
+          +'.hpi-expanded .stage:focus-visible{outline:2px solid var(--primary-color,#03a9f4);outline-offset:-2px;}'
           +'.hpi-component .tap{cursor:pointer}.hpi-component .tank-title{font-size:16px}'
           +'.hpi-component .unit-title{font-size:15px}.hpi-component .small{font-size:13px}'
           +'.hpi-component .heater{fill:none;stroke:var(--hfc-heat,#c8783d);stroke-width:5;stroke-linecap:round}'
