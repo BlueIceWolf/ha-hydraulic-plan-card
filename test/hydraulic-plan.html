@@ -132,6 +132,83 @@
       bad.setConfig({ generator_type: 'reactor' });
     } catch { invalid = true; }
     check(invalid, 'Invalid generator configuration is rejected');
+    const Free = customElements.get('hydraulic-plan-card');
+    const stub = Free.getStubConfig();
+    check(stub.plan_mode === 'free' && Array.isArray(stub.plan.components), 'New cards open the free hydraulic plan');
+
+    const sample = [
+      { id: 'holz', type: 'wood_gasifier', name: 'Fröling S3 Turbo', x: 50, y: 80,
+        sensors: { state: ids.burning, flow: ids.flow, return: ids.ret } },
+      { id: 'puffer1', type: 'buffer', name: 'Puffer 1', x: 380, y: 80,
+        sensors: { top: ids.bufTop, middle: ids.bufMid, bottom: ids.bufBottom },
+        level_sensors: [{position:25,entity:'sensor.buffer_25'}, {position:75,entity:'sensor.buffer_75'}] },
+      { id: 'puffer2', type: 'buffer', name: 'Puffer 2', x: 600, y: 80 },
+      { id: 'puffer3', type: 'buffer', name: 'Puffer 3', x: 820, y: 80 },
+      { id: 'oel', type: 'oil_boiler', name: 'Ölkessel', x: 50, y: 350 },
+      { id: 'wp', type: 'heat_pump', name: 'Wärmepumpe', x: 50, y: 540 },
+      { id: 'hk1', type: 'heating_circuit', name: 'Heizkreis 1', x: 1060, y: 400 },
+      { id: 'hk2', type: 'heating_circuit', name: 'Heizkreis 2', x: 1060, y: 580 },
+      { id: 'heizstab', type: 'electric_heater', name: 'Heizstab', x: 460, y: 620 },
+      { id: 'mischer', type: 'mixer', name: 'Heizstab-Mischer', x: 730, y: 620 },
+    ];
+    const edges=[
+      {id:'holz_puffer',from:'holz',from_port:'flow',to:'puffer1',to_port:'top_in',
+       flow_entity:ids.pump,temperature_entity:ids.flow},
+      {id:'puffer_reihe',from:'puffer1',from_port:'bottom_out',to:'puffer2',to_port:'top_in'}
+    ];
+    const hassFree=hassOf({
+      'sensor.buffer_25':state('sensor.buffer_25',65,'°C'),
+      'sensor.buffer_75':state('sensor.buffer_75',42,'°C'),
+    });
+    const free=await mount({type:'custom:hydraulic-plan-card',plan_mode:'free',
+      plan:{components:sample,connections:edges}},hassFree);
+    const freeSvg=free.shadowRoot.getElementById('hpc-free-svg');
+    check(!!freeSvg, 'Free topology renderer produces an SVG');
+    check(freeSvg?.querySelectorAll('g.hpc-node').length===10,'Multiple independently placed generators, tanks and circuits');
+    check(freeSvg?.querySelectorAll('g.hpc-connection, g.hpc-route').length===2,'Connected pipes render');
+    check(freeSvg?.querySelectorAll('linearGradient stop').length>=5,'Five buffer temperature points generate multiple stratification stops');
+    check(freeSvg?.textContent?.includes('65') && freeSvg.textContent.includes('42'),
+      'Intermediate buffer sensors show their live measured values');
+    const firstGrad=freeSvg?.querySelector('linearGradient');
+    check(firstGrad?.innerHTML.includes('25%') && firstGrad?.innerHTML.includes('75%'),
+      'Buffer stratification uses sensor installation heights');
+    check(freeSvg?.querySelectorAll('path.hpc-pulse').length===1,
+      'Pipe animation only appears with an explicitly mapped active pump');
+    free.hass=hassOf({
+      [ids.pump]:state(ids.pump,'off'),
+      'sensor.buffer_25':state('sensor.buffer_25',65,'°C'),
+      'sensor.buffer_75':state('sensor.buffer_75',42,'°C'),
+    });
+    check(free.shadowRoot.querySelectorAll('path.hpc-pulse').length===0,
+      'Pump off stops the explicit pipe animation');
+
+    const editor=document.createElement('hydraulic-plan-card-editor');
+    editor.setConfig({type:'custom:hydraulic-plan-card',plan_mode:'free',plan:{components:sample,connections:edges}});
+    document.body.appendChild(editor);editor.hass=hassFree;
+    check(!!editor.querySelector('#hpc-free-svg'),'Free plan is previewed in the editor');
+    check(!!editor.querySelector('input[data-sensor="puffer1"]'),'Editor exposes buffer entity fields');
+    const select=editor.querySelector('[data-select="puffer1"]');select?.click();
+    check(editor.querySelectorAll('[data-level-entity="puffer1"]').length===2,
+      'Additional buffer sensors are editable');
+    let updatedConfig;
+    editor.addEventListener('config-changed',e=>updatedConfig=e.detail.config);
+    editor.querySelector('button[data-action="add-level"]')?.click();
+    check(updatedConfig?.plan?.components.find(c=>c.id==='puffer1')?.level_sensors.length===3,
+      'Adding an intermediate sensor preserves its empty input slot');
+    check(editor.querySelectorAll('[data-level-entity="puffer1"]').length===3,
+      'New intermediate sensor field renders in the editor');
+    const addNode=editor.querySelector('#hpc-free-type');
+    if(addNode)addNode.value='diverter';
+    editor.querySelector('button[data-action="add-component"]')?.click();
+    check(updatedConfig?.plan?.components.length===11,'New components are saved through config-changed');
+    editor.remove();free.remove();
+
+    const brandNew=await mount({type:'custom:hydraulic-plan-card',preset:'none'},hassOf());
+    check(!!brandNew.shadowRoot.getElementById('start-hint'),'Unconfigured classic view has a setup hint');
+    check(!brandNew.shadowRoot.textContent.includes('Keine unterstützte Wärmepumpen-Integration'),
+      'Generic setup hint does not incorrectly demand a heat-pump integration');
+    brandNew.remove();
+
     wood.remove(); oil.remove(); hybrid.remove();
   } catch (err) {
     failures.push('Unexpected runtime exception: ' + (err?.stack || String(err)));
