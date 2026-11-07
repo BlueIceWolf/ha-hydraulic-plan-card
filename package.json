@@ -1,8 +1,8 @@
 {
   "name": "ha-hydraulic-plan-card",
-  "version": "0.2.0-alpha.2",
+  "version": "0.2.0-alpha.3",
   "private": true,
-  "description": "Visual Home Assistant heating hydraulic editor: wood/oil/pellet boilers, heat pumps, mixers and layered buffer tanks",
+  "description": "One Home Assistant heating schematic based on the original Heat Pump Hydraulic Card, extended with boilers, buffers, mixers and pumps",
   "type": "module",
   "scripts": {
     "dev": "node scripts/serve.mjs",
