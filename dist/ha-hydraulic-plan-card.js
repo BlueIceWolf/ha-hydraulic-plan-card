@@ -7732,12 +7732,20 @@ const HPC_FREE = (function makeFreeHelpers() {
       const rows=(c.type==="heating_circuit"?["flow","return","mixer"]:["flow","return","power","exhaust","position"])
         .filter(key=>!!c.sensors[key]).slice(0,3);
       const tankRows=isTank?tankPoints(c):[];
+      // Every sensor affects the gradient. To prevent overlapping labels at dense
+      // installation heights, show up to seven evenly spaced values. All sensor
+      // markers retain a tooltip with their real position and reading.
+      const tankLabelIndices=new Set(Array.from({length:Math.min(7,tankRows.length)},(_,i)=>
+        Math.round(i*(tankRows.length-1)/Math.max(1,Math.min(7,tankRows.length)-1))));
+      const visibleTankRows=tankRows.filter((p,i)=>tankLabelIndices.has(i));
       const values=isTank
         ? tankRows.map(p=>{
-          const ry=c.y+Math.max(44,Math.min(h-10,h*p.position/100));
-          const v=state(hass,p.entity);
-          return `<circle cx="${c.x+9}" cy="${Math.max(c.y+8,Math.min(c.y+h-8,c.y+h*p.position/100))}" r="3" fill="#fff" opacity=".85"/>
-            <text x="${c.x+16}" y="${ry}" class="hpc-reading hpc-tank-reading">${esc(format(v))}</text>`;
+          const physicalY=c.y+Math.max(9,Math.min(h-9,h*p.position/100));
+          const v=state(hass,p.entity),idx=visibleTankRows.indexOf(p);
+          const marker=`<circle cx="${c.x+8}" cy="${physicalY}" r="3" fill="#fff" opacity=".9"><title>${esc(p.position+" % · "+format(v))}</title></circle>`;
+          if(idx<0)return marker;
+          const textY=c.y+52+(visibleTankRows.length===1?0:idx*(h-67)/(visibleTankRows.length-1));
+          return marker+`<text x="${c.x+16}" y="${textY}" class="hpc-reading hpc-tank-reading">${esc(format(v))}</text>`;
         }).join("")
         : rows.map((key,i)=>`<text x="${c.x+14}" y="${c.y+57+i*22}" class="hpc-reading">${esc(fieldLabel(key,lang))}: ${esc(format(state(hass,c.sensors[key])))}</text>`).join("");
       const outline=isTank?`fill="url(#hpc-${esc(c.id)})"`:`fill="${on?"#294839":"#202f41"}"`;
