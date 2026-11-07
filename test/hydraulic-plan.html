@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="de">
+<head><meta charset="utf-8"><title>Hydraulic Plan Card regression test</title></head>
+<body>
+<pre id="result">RUNNING</pre><pre id="log"></pre>
+<!-- Testing both scripts simultaneously verifies independence from the upstream card. -->
+<script src="../dist/heatpump-hydraulic-card.js"></script>
+<script src="../dist/hydraulic-plan-card.js"></script>
+<script>
+(async () => {
+  const messages = [], failures = [];
+  const check = (condition, name) => {
+    messages.push((condition ? 'OK: ' : 'FAIL: ') + name);
+    if (!condition) failures.push(name);
+  };
+  const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+  const state = (id, value, unit) => ({
+    entity_id: id,
+    state: String(value),
+    attributes: unit ? { unit_of_measurement: unit } : {},
+    last_changed: new Date().toISOString(),
+    last_updated: new Date().toISOString(),
+  });
+  const ids = {
+    burning: 'binary_sensor.boiler_burning',
+    flow: 'sensor.boiler_flow',
+    ret: 'sensor.boiler_return',
+    flue: 'sensor.boiler_flue',
+    oxygen: 'sensor.boiler_o2',
+    fan: 'sensor.boiler_fan',
+    pump: 'switch.boiler_loading_pump',
+    mixer: 'sensor.boiler_mixer_position',
+    heater: 'sensor.boiler_heater',
+    bufTop: 'sensor.buffer_top',
+    bufMid: 'sensor.buffer_mid',
+    bufBottom: 'sensor.buffer_bottom',
+  };
+  const boilerEntities = {
+    boiler_state: ids.burning, boiler_flow: ids.flow, boiler_return: ids.ret,
+    boiler_exhaust: ids.flue, boiler_o2: ids.oxygen, boiler_fan: ids.fan,
+    boiler_pump: ids.pump, boiler_mixer: ids.mixer, boiler_heater: ids.heater,
+    buffer_top: ids.bufTop, buffer_middle: ids.bufMid, buffer_bottom: ids.bufBottom,
+  };
+  const states = {
+    [ids.burning]: state(ids.burning, 'on'),
+    [ids.flow]: state(ids.flow, 78, '°C'),
+    [ids.ret]: state(ids.ret, 62, '°C'),
+    [ids.flue]: state(ids.flue, 166, '°C'),
+    [ids.oxygen]: state(ids.oxygen, 7.1, '%'),
+    [ids.fan]: state(ids.fan, 72, '%'),
+    [ids.pump]: state(ids.pump, 'on'),
+    [ids.mixer]: state(ids.mixer, 65, '%'),
+    [ids.heater]: state(ids.heater, 0, 'W'),
+    [ids.bufTop]: state(ids.bufTop, 70, '°C'),
+    [ids.bufMid]: state(ids.bufMid, 50, '°C'),
+    [ids.bufBottom]: state(ids.bufBottom, 35, '°C'),
+  };
+  const hassOf = (overrides = {}) => ({
+    states: { ...states, ...overrides },
+    entities: {}, devices: {}, locale: { language: 'de' },
+    language: 'de', config: { version: '2026.10.4' },
+    callService: () => Promise.resolve(),
+    callWS: () => Promise.reject(Error('Unneeded in regression test')),
+  });
+  const mount = async (config, hass) => {
+    const card = document.createElement('hydraulic-plan-card');
+    card.setConfig(config);
+    document.body.append(card);
+    card.hass = hass;
+    await sleep(60);
+    return card;
+  };
+  try {
+    const Original = customElements.get('heatpump-hydraulic-card');
+    const Card = customElements.get('hydraulic-plan-card');
+    check(!!Original && !!Card && Original !== Card, 'The original and derivative both register independently');
+    check(!!customElements.get('hydraulic-plan-card-editor'), 'Derivative editor is registered');
+    check(window.customCards.some((c) => c.type === 'hydraulic-plan-card'), 'HA card picker metadata exists');
+    const wood = await mount({
+      type: 'custom:hydraulic-plan-card', title: 'Holzheizung',
+      generator_type: 'wood_gasifier', preset: 'none', power_sources: 'manual',
+      buffer: true, entities: boilerEntities,
+    }, hassOf());
+    check(!wood._failed, 'Wood gasifier renders without runtime error');
+    check(!!wood.shadowRoot.getElementById('svg'), 'Wood gasifier has a rendered hydraulic SVG');
+    check(wood._parts?.boilerPrimary && !wood._parts?.boiler, 'Wood gasifier uses the primary boiler layout');
+    check(!!wood.shadowRoot.getElementById('primary-boiler-art'), 'Wood gasifier drawing exists');
+    check(!!wood.shadowRoot.getElementById('primary-boiler-pump'), 'Boiler loading pump drawing exists');
+    check(!!wood.shadowRoot.getElementById('primary-boiler-mixer'), 'Return protection mixer drawing exists');
+    check(wood._flowModel().boilerRunning && wood._flowModel().boilerHydraulicOn, 'Burning boiler and running loading pump');
+    check(wood._drawerRows().some(([title, rows]) => rows.some((row) => row[0] === 'boiler_exhaust')), 'Flue gas temperature is in detail drawer');
+    check(wood._drawerRows().some(([title, rows]) => rows.some((row) => row[0] === 'boiler_o2')), 'Residual oxygen is in detail drawer');
+    const stopped = hassOf({ [ids.pump]: state(ids.pump, 'off') });
+    wood.hass = stopped;
+    await sleep(60);
+    check(wood._flowModel().boilerRunning === true && wood._flowModel().boilerHydraulicOn === false,
+      'A stopped loading pump blocks boiler circulation while the fire is burning');
+    check(!wood.shadowRoot.getElementById('primary-boiler-pump')?.classList.contains('on'),
+      'Stopped loading pump is visibly inactive');
+    const oil = await mount({
+      type: 'custom:hydraulic-plan-card', preset: 'none', generator_type: 'oil',
+      power_sources: 'manual', entities: { ...boilerEntities, boiler_state: ids.burning },
+    }, hassOf());
+    check(!oil._failed && !!oil.shadowRoot.getElementById('primary-boiler-art'),
+      'Oil boiler renders as the primary source');
+    check(oil.shadowRoot.getElementById('svg')?.textContent.includes('Ölkessel'),
+      'Oil boiler uses the German title');
+    const hybrid = await mount({
+      type: 'custom:hydraulic-plan-card', preset: 'none',
+      generator_type: 'heat_pump', boiler_type: 'oil', boiler_name: 'Ölkessel',
+      power_sources: 'manual',
+      entities: { ...boilerEntities,
+        compressor: 'binary_sensor.hp_compressor', power: 'sensor.hp_power',
+        flow: 'sensor.hp_flow', return: 'sensor.hp_return',
+      },
+    }, hassOf({
+      'binary_sensor.hp_compressor': state('binary_sensor.hp_compressor', 'on'),
+      'sensor.hp_power': state('sensor.hp_power', 1700, 'W'),
+      'sensor.hp_flow': state('sensor.hp_flow', 41, '°C'),
+      'sensor.hp_return': state('sensor.hp_return', 34, '°C'),
+    }));
+    check(!hybrid._failed, 'Heat-pump + oil hybrid renders without errors');
+    check(hybrid._parts?.boiler && !hybrid._parts?.boilerPrimary,
+      'Hybrid renders a secondary boiler next to the heat pump');
+    check(!!hybrid.shadowRoot.getElementById('boiler'), 'Secondary boiler exists');
+    check(!!hybrid.shadowRoot.getElementById('boiler-return-mixer'), 'Secondary boiler mixer is shown');
+    check(hybrid._flowModel().generatorMode === 'both', 'Hybrid mode recognizes both sources running');
+    check(!!customElements.get('heatpump-hydraulic-card'), 'Original card remains registered after render');
+    let invalid = false;
+    try {
+      const bad = document.createElement('hydraulic-plan-card');
+      bad.setConfig({ generator_type: 'reactor' });
+    } catch { invalid = true; }
+    check(invalid, 'Invalid generator configuration is rejected');
+    wood.remove(); oil.remove(); hybrid.remove();
+  } catch (err) {
+    failures.push('Unexpected runtime exception: ' + (err?.stack || String(err)));
+  }
+  document.getElementById('result').textContent = failures.length ? 'FAIL' : 'PASS';
+  document.getElementById('log').textContent = messages.join('\n') +
+    (failures.length ? '\n\nFAILURES\n' + failures.join('\n') : '');
+})();
+</script>
+</body></html>

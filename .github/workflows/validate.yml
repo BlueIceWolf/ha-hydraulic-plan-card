@@ -1,0 +1,35 @@
+name: Validate Hydraulic Plan Card
+
+on:
+  push:
+    branches: [main, feature/boiler-generators]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    name: Syntax and Chromium smoke tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run syntax
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:chromium
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failure
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
