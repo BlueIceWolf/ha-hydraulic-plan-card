@@ -207,6 +207,43 @@
     check(free.shadowRoot.getElementById('svg') === untouchedSvg,
       'Unrelated HA entity changes do not rebuild the original schematic');
 
+    // A new part must not turn a narrow editor preview into a 1:1 zoomed,
+    // cropped image. The core drawing keeps its original responsive scale.
+    const compact=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:sample.slice(0,1),connections:[]}},hassFree);
+    compact.style.width='550px';
+    const originalWidth=compact.shadowRoot.getElementById('svg').getBoundingClientRect().width;
+    compact.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[sample[0],sample[4]],connections:[]}});
+    compact.hass=hassFree;
+    const compactSvg=compact.shadowRoot.getElementById('svg');
+    const addedWidth=compactSvg.getBoundingClientRect().width;
+    check(Math.abs(addedWidth-originalWidth)<3 &&
+      compactSvg.style.width.endsWith('%'),
+      'Adding an oil boiler preserves original schematic zoom in a 550px preview');
+    const oilBox=compactSvg.querySelector('[data-hpi-node="oel"] rect.unit');
+    check(!!oilBox&&Number(oilBox.getAttribute('x'))===50 &&
+      Number(oilBox.getAttribute('y'))>=450,
+      'Automatic layout puts the additional boiler below the existing source');
+    compact.remove();
+
+    const legacyEditor=document.createElement('hydraulic-plan-card-editor');
+    legacyEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      generator_type:'wood_gasifier',boiler_name:'Fröling S3 Turbo',
+      plan:{components:[],connections:[]}});
+    document.body.append(legacyEditor);
+    legacyEditor.hass=hassFree;
+    let addedConfig;
+    legacyEditor.addEventListener('config-changed',e=>addedConfig=e.detail.config);
+    const legacySelect=legacyEditor.querySelector('#hpc-free-type');
+    if(legacySelect)legacySelect.value='oil_boiler';
+    legacyEditor.querySelector('button[data-action="add-component"]')?.click();
+    check(addedConfig?.plan?.components.length===2 &&
+      addedConfig.plan.components[0].type==='wood_gasifier' &&
+      addedConfig.plan.components[1].type==='oil_boiler',
+      'Adding to a classic boiler schematic preserves the existing wood gasifier');
+    legacyEditor.remove();
+
     const editor=document.createElement('hydraulic-plan-card-editor');
     editor.setConfig({type:'custom:hydraulic-plan-card',plan:{components:sample,connections:edges}});
     document.body.appendChild(editor);editor.hass=hassFree;
