@@ -8,7 +8,7 @@
  *
  * https://github.com/Sturmi77/heatpump-hydraulic-card · MIT License
  */
-const HFC_VERSION = '0.2.0-alpha.1';
+const HFC_VERSION = '0.2.0-alpha.2';
 // Derivative of Heat Pump Hydraulic Card (MIT, Sturmi77). Keep its engine reusable.
 const HPC_GENERATORS = ['heat_pump', 'wood_gasifier', 'oil', 'pellet', 'gas', 'electric'];
 const HPC_BOILERS = HPC_GENERATORS.slice(1);
@@ -7673,9 +7673,22 @@ const HPC_FREE = (function makeFreeHelpers() {
   function color(s) {
     if(!s||s.number===null||!["°c","c","°f","k"].includes(s.unit.toLowerCase()))return "#718096";
     const t=s.unit==="°F"?(s.number-32)*5/9:s.unit==="K"?s.number-273.15:s.number;
-    const f=Math.min(1,Math.max(0,(t-15)/65));
-    const cold=[70,145,186],hot=[223,88,52];
-    return "rgb("+cold.map((v,i)=>Math.round(v+(hot[i]-v)*f)).join(",")+")";
+    // Matching the upstream tank palette: blue → teal → warm amber → red.
+    const ranges=[
+      [10,[72,110,170]],
+      [30,[63,145,164]],
+      [50,[200,120,61]],
+      [80,[199,91,91]],
+    ];
+    if(t<=ranges[0][0])return "rgb("+ranges[0][1].join(",")+")";
+    for(let i=1;i<ranges.length;i++){
+      if(t<=ranges[i][0]){
+        const [at,b]=ranges[i-1], [next,c]=ranges[i];
+        const f=(t-at)/(next-at);
+        return "rgb("+b.map((v,j)=>Math.round(v+(c[j]-v)*f)).join(",")+")";
+      }
+    }
+    return "rgb("+ranges.at(-1)[1].join(",")+")";
   }
   function portXY(c,key) {
     const [w,h]=dimension(c.type);
@@ -7683,119 +7696,132 @@ const HPC_FREE = (function makeFreeHelpers() {
     return p?{x:c.x+(p.side==="R"?w:0),y:c.y+h*p.y}:{x:c.x+w/2,y:c.y+h/2};
   }
   function draw(raw,hass,options={}) {
-    const plan=normalize(raw);
-    const lang=options.lang||"de";
-    const selected=options.selected||"";
-    const bx=Math.max(1150,...plan.components.map(c=>c.x+dimension(c.type)[0]+70));
-    const by=Math.max(510,...plan.components.map(c=>c.y+dimension(c.type)[1]+85));
-    const width=Math.min(bx,8500),height=Math.min(by,8500);
-    const tanks=plan.components.filter(c=>["buffer","dhw_tank"].includes(c.type));
-    // Store measured stratification points in height order. SVG interpolates colors
-    // BETWEEN real readings, and never invents an unmeasured temperature.
-    const tankPoints=c=>{
-      const standard=[["top",0],["middle",50],["bottom",100]]
-        .filter(([key])=>!!c.sensors[key]).map(([key,position])=>({key,position,entity:c.sensors[key]}));
-      const extra=(c.level_sensors||[]).map((p,i)=>({key:"extra_"+i,position:p.position,entity:p.entity}));
-      return [...standard,...extra].filter(p=>state(hass,p.entity)?.number!==null&&!!state(hass,p.entity))
-        .sort((a,b)=>a.position-b.position);
+  const plan=normalize(raw),lang=options.lang||"de",selected=options.selected||"";
+  const bx=Math.max(1060,...plan.components.map(c=>c.x+dimension(c.type)[0]+76));
+  const by=Math.max(450,...plan.components.map(c=>c.y+dimension(c.type)[1]+90));
+  const width=Math.min(bx,8500),height=Math.min(by,8500);
+  const tanks=plan.components.filter(c=>["buffer","dhw_tank"].includes(c.type));
+  const validTemp=(id)=>{
+    const v=state(hass,id);
+    return v&&v.number!==null&&["°c","c","°f","k"].includes(v.unit.toLowerCase())?v:null;
+  };
+  const tankPoints=c=>{
+    const standard=[["top",0],["middle",50],["bottom",100]]
+      .filter(([key])=>!!c.sensors[key]).map(([key,position])=>({key,position,entity:c.sensors[key]}));
+    const extra=(c.level_sensors||[]).map((p,i)=>({key:"extra_"+i,position:p.position,entity:p.entity}));
+    return [...standard,...extra].filter(p=>validTemp(p.entity)).sort((a,b)=>a.position-b.position);
+  };
+  const defs=tanks.map(c=>{
+    const points=tankPoints(c),stops=[];
+    const add=(pos,col)=>stops.push(`<stop offset="${pos}%" stop-color="${col}"/>`);
+    if(!points.length){add(0,"#718096");add(100,"#718096");}
+    else {
+      const first=points[0],last=points.at(-1);
+      if(first.position>0){add(0,"#718096");add(Math.max(0,first.position-.4),"#718096");}
+      points.forEach(p=>add(p.position,color(validTemp(p.entity))));
+      if(last.position<100){add(Math.min(100,last.position+.4),"#718096");add(100,"#718096");}
+    }
+    return `<linearGradient id="hpc-${esc(c.id)}" x1="0" y1="0" x2="0" y2="1">${stops.join("")}</linearGradient>`;
+  }).join("");
+  const names=Object.fromEntries(plan.components.map(c=>[c.id,c]));
+  const connectorColor=(e)=>color(validTemp(e.temperature_entity));
+  const routes=plan.connections.map(e=>{
+    const start=portXY(names[e.from],e.from_port),end=portXY(names[e.to],e.to_port);
+    const mid=(start.x+end.x)/2;
+    const path=`M${start.x},${start.y} H${mid} V${end.y} H${end.x}`;
+    const pumping=!!e.flow_entity&&active(state(hass,e.flow_entity));
+    const c=connectorColor(e);
+    return `<g class="hpc-route" data-edge="${esc(e.id)}">
+      <title>${esc(names[e.from].name+" → "+names[e.to].name+" | "+e.from_port+" → "+e.to_port)}</title>
+      <path d="${path}" class="hpc-pipe-outline"/>
+      <path d="${path}" class="hpc-pipe" stroke="${c}" marker-end="url(#hpc-arrow)"/>
+      ${pumping?`<path d="${path}" class="hpc-pulse"/>`:""}
+    </g>`;
+  }).join("");
+  const glyph=(type,x,y,on)=>{
+    const base=`transform="translate(${x} ${y})"`;
+    const line=`stroke-linecap="round" stroke-linejoin="round"`;
+    const icon={
+      wood_gasifier:`<path d="M4 36 L40 36 M10 43 L39 43 M17 32 C6 20 23 16 23 5 C36 15 40 24 31 33 C33 23 24 23 24 16 C22 22 14 24 17 32Z"/>`,
+      oil_boiler:`<path d="M6 32 H22 L32 22 H42 M9 41 H38 M18 18 L26 11 L32 19 L25 28 Z"/><circle cx="9" cy="32" r="3"/>`,
+      pellet_boiler:`<path d="M7 11 H37 V38 H7 Z M10 25 H34 M10 38 L22 45 L34 38"/><circle cx="15" cy="17" r="3"/><circle cx="23" cy="17" r="3"/><circle cx="31" cy="17" r="3"/>`,
+      gas_boiler:`<path d="M9 38 H38 M12 28 C11 19 25 13 25 6 C42 22 41 31 30 39 C32 30 25 27 24 21 C22 28 15 30 17 38Z"/>`,
+      heat_pump:`<rect x="5" y="7" width="39" height="37" rx="6"/><circle cx="24" cy="26" r="12"/><path d="M24 26 L26 14 Q17 12 18 21Z M24 26 L36 27 Q38 18 29 22Z M24 26 L20 38 Q10 31 20 28Z"/>`,
+      heating_circuit:`<path d="M4 11 V40 M43 11 V40 M4 11 H43 M4 40 H43 M10 14 V37 M17 14 V37 M24 14 V37 M31 14 V37 M38 14 V37"/>`,
+      pump:`<circle cx="24" cy="24" r="18"/><path d="M14 11 L37 24 L14 37Z"/>`,
+      mixer:`<circle cx="24" cy="24" r="18"/><path d="M9 14 L24 25 L39 14 M24 25 V40 M18 20 L30 20"/>`,
+      diverter:`<circle cx="24" cy="24" r="18"/><path d="M8 14 L24 25 L39 14 M24 25 V40"/>`,
+      manifold:`<path d="M24 4 V44 M4 14 H44 M4 25 H44 M4 36 H44"/>`,
+      electric_heater:`<path d="M5 24 H13 L19 10 L26 38 L34 24 H43"/><path d="M7 43 H41"/>`,
     };
-    const gradients=tanks.map(c=>{
-      const points=tankPoints(c);
-      const stops=[];
-      if(!points.length){stops.push('<stop offset="0%" stop-color="#586575"/>',
-        '<stop offset="100%" stop-color="#586575"/>');}
-      else{
-        const first=points[0],last=points[points.length-1];
-        const add=(pos,c)=>stops.push(`<stop offset="${pos}%" stop-color="${c}"/>`);
-        if(first.position>0){add(0,"#586575");add(Math.max(0,first.position-.5),"#586575");}
-        points.forEach(p=>add(p.position,color(state(hass,p.entity))));
-        if(last.position<100){add(Math.min(100,last.position+.5),"#586575");add(100,"#586575");}
-      }
-      return `<linearGradient id="hpc-${esc(c.id)}" x1="0" y1="0" x2="0" y2="1">${stops.join("")}</linearGradient>`;
+    return `<g class="hpc-component-icon ${on?"is-on":""}" ${base} ${line}>${icon[type]||""}</g>`;
+  };
+  const svgNodes=plan.components.map(c=>{
+    const [w,h]=dimension(c.type),isTank=["buffer","dhw_tank"].includes(c.type);
+    const rawState=c.sensors.state||c.sensors.pump||c.sensors.heater;
+    const on=active(state(hass,rawState));
+    const activeClass=on?" is-on":"";
+    const selectedClass=c.id===selected?" is-selected":"";
+    const name=c.name||display(c.type,lang);
+    const shortName=name.length>22?name.slice(0,21)+"…":name;
+    const portsMarkup=ports(c.type).map(p=>{
+      const xy=portXY(c,p.id);
+      return `<circle class="hpc-port" cx="${xy.x}" cy="${xy.y}" r="4.5"><title>${esc(p.id)}</title></circle>`;
     }).join("");
-    const map=Object.fromEntries(plan.components.map(c=>[c.id,c]));
-    const connectors=plan.connections.map(e=>{
-      const a=portXY(map[e.from],e.from_port),b=portXY(map[e.to],e.to_port);
-      const mx=Math.round((a.x+b.x)/2);
-      const path=`M${a.x},${a.y} H${mx} V${b.y} H${b.x}`;
-      const c=color(state(hass,e.temperature_entity));
-      const moving=!!e.flow_entity&&active(state(hass,e.flow_entity));
-      return `<g class="hpc-route" data-edge="${esc(e.id)}"><title>${esc(e.from+":"+e.from_port+" → "+e.to+":"+e.to_port)}</title>
-        <path d="${path}" class="hpc-pipe" stroke="${c}" marker-end="url(#hpc-arrow)"/>
-        ${moving?`<path d="${path}" class="hpc-pulse"/>`:""}</g>`;
-    }).join("");
-    const nodes=plan.components.map(c=>{
-      const [w,h]=dimension(c.type);
-      const isTank=["buffer","dhw_tank"].includes(c.type);
-      const sensor=c.sensors.state||c.sensors.pump||c.sensors.heater;
-      const on=active(state(hass,sensor));
-      const rows=(c.type==="heating_circuit"?["flow","return","mixer"]:["flow","return","power","exhaust","position"])
-        .filter(key=>!!c.sensors[key]).slice(0,3);
-      const tankRows=isTank?tankPoints(c):[];
-      // Every sensor affects the gradient. To prevent overlapping labels at dense
-      // installation heights, show up to seven evenly spaced values. All sensor
-      // markers retain a tooltip with their real position and reading.
-      const tankLabelIndices=new Set(Array.from({length:Math.min(7,tankRows.length)},(_,i)=>
-        Math.round(i*(tankRows.length-1)/Math.max(1,Math.min(7,tankRows.length)-1))));
-      const visibleTankRows=tankRows.filter((p,i)=>tankLabelIndices.has(i));
-      const values=isTank
-        ? tankRows.map(p=>{
-          const physicalY=c.y+Math.max(9,Math.min(h-9,h*p.position/100));
-          const v=state(hass,p.entity),idx=visibleTankRows.indexOf(p);
-          const marker=`<circle cx="${c.x+8}" cy="${physicalY}" r="3" fill="#fff" opacity=".9"><title>${esc(p.position+" % · "+format(v))}</title></circle>`;
-          if(idx<0)return marker;
-          const textY=c.y+52+(visibleTankRows.length===1?0:idx*(h-67)/(visibleTankRows.length-1));
-          return marker+`<text x="${c.x+16}" y="${textY}" class="hpc-reading hpc-tank-reading">${esc(format(v))}</text>`;
-        }).join("")
-        : rows.map((key,i)=>`<text x="${c.x+14}" y="${c.y+57+i*22}" class="hpc-reading">${esc(fieldLabel(key,lang))}: ${esc(format(state(hass,c.sensors[key])))}</text>`).join("");
-      const outline=isTank?`fill="url(#hpc-${esc(c.id)})"`:`fill="${on?"#294839":"#202f41"}"`;
-      const border=selected===c.id?"#f4c25c":on?"#6dd7ad":"#60758d";
-      const circles=ports(c.type).map(p=>{
-        const xy=portXY(c,p.id);
-        return `<circle class="hpc-port" cx="${xy.x}" cy="${xy.y}" r="5" fill="#cad7e4"><title>${esc(c.id+":"+p.id)}</title></circle>`;
+    if(isTank){
+      const list=tankPoints(c),maxLabels=6;
+      const selectedIndices=new Set(Array.from({length:Math.min(list.length,maxLabels)},(_,i)=>
+        Math.round((i*(list.length-1))/Math.max(1,Math.min(maxLabels,list.length)-1))));
+      const visible=list.filter((p,i)=>selectedIndices.has(i));
+      const gaugeX=c.x+19,gaugeY=c.y+38,gaugeW=w-38,gaugeH=h-50;
+      const ticks=Array.from({length:5},(_,i)=>{
+        const yy=gaugeY+gaugeH*i/4;
+        return `<path class="hpc-tank-tick" d="M${gaugeX+2} ${yy} h9"/>`;
       }).join("");
-      const title=(c.name||display(c.type,lang));
-      return `<g class="hpc-node" data-node="${esc(c.id)}" role="group" aria-label="${esc(title)}">
-        <rect x="${c.x}" y="${c.y}" width="${w}" height="${h}" rx="${isTank?23:16}" ${outline} stroke="${border}" stroke-width="${selected===c.id?3:2}"/>
-        <text x="${c.x+14}" y="${c.y+28}" class="hpc-name">${esc(title)}</text>
-        ${values}
-        ${!values?`<text class="hpc-muted" x="${c.x+14}" y="${c.y+60}">${esc(display(c.type,lang))}</text>`:""}
-        ${circles}</g>`;
-    }).join("");
-    return `<svg id="hpc-free-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" role="img" aria-label="${esc(text("Hydraulikplan","Hydraulic plan",lang))}" preserveAspectRatio="xMinYMin meet">
-      <defs>${gradients}<marker id="hpc-arrow" markerWidth="6" markerHeight="6" refX="4" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#adc8dd"/></marker></defs>
-      ${connectors}${nodes}
-    </svg>`;
-  }
-  const css=`
-    :host{display:block} ha-card{padding:14px;background:var(--card-background-color,#192230)}
-    .hpc-board{width:100%;overflow:auto;min-height:200px;border-radius:14px;background:#111d2b}
-    #hpc-free-svg{width:100%;height:auto;min-width:600px;max-height:76vh;display:block}
-    .hpc-node{cursor:pointer}.hpc-node:focus-visible rect{stroke:#ffcc6f;stroke-width:4}
-    .hpc-name{font:600 16px sans-serif;fill:#f3f6fa}
-    .hpc-reading{font:13px sans-serif;fill:#eff6ff;paint-order:stroke fill;stroke:#172130;stroke-width:2.5px}
-    .hpc-tank-reading{font-size:12px}.hpc-muted{font:13px sans-serif;fill:#aabbd0}
-    .hpc-pipe{fill:none;stroke-width:7;stroke-linejoin:round;stroke-linecap:round}
-    .hpc-pulse{fill:none;stroke:#ebf6ff;stroke-width:3;stroke-dasharray:4 13;animation:hpc-motion 1.4s linear infinite}
-    @keyframes hpc-motion{to{stroke-dashoffset:-34}}
-    @media(prefers-reduced-motion:reduce){.hpc-pulse{animation:none}}
-    .hpc-note{font-size:.82em;color:var(--secondary-text-color,#9ca3af);margin:8px 3px}
-    .hpc-editor{font-family:var(--ha-font-family-body,inherit);color:var(--primary-text-color,inherit)}
-    .hpc-editor h3{font-size:1.05em;margin:12px 0 7px}
-    .hpc-editor p{font-size:.9em;color:var(--secondary-text-color,#9ca3af)}
-    .hpc-actions{display:flex;flex-wrap:wrap;gap:8px;margin:9px 0}
-    .hpc-editor button,.hpc-editor select,.hpc-editor input{font:inherit;border-radius:9px;
-      border:1px solid var(--divider-color,#67738c);padding:8px 10px;color:var(--primary-text-color,inherit);
-      background:var(--secondary-background-color,rgba(140,140,140,.09));max-width:100%;min-width:0}
-    .hpc-editor button{cursor:pointer}.hpc-editor button:focus-visible{outline:2px solid var(--primary-color,#53a8f7)}
-    .hpc-editor button.hpc-primary{background:var(--primary-color,#157cbd);color:white;border-color:transparent}
-    .hpc-editor .hpc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin-bottom:7px}
-    .hpc-editor label{display:flex;flex-direction:column;gap:4px;font-size:.85em;flex:1 1 180px}
-    .hpc-editor .hpc-field{margin:6px 0}
-    .hpc-editor .hpc-component-list{display:flex;flex-wrap:wrap;gap:5px}
-    .hpc-editor .hpc-component-list button[aria-pressed=true]{border-color:var(--primary-color,#338be5);background:color-mix(in srgb,var(--primary-color,#338be5) 12%,transparent)}
-    .hpc-editor .hpc-board{min-height:180px}
-  `;
+      const markers=visible.map((p,i)=>{
+        const val=validTemp(p.entity);
+        const y=gaugeY+gaugeH*(p.position/100);
+        const labelY=c.y+61+(visible.length===1?0:i*(h-78)/(visible.length-1));
+        return `<circle cx="${gaugeX+6}" cy="${y}" r="3.2" fill="#fff" stroke="#294557" stroke-width="1">
+          <title>${esc(p.position+"% · "+format(val))}</title></circle>
+          <text x="${c.x+38}" y="${labelY}" class="hpc-reading hpc-tank-reading">${esc(format(val))}</text>`;
+      }).join("");
+      return `<g class="hpc-node hpc-tank${selectedClass}" data-node="${esc(c.id)}" role="group" aria-label="${esc(name)}">
+        <title>${esc(name)}</title>
+        <rect class="hpc-tank-shadow" x="${c.x+11}" y="${c.y+5}" width="${w-22}" height="${h-10}" rx="21"/>
+        <rect class="hpc-tank-main" x="${gaugeX}" y="${gaugeY}" width="${gaugeW}" height="${gaugeH}" rx="17" fill="url(#hpc-${esc(c.id)})"/>
+        <path class="hpc-tank-shine" d="M${gaugeX+12} ${gaugeY+12} V${gaugeY+gaugeH-12}"/>
+        <text x="${c.x+w/2}" y="${c.y+28}" class="hpc-label hpc-tank-name" text-anchor="middle">${esc(shortName)}</text>
+        ${ticks}${markers}${portsMarkup}
+      </g>`;
+    }
+    const rows=(c.type==="heating_circuit"?["flow","return","mixer"]:["flow","return","power","exhaust","position"])
+      .filter(k=>!!c.sensors[k]).slice(0,2);
+    const status=rawState?state(hass,rawState):null;
+    const values=rows.map((key,i)=>`<text class="hpc-reading" x="${c.x+72}" y="${c.y+74+i*19}">
+      ${esc(fieldLabel(key,lang))}: ${esc(format(state(hass,c.sensors[key])))}</text>`).join("");
+    const statusText=status?`<text class="hpc-detail" x="${c.x+72}" y="${c.y+49}">${esc(format(status))}</text>`:"";
+    return `<g class="hpc-node hpc-appliance${activeClass}${selectedClass}" data-node="${esc(c.id)}" role="group" aria-label="${esc(name)}">
+      <title>${esc(name)}</title>
+      <rect class="hpc-unit-border" x="${c.x}" y="${c.y}" width="${w}" height="${h}" rx="13"/>
+      <text class="hpc-label" x="${c.x+13}" y="${c.y+26}">${esc(shortName)}</text>
+      ${glyph(c.type,c.x+16,c.y+43,on)}
+      ${statusText}
+      ${values || `<text class="hpc-detail" x="${c.x+72}" y="${c.y+74}">${esc(display(c.type,lang).slice(0,19))}</text>`}
+      ${portsMarkup}
+    </g>`;
+  }).join("");
+  return `<svg id="hpc-free-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"
+    role="img" aria-label="${esc(text("Hydraulikplan","Hydraulic plan",lang))}" preserveAspectRatio="xMinYMin meet">
+    <defs>${defs}
+      <marker id="hpc-arrow" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+        <path d="M1,1 L7,4 L1,7 Z" class="hpc-arrow"/>
+      </marker>
+    </defs>
+    ${routes}${svgNodes}
+  </svg>`;
+}
+  const css="\n  :host { display:block; --hpc-muted: var(--secondary-text-color, #7b8798); }\n  ha-card { background:var(--ha-card-background,var(--card-background-color,#fff)); padding:14px;overflow:hidden; }\n  .hpc-board {width:100%;overflow:auto;overscroll-behavior:contain;border-radius:12px;\n    border:1px solid var(--divider-color,rgba(110,125,145,.22));\n    background:var(--card-background-color,rgba(0,0,0,.02));}\n  #hpc-free-svg{min-width:650px;display:block;width:100%;height:auto;max-height:72vh;}\n  .hpc-appliance .hpc-unit-border{fill:var(--secondary-background-color,rgba(126,144,160,.1));\n    stroke:var(--divider-color,#9ca3af);stroke-width:2.3;}\n  .hpc-appliance.is-on .hpc-unit-border{stroke:var(--hfc-heat,#ca793e);}\n  .hpc-node.is-selected .hpc-unit-border,.hpc-node.is-selected .hpc-tank-shadow{\n    stroke:var(--primary-color,#2196f3);stroke-width:4;}\n  .hpc-unit-border,.hpc-tank-shadow,.hpc-tank-main{filter:drop-shadow(0 2px 3px rgba(0,0,0,.08))}\n  .hpc-component-icon{stroke:var(--hpc-muted);fill:none;stroke-width:2.8}\n  .hpc-component-icon.is-on{stroke:var(--hfc-hot,#b35b38)}\n  .hpc-component-icon circle,.hpc-component-icon rect{fill:var(--card-background-color,#fff)}\n  .hpc-node{cursor:pointer}.hpc-node:hover .hpc-unit-border{stroke:var(--primary-color,#2196f3)}\n  .hpc-label{font:600 16px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-name{font-size:15px}\n  .hpc-reading{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-reading{font:600 12px var(--ha-font-family-body,system-ui,sans-serif);\n    fill:#fff;stroke:rgba(29,46,62,.85);paint-order:stroke fill;stroke-width:3px;}\n  .hpc-detail{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--secondary-text-color,#7d8590);}\n  .hpc-tank-shadow{fill:var(--card-background-color,#fff);stroke:var(--divider-color,#8e9bab);stroke-width:2.4;}\n  .hpc-tank-main{stroke:var(--divider-color,rgba(70,90,110,.6));stroke-width:1.3}\n  .hpc-tank-shine{fill:none;stroke:rgba(255,255,255,.28);stroke-width:6;stroke-linecap:round}\n  .hpc-tank-tick{fill:none;stroke:rgba(255,255,255,.50);stroke-width:1.1;}\n  .hpc-port{fill:var(--card-background-color,#fff);stroke:var(--hfc-flow-hot,#ad584b);stroke-width:2}\n  .hpc-route{pointer-events:none;}\n  .hpc-pipe-outline{fill:none;stroke:var(--divider-color,rgba(110,125,145,.5));\n    stroke-width:13;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-pipe{fill:none;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-arrow{fill:var(--primary-text-color,#516274);}\n  .hpc-pulse{fill:none;stroke:rgba(255,255,255,.9);stroke-width:3;stroke-dasharray:5 13;\n    animation:hpc-motion 1.35s linear infinite;}\n  @keyframes hpc-motion{to{stroke-dashoffset:-36}}\n  @media(prefers-reduced-motion:reduce){.hpc-pulse{animation:none;}}\n  .hpc-note{font-size:.82em;color:var(--secondary-text-color,#7d8590);margin:10px 3px 4px;}\n  .hpc-editor{font-family:var(--ha-font-family-body,inherit);color:var(--primary-text-color,inherit);}\n  .hpc-editor h3{font-size:1.02em;font-weight:600;margin:18px 0 9px;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding-bottom:6px}\n  .hpc-editor p{font-size:.88em;line-height:1.5;color:var(--secondary-text-color,#7d8590)}\n  .hpc-actions,.hpc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:9px 0}\n  .hpc-editor button,.hpc-editor select,.hpc-editor input{\n    box-sizing:border-box;font:inherit;border-radius:10px;\n    border:1px solid var(--divider-color,rgba(127,127,127,.34));\n    padding:10px 12px;color:var(--primary-text-color,inherit);\n    background:var(--card-background-color,#fff);max-width:100%;min-width:0}\n  .hpc-editor input:focus,.hpc-editor select:focus{outline:2px solid var(--primary-color,#03a9f4);outline-offset:1px}\n  .hpc-editor button{cursor:pointer;font-weight:500}\n  .hpc-editor button:hover{background:var(--secondary-background-color,rgba(127,127,127,.12))}\n  .hpc-editor button.hpc-primary{background:var(--primary-color,#03a9f4);color:#fff;border:0;}\n  .hpc-editor label{display:flex;flex-direction:column;gap:5px;font-size:.86em;font-weight:500;flex:1 1 170px;}\n  .hpc-editor .hpc-field{margin:6px 0;}\n  .hpc-editor .hpc-component-list{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
   return {types,byType,ports,dimension,display,fieldLabel,esc,normalize,newNode,sample,state,active,format,color,portXY,draw,css,text};
 })();
 
@@ -7807,13 +7833,32 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     setConfig(config) {
       if (!config || typeof config!=="object") throw Error("Invalid card configuration");
       if (config.plan_mode==="free" || Array.isArray(config.plan?.components)) {
-        this._config={...config,plan_mode:"free",plan:HPC_FREE.normalize(config.plan)};
-        if(this._hass)this._renderFree();
+        const next={...config,plan_mode:"free",plan:HPC_FREE.normalize(config.plan)};
+        const changed=JSON.stringify(this._config)!==JSON.stringify(next);
+        this._config=next;
+        if(changed){this._freeLayoutSig=null;this._freeLiveSig=null;}
+        if(this._hass&&(changed||!this._rendered))this._renderFree();
       } else super.setConfig(config);
+    }
+    _liveSignature(){
+      const ids=new Set();
+      const p=this._config?.plan||{};
+      for(const n of p.components||[]){
+        for(const id of Object.values(n.sensors||{}))if(id)ids.add(id);
+        for(const point of n.level_sensors||[])if(point.entity)ids.add(point.entity);
+      }
+      for(const edge of p.connections||[])
+        for(const id of [edge.flow_entity,edge.temperature_entity])if(id)ids.add(id);
+      return [...ids].sort().map(id=>{
+        const st=this._hass?.states?.[id];
+        return id+":"+(st?.state??"unavailable")+":"+(st?.attributes?.unit_of_measurement??"");
+      }).join("|");
     }
     set hass(hass) {
       if (!this._isFree()) { super.hass=hass; return; }
-      this._hass=hass;this._renderFree();
+      this._hass=hass;
+      const sig=this._liveSignature();
+      if(sig!==this._freeLiveSig||!this._rendered)this._renderFree();
     }
     getCardSize() { return this._isFree()?12:super.getCardSize(); }
     getGridOptions() { return {columns:"full",min_columns:6,rows:"auto"}; }
@@ -7825,7 +7870,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const head=de?"Heizungsanlage einrichten":"Set up heating system";
         const message=de?"Füge im Karteneditor Wärmeerzeuger, Pufferspeicher, Heizkreise und Verbindungen hinzu. Eine Wärmepumpen-Integration ist nicht notwendig.":"Add heat sources, buffer tanks, circuits and connections in the card editor. No heat pump integration is needed.";
         const root=this._renderRoot();
-        root.innerHTML=`<style>${HPC_FREE.css}
+        root.innerHTML=`<style>${HeatpumpFlowCard.styles}${HPC_FREE.css}
           .hpc-empty{padding:20px;border-radius:14px;background:var(--secondary-background-color,rgba(100,130,180,.11))}
           .hpc-empty h3{margin:0 0 10px;font-size:1.1em}.hpc-empty p{margin:0;line-height:1.45}</style>
           <ha-card><h2 style="font-size:1.15em;margin:0 0 12px">${title}</h2>
@@ -7839,12 +7884,20 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const plan=HPC_FREE.normalize(this._config.plan);
       const lang=String(this._hass.locale?.language||navigator.language||"de").startsWith("de")?"de":"en";
       const title=HPC_FREE.esc(this._config.title||"Hydraulic Plan Card");
-      this._renderRoot().innerHTML=`<style>${HPC_FREE.css}</style><ha-card>
-        <h2 style="font-size:1.15em;margin:0 0 12px">${title}</h2>
-        ${!plan.components.length?`<div class="hpc-note">${lang==="de"?"Noch keine Bauteile. Öffne den Karteneditor und lege die Hydraulik an.":"No components yet. Open the card editor to build your hydraulic system."}</div>`:""}
-        <div class="hpc-board">${HPC_FREE.draw(plan,this._hass,{lang})}</div>
-        <div class="hpc-note">${lang==="de"?"Pfeile = konfigurierte Richtung. Animation nur bei aktivem zugeordnetem Statussensor.":"Arrows show configured direction. Animation requires a mapped active flow/status sensor."}</div>
-        </ha-card>`;
+      const layoutSig=JSON.stringify(plan);
+      const root=this._renderRoot();
+      if(this._freeLayoutSig!==layoutSig||!root.querySelector(".hpc-board")){
+        root.innerHTML=`<style>${HeatpumpFlowCard.styles}${HPC_FREE.css}</style><ha-card>
+          <div class="head"><div class="title">${title}</div></div>
+          ${!plan.components.length?`<div class="hpc-note">${lang==="de"?"Noch keine Bauteile. Öffne den Karteneditor und lege die Hydraulik an.":"No components yet. Open the card editor to build your hydraulic system."}</div>`:""}
+          <div class="hpc-board"></div>
+          <div class="hpc-note">${lang==="de"?"Die Rohrrichtung ist konfiguriert. Eine Animation zeigt nur einen zugeordneten aktiven Pumpenstatus, keinen gemessenen Durchfluss.":"Directions are configured. Animation indicates a mapped active pump signal, not measured flow."}</div>
+          </ha-card>`;
+        this._freeLayoutSig=layoutSig;
+      }
+      const board=root.querySelector(".hpc-board");
+      if(board)board.innerHTML=HPC_FREE.draw(plan,this._hass,{lang});
+      this._freeLiveSig=this._liveSignature();
       this._renderRoot().querySelectorAll("[data-node]").forEach(node=>node.addEventListener("click",()=>{
         const c=plan.components.find(c=>c.id===node.dataset.node);
         const entity=c&&(c.sensors.state||c.sensors.flow||c.sensors.top||c.level_sensors?.[0]?.entity);
@@ -7858,14 +7911,29 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     _unconfigured(){return !this._free()&&this._config?.editor_mode!=="classic"&&(!this._config?.preset||this._config.preset==="none")&&
       !Object.values(this._config?.entities||{}).some(Boolean);}
     setConfig(config){
-      this._config=config||{};
-      if(this._free()||this._unconfigured())this._renderFlex();
-      else {this._freeUi?.remove();this._freeUi=null;super.setConfig(config);this._showFreeButton();}
+      // Home Assistant can call setConfig repeatedly (including for our own config-changed
+      // event). Redrawing on an equivalent config destroys focused text inputs and selects.
+      const newConfig=config||{};
+      const changed=JSON.stringify(this._config)!==JSON.stringify(newConfig);
+      this._config=newConfig;
+      if(this._free()||this._unconfigured()){
+        if(changed || !this._freeUi?.isConnected)this._renderFlex();
+      } else {
+        this._freeUi?.remove();this._freeUi=null;
+        if(changed||!this._form)super.setConfig(config);
+        this._showFreeButton();
+      }
     }
     set hass(hass){
+      const first=!this._hass;
       this._hass=hass;
-      if(this._free()||this._unconfigured())this._renderFlex();
-      else {super.hass=hass;this._showFreeButton();}
+      // Live HA data changes frequently. Never replace the whole configuration form;
+      // this would interrupt typing, select popovers and drag operations.
+      if(this._free()||this._unconfigured()){
+        if(first||!this._freeUi?.isConnected)this._renderFlex();
+        return;
+      }
+      super.hass=hass;this._showFreeButton();
     }
     _render(){
       if(this._free()||this._unconfigured())this._renderFlex();
@@ -7874,6 +7942,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     _save(config){
       this._config=config;
       this.dispatchEvent(new CustomEvent("config-changed",{detail:{config},bubbles:true,composed:true}));
+      // User action (not a HA data refresh) is the only reason to redraw the form.
       this._render();
     }
     _applyPlan(plan){this._save({...this._config,plan_mode:"free",plan:HPC_FREE.normalize(plan)});}
@@ -7972,7 +8041,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         ${dataList}
       </div>`;
       if(!this._freeUi){this._freeUi=document.createElement("div");this.append(this._freeUi);}
+      // Repaint only after an intentional editor action. Preserve the scroll position
+      // when adding sensors, switching components or moving the hydraulic schematic.
+      const oldY=this._freeUi.scrollTop;
       this._freeUi.innerHTML=html;
+      this._freeUi.scrollTop=oldY;
       const root=this._freeUi;
       const changePlan=(fn)=>{const next=HPC_FREE.normalize(p);fn(next);this._applyPlan(next);};
       root.querySelectorAll("[data-action]").forEach(button=>button.addEventListener("click",()=>{
@@ -8067,6 +8140,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
   }
   return { HydraulicPlanCard, HydraulicPlanCardEditor };
 })();
+
 const hfcCardScripts = () => {
   const names = [...document.querySelectorAll('script[src]')].map((el) => el.src);
   try { names.push(...performance.getEntriesByType('resource').map((r) => r.name)); } catch (err) { /* not supported */ }
@@ -8079,6 +8153,7 @@ if (!window.customCards.some((card) => card.type === 'hydraulic-plan-card')) {
   window.customCards.push({
     type: 'hydraulic-plan-card',
     name: 'Hydraulic Plan Card',
+    icon: 'mdi:pipe-valve',
     description: 'Build your actual hydraulic system: heat sources, multiple buffers, heating circuits, mixers and animated connections.',
     preview: true,
     documentationURL: 'https://github.com/BlueIceWolf/ha-hydraulic-plan-card',

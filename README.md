@@ -10,15 +10,15 @@ An animated heating-system card for **Home Assistant**, based on [Heat Pump Hydr
 
 *Reference: original heat-pump layout by Sturmi77. Hydraulic Plan Card retains this view and adds boiler variants; the picture does not yet show the boiler extensions.*
 
-> **Development status: 0.2.0-alpha.1.** Experimental free hydraulic-plan editor is available alongside the legacy heat-pump view. Not a stable release. 
+> **Development status: 0.2.0-alpha.2.** Experimental free hydraulic-plan editor is available alongside the legacy heat-pump view. Not a stable release. 
 
 ## Universal hydraulic plan (new)
 
 Create a free, read-only hydraulic schematic by selecting **Leeren Plan anlegen** when adding a new card. You can place and drag independent components, add named pipe connections, and map Home Assistant sensors to each one. This works **without a heat-pump integration**.
 
-Includes multiple heat sources and tanks, three-way valves/mixers, pumps, electric heaters and up to 24 additional height-positioned temperature sensors per storage vessel. The buffer gradient interpolates **between measured values only** and retains neutral areas with no measurements.
+Includes multiple heat sources and tanks, three-way valves/mixers, pumps, electric heaters and up to 24 additional height-positioned temperature sensors per storage vessel. The buffer gradient interpolates **between measured values only** and retains neutral areas with no measurements. The illustration now uses the same subtle Home Assistant palette, pipe and pump design language as the original card.
 
-The editor includes an illustrative template inspired by the user's system with a Fröling S3 Turbo, three series buffers, oil boiler, hot water tank, heat pump, two mixed circuits and a heating-rod recirculation loop. It is **not a verified as-built piping diagram**.
+The editor preserves focused controls when Home Assistant updates sensor states; its form does not restart on every state refresh. The editor includes an illustrative template inspired by the user's system with a Fröling S3 Turbo, three series buffers, oil boiler, hot water tank, heat pump, two mixed circuits and a heating-rod recirculation loop. It is **not a verified as-built piping diagram**.
 
 See [Free hydraulic plan configuration and limitations](docs/FREE_PLAN.md).
 
