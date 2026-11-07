@@ -1,3 +1,5 @@
+(() => {
+'use strict';
 /*
  * Heatpump Flow Card
  * Animated hydraulic schematic for heat pumps (air, ground or groundwater source) in Home Assistant:
@@ -7536,3 +7538,4 @@ if (!window.customCards.some((card) => card.type === 'hydraulic-plan-card')) {
   });
 }
 console.info(`%c HYDRAULIC PLAN CARD %c ${HFC_VERSION} `, 'background:#f97316;color:#fff', 'background:#334155;color:#fff');
+})();
