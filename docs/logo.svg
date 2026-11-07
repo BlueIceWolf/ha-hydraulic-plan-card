@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Hydraulic Plan Card</title>
+  <desc id="desc">A heating vessel with an orange-to-blue temperature gradient, connected to a heat generator and a three-way valve.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#182b40"/>
+      <stop offset="1" stop-color="#0e192c"/>
+    </linearGradient>
+    <linearGradient id="temperature" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#e46b48"/>
+      <stop offset=".28" stop-color="#eab665"/>
+      <stop offset=".5" stop-color="#7fb8a5"/>
+      <stop offset=".77" stop-color="#3f9ab9"/>
+      <stop offset="1" stop-color="#326fa8"/>
+    </linearGradient>
+    <filter id="shadow" x="-25%" y="-25%" width="150%" height="150%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity=".22"/>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="110" fill="url(#background)"/>
+  <g stroke="#90aeca" stroke-width="18" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M105 202H173"/>
+    <path d="M105 317H173"/>
+    <path d="M336 205H386V256"/>
+    <path d="M336 318H386V293"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="174" y="112" width="162" height="290" rx="70" fill="#112336" stroke="#b7c6d5" stroke-width="16"/>
+    <rect x="190" y="129" width="130" height="256" rx="54" fill="url(#temperature)"/>
+    <path d="M192 197H318M192 283H318" stroke="#edf6ff" stroke-opacity=".25" stroke-width="5"/>
+  </g>
+  <g fill="#e9f3fd" stroke="#d8e7f3" stroke-width="5">
+    <circle cx="174" cy="202" r="8"/><circle cx="174" cy="317" r="8"/>
+    <circle cx="336" cy="205" r="8"/><circle cx="336" cy="318" r="8"/>
+  </g>
+  <g transform="translate(78 260)" filter="url(#shadow)">
+    <circle r="39" fill="#223a54" stroke="#9bb5d0" stroke-width="8"/>
+    <path d="M-14 17c-9-14-2-30 10-44-2 15 10 18 14 29 3-5 5-12 4-17 17 19 11 35 1 40-14 8-23 5-29-8Z" fill="#eb8259"/>
+  </g>
+  <g transform="translate(386 277)" filter="url(#shadow)">
+    <circle r="38" fill="#223a54" stroke="#9bb5d0" stroke-width="8"/>
+    <path d="M-17 14L0-13L17 14M0-13V24" fill="none" stroke="#dbeaf7" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <circle cx="118" cy="202" r="6" fill="#ea8659"/>
+  <circle cx="118" cy="317" r="6" fill="#5c9cca"/>
+</svg>
