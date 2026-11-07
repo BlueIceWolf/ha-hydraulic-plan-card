@@ -32,7 +32,9 @@ const HPC_INTEGRATED = (() => {
       }
       return startX+Math.max(1,Math.ceil(items.length/wCount))*stepX;
     };
-    const sourceEnd=placeColumn(byGroup.source,1110,95,245,205);
+    // Additional heat sources stay below the original generator, not far outside
+    // the visible diagram. The first extra boiler is visible immediately.
+    placeColumn(byGroup.source,50,475,245,160);
     // Discover the buffer sequence from the user's directed pipe connections.
     // This works regardless of the order in which buffers were added.
     const orderedBuffers=byGroup.storage.filter(c=>c.type==='buffer');
@@ -53,7 +55,7 @@ const HPC_INTEGRATED = (() => {
     }
     orderedBuffers.sort((a,b)=>(distances.get(a.id)??Infinity)-(distances.get(b.id)??Infinity));
     const extraDhw=byGroup.storage.filter(c=>c.type==='dhw_tank');
-    const storageStart=sourceEnd+90;
+    const storageStart=1110;
     // A second DHW row must not overlap the buffer row.
     const bufferStartY=330+Math.max(0,Math.ceil(extraDhw.length/4)-1)*225;
     orderedBuffers.forEach((node,index)=>{
