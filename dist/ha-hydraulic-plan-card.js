@@ -8,7 +8,7 @@
  *
  * https://github.com/Sturmi77/heatpump-hydraulic-card · MIT License
  */
-const HFC_VERSION = '0.2.0-alpha.4';
+const HFC_VERSION = '0.2.0-alpha.5';
 // Derivative of Heat Pump Hydraulic Card (MIT, Sturmi77). Keep its engine reusable.
 const HPC_GENERATORS = ['heat_pump', 'wood_gasifier', 'oil', 'pellet', 'gas', 'electric'];
 const HPC_BOILERS = HPC_GENERATORS.slice(1);
@@ -7842,15 +7842,61 @@ const HPC_INTEGRATED = (() => {
     if(firstDhw)anchored.set(firstDhw.id,{x:520,y:40,w:120,h:200,type:'dhw_tank'});
     p.components.filter(c=>c.type==='heating_circuit').slice(0,Math.min(hcCount,6))
       .forEach((c,index)=>anchored.set(c.id,{x:815,y:330+index*250,w:155,h:140,type:'heating_circuit'}));
-    // Preserve the user's own relative positions, but place extra equipment beside
-    // the original 1000-unit schematic so neither the original boiler nor the
-    // heat pump/pipes are obscured by a second representation.
+    // Deterministic automatic layout: no manual X/Y placement is required.
+    // Keep the original Heat Pump Hydraulic Card positions for its main units,
+    // and arrange additional equipment in distinct, non-overlapping lanes.
+    // Connection order and type determine the visual grouping, not stored X/Y.
     const extras=p.components.filter(c=>!anchored.has(c.id));
+    const byGroup={source:[],storage:[],control:[],load:[]};
+    for(const node of extras)byGroup[HPC_FREE.byType[node.type].group].push(node);
     const points=new Map();
-    extras.forEach(c=>{
-      const [w,h]=HPC_FREE.dimension(c.type);
-      points.set(c.id,{x:1090+Math.round(c.x*.80),y:90+Math.round(c.y*.88),w,h,type:c.type});
+    // A column has no more than four items; add further columns automatically.
+    const placeColumn=(items,startX,startY,stepX,stepY,wCount=4)=>{
+      for(const [idx,node] of items.entries()){
+        const [w,h]=HPC_FREE.dimension(node.type);
+        const column=Math.floor(idx/wCount),row=idx%wCount;
+        points.set(node.id,{x:startX+column*stepX,y:startY+row*stepY,w,h,type:node.type});
+      }
+      return startX+Math.max(1,Math.ceil(items.length/wCount))*stepX;
+    };
+    const sourceEnd=placeColumn(byGroup.source,1110,95,245,205);
+    // Discover the buffer sequence from the user's directed pipe connections.
+    // This works regardless of the order in which buffers were added.
+    const orderedBuffers=byGroup.storage.filter(c=>c.type==='buffer');
+    const adjacency=new Map();
+    for(const edge of p.connections){
+      if(!adjacency.has(edge.from))adjacency.set(edge.from,[]);
+      adjacency.get(edge.from).push(edge.to);
+    }
+    const distances=new Map(),queue=firstBuffer?[firstBuffer.id]:[];
+    if(firstBuffer)distances.set(firstBuffer.id,0);
+    while(queue.length){
+      const from=queue.shift(),depth=distances.get(from);
+      for(const to of adjacency.get(from)||[]){
+        if(distances.has(to))continue;
+        distances.set(to,depth+1);
+        queue.push(to);
+      }
+    }
+    orderedBuffers.sort((a,b)=>(distances.get(a.id)??Infinity)-(distances.get(b.id)??Infinity));
+    const extraDhw=byGroup.storage.filter(c=>c.type==='dhw_tank');
+    const storageStart=sourceEnd+90;
+    // A second DHW row must not overlap the buffer row.
+    const bufferStartY=330+Math.max(0,Math.ceil(extraDhw.length/4)-1)*225;
+    orderedBuffers.forEach((node,index)=>{
+      const [w,h]=HPC_FREE.dimension(node.type);
+      points.set(node.id,{x:storageStart+(index%4)*177,
+        y:bufferStartY+Math.floor(index/4)*225,w,h,type:node.type});
     });
+    extraDhw.forEach((node,index)=>{
+      const [w,h]=HPC_FREE.dimension(node.type);
+      points.set(node.id,{x:storageStart+(index%4)*177,
+        y:75+Math.floor(index/4)*225,w,h,type:node.type});
+    });
+    const storageCols=Math.max(1,Math.min(4,extraBuffers.length),Math.min(4,extraDhw.length));
+    const controlStart=storageStart+storageCols*177+80;
+    const controlEnd=placeColumn(byGroup.control,controlStart,90,205,150);
+    placeColumn(byGroup.load,controlEnd+90,115,230,225,3);
     const maxX=Math.max(1000,...[...points.values()].map(n=>n.x+n.w+70));
     const maxY=Math.max(560+(hcCount-1)*250,...[...points.values()].map(n=>n.y+n.h+70));
     return {plan:p,anchored,points,extras,width:maxX,height:maxY};
@@ -7928,11 +7974,62 @@ const HPC_INTEGRATED = (() => {
     if(values.at(-1).position<100)a.push('<stop offset="100%" stop-color="#7e8a95"/>');
     return a.join('');
   }
+  function flowStates(plan,hass) {
+    // A mixer position of 0% or 100% is NOT a flow sensor and is never used
+    // to disable circulation. Only an explicitly mapped pipe flow status or
+    // the state of an actual pump can activate animation.
+    const nodes=Object.fromEntries(plan.components.map(c=>[c.id,c]));
+    const adjacent=new Map(plan.components.map(c=>[c.id,[]]));
+    const flowing=new Set();
+    const mappedFlow=(edge)=>{
+      if(!edge.flow_entity)return null;
+      // Explicit pipe-level state always overrides topology inference.
+      return HPC_FREE.active(HPC_FREE.state(hass,edge.flow_entity));
+    };
+    for(const edge of plan.connections){
+      adjacent.get(edge.from)?.push({edge,neighbor:edge.to});
+      adjacent.get(edge.to)?.push({edge,neighbor:edge.from});
+      if(mappedFlow(edge)===true)flowing.add(edge.id);
+    }
+    const pumpEntity=(node)=>{
+      if(node.type==='pump')return node.sensors.state||node.sensors.pump||node.sensors.volume;
+      if(isSource(node)||node.type==='heating_circuit')return node.sensors.pump;
+      return null;
+    };
+    const pumpState=(node)=>{
+      const id=pumpEntity(node);
+      return id ? HPC_FREE.active(HPC_FREE.state(hass,id)) : null;
+    };
+    const blocked=(node)=>pumpState(node)===false;
+    const sources=plan.components.filter(n=>pumpState(n)===true);
+    for(const pump of sources){
+      const queue=[pump.id],visited=new Set();
+      while(queue.length){
+        const id=queue.shift();
+        if(visited.has(id))continue;
+        visited.add(id);
+        for(const {edge,neighbor} of adjacent.get(id)||[]){
+          const explicit=mappedFlow(edge);
+          if(explicit===false)continue;
+          const next=nodes[neighbor];
+          if(!next||blocked(next))continue;
+          flowing.add(edge.id);
+          // Stop at an unmapped heat source / heating circuit instead of
+          // assuming a different, uninstrumented boiler branch is running.
+          const unknownSource=(isSource(next)||next.type==='heating_circuit')
+            && pumpEntity(next)==null && next.id!==pump.id;
+          if(!unknownSource&&!visited.has(neighbor))queue.push(neighbor);
+        }
+      }
+    }
+    return flowing;
+  }
   function svg(model,hass) {
     const {plan,anchored,points,extras}=model;
     const all=Object.fromEntries(plan.components.map(c=>[c.id,c]));
     const loc=id=>anchored.get(id)||points.get(id);
     const defs=plan.components.filter(isTank).map(c=>'<linearGradient id="hpi-'+c.id+'" x1="0" y1="0" x2="0" y2="1">'+stops(c,hass)+'</linearGradient>').join('');
+    const flowing=flowStates(plan,hass);
     const links=plan.connections.map(edge=>{
       // The core pipe path already connects legacy core units. Only draw extra
       // paths for links crossing into or between added components.
@@ -7943,7 +8040,7 @@ const HPC_INTEGRATED = (() => {
       const d='M'+p.x+' '+p.y+' H'+mid+' V'+q.y+' H'+q.x;
       const s=HPC_FREE.state(hass,edge.temperature_entity);
       const color=s?HPC_FREE.color(s):null;
-      const on=edge.flow_entity && HPC_FREE.active(HPC_FREE.state(hass,edge.flow_entity));
+      const on=flowing.has(edge.id);
       return '<g class="hpi-link"><title>'+HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'
         +'<path class="pipe'+(on?' on':'')+'" d="'+d+'"'+(color?' style="--pc:'+color+'"':'')+'/>'
         +'<path class="flow'+(on?' on':'')+'" d="'+d+'"/></g>';
@@ -7985,7 +8082,7 @@ const HPC_INTEGRATED = (() => {
     return {defs,body:'<g id="hpc-integrated">'+links+nodes+'</g>',
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
-  return {layout,coreConfig,svg,tankPoints};
+  return {layout,coreConfig,svg,tankPoints,flowStates};
 })();
 
 const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
@@ -8195,8 +8292,6 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         <div class="hpc-row"><label>${t("Bezeichnung","Name")}<input data-name="${esc(selected.id)}"
           maxlength="75" value="${esc(selected.name)}"/></label>
           <button type="button" data-action="remove-component">${t("Entfernen","Remove")}</button></div>
-        <div class="hpc-row"><label>X<input type="number" min="0" max="7000" data-pos="x" value="${selected.x}"/></label>
-          <label>Y<input type="number" min="0" max="7000" data-pos="y" value="${selected.y}"/></label></div>
         ${HPC_FREE.byType[selected.type].fields.map(key=>sensorField(selected.id,key,selected.sensors[key])).join("")}
         ${isTank?`<h3>${t("Zusätzliche Temperaturfühler","Additional temperature sensors")}</h3>
           <p>${t("Ordne jeden Fühler seiner tatsächlichen Einbauhöhe zu. 0 % = oben, 100 % = unten.","Set each sensor to its real installation height. 0% = top, 100% = bottom.")}</p>
@@ -8223,7 +8318,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <div class="hpc-component-list">${p.components.map(c=>`<button type="button" data-select="${esc(c.id)}"
             aria-pressed="${selected?.id===c.id}">${esc(c.name)}</button>`).join("")}</div>
           <h3>${t("Hydraulikschema","Hydraulic schematic")}</h3>
-          <p>${t("Die Bauteile erscheinen direkt im ursprünglichen Hydraulikplan, nicht in einer zweiten Ansicht. Positionen lassen sich über X und Y einstellen. Die Live-Vorschau siehst du im Dashboard.","Components are added to the original hydraulic schematic, not a second view. Adjust positions through X and Y. The dashboard shows the live preview.")}</p>
+          <p>${t("Die Bauteile werden passend zu ihren Anschlüssen automatisch im ursprünglichen Hydraulikplan angeordnet. Du musst keine Positionen eingeben. Die Live-Vorschau siehst du im Dashboard.","Components are automatically arranged in the original hydraulic schematic. No manual coordinates are required. The dashboard shows the live preview.")}</p>
           ${chosen}
           <h3>${t("Rohrverbindungen","Pipe connections")}</h3>
           <div class="hpc-row"><label>${t("Von Anschluss","From port")}<select id="hpc-from">
@@ -8231,7 +8326,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             <label>${t("Zu Anschluss","To port")}<select id="hpc-to"><option value="">–</option>${portOptions}</select></label>
             <button type="button" data-action="connect" class="hpc-primary">${t("Verbinden","Connect")}</button></div>
           ${connectionRows}
-          <p>${t("Mischerstellungen und Pumpenzustände ersetzen keine hydraulische Durchflussmessung. Vor einem produktiven Einsatz Leitungswege prüfen.","Mixer and pump states do not prove hydraulic flow. Verify connections before relying on the visualization.")}</p>`}
+          <p>${t("Die Leitungen werden bei aktivem Pumpen- oder Flusssignal animiert. 0 % und 100 % Mischerstellung verhindern die Animation nicht. Ohne zugeordneten Pumpenstatus ist der Durchfluss unbekannt. Bitte die tatsächliche Hydraulik prüfen.","Pipes animate when an assigned pump or flow signal is active. Mixer positions of 0% or 100% do not disable circulation. Without a pump signal, flow is unknown. Verify actual pipework.")}</p>`}
         ${dataList}
       </div>`;
       if(!this._freeUi){this._freeUi=document.createElement("div");this.append(this._freeUi);}
@@ -8286,7 +8381,6 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       root.querySelectorAll("[data-select]").forEach(b=>b.addEventListener("click",()=>{this._selectedId=b.dataset.select;this._renderFlex();}));
       const fieldUpdate=(selector,fn)=>root.querySelectorAll(selector).forEach(el=>el.addEventListener("change",()=>changePlan(plan=>fn(plan,el))));
       fieldUpdate("[data-name]",(plan,el)=>{const c=plan.components.find(x=>x.id===el.dataset.name);if(c)c.name=el.value.slice(0,75);});
-      fieldUpdate("[data-pos]",(plan,el)=>{const c=plan.components.find(x=>x.id===selected?.id);if(c)c[el.dataset.pos]=Number(el.value);});
       fieldUpdate("[data-sensor]",(plan,el)=>{const c=plan.components.find(x=>x.id===el.dataset.sensor);if(c){
         if(el.value)c.sensors[el.dataset.field]=el.value;else delete c.sensors[el.dataset.field];
       }});
