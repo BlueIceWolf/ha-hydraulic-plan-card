@@ -128,11 +128,62 @@ const HPC_INTEGRATED = (() => {
     if(values.at(-1).position<100)a.push('<stop offset="100%" stop-color="#7e8a95"/>');
     return a.join('');
   }
+  function flowStates(plan,hass) {
+    // A mixer position of 0% or 100% is NOT a flow sensor and is never used
+    // to disable circulation. Only an explicitly mapped pipe flow status or
+    // the state of an actual pump can activate animation.
+    const nodes=Object.fromEntries(plan.components.map(c=>[c.id,c]));
+    const adjacent=new Map(plan.components.map(c=>[c.id,[]]));
+    const flowing=new Set();
+    const mappedFlow=(edge)=>{
+      if(!edge.flow_entity)return null;
+      // Explicit pipe-level state always overrides topology inference.
+      return HPC_FREE.active(HPC_FREE.state(hass,edge.flow_entity));
+    };
+    for(const edge of plan.connections){
+      adjacent.get(edge.from)?.push({edge,neighbor:edge.to});
+      adjacent.get(edge.to)?.push({edge,neighbor:edge.from});
+      if(mappedFlow(edge)===true)flowing.add(edge.id);
+    }
+    const pumpEntity=(node)=>{
+      if(node.type==='pump')return node.sensors.state||node.sensors.pump||node.sensors.volume;
+      if(isSource(node)||node.type==='heating_circuit')return node.sensors.pump;
+      return null;
+    };
+    const pumpState=(node)=>{
+      const id=pumpEntity(node);
+      return id ? HPC_FREE.active(HPC_FREE.state(hass,id)) : null;
+    };
+    const blocked=(node)=>pumpState(node)===false;
+    const sources=plan.components.filter(n=>pumpState(n)===true);
+    for(const pump of sources){
+      const queue=[pump.id],visited=new Set();
+      while(queue.length){
+        const id=queue.shift();
+        if(visited.has(id))continue;
+        visited.add(id);
+        for(const {edge,neighbor} of adjacent.get(id)||[]){
+          const explicit=mappedFlow(edge);
+          if(explicit===false)continue;
+          const next=nodes[neighbor];
+          if(!next||blocked(next))continue;
+          flowing.add(edge.id);
+          // Stop at an unmapped heat source / heating circuit instead of
+          // assuming a different, uninstrumented boiler branch is running.
+          const unknownSource=(isSource(next)||next.type==='heating_circuit')
+            && pumpEntity(next)==null && next.id!==pump.id;
+          if(!unknownSource&&!visited.has(neighbor))queue.push(neighbor);
+        }
+      }
+    }
+    return flowing;
+  }
   function svg(model,hass) {
     const {plan,anchored,points,extras}=model;
     const all=Object.fromEntries(plan.components.map(c=>[c.id,c]));
     const loc=id=>anchored.get(id)||points.get(id);
     const defs=plan.components.filter(isTank).map(c=>'<linearGradient id="hpi-'+c.id+'" x1="0" y1="0" x2="0" y2="1">'+stops(c,hass)+'</linearGradient>').join('');
+    const flowing=flowStates(plan,hass);
     const links=plan.connections.map(edge=>{
       // The core pipe path already connects legacy core units. Only draw extra
       // paths for links crossing into or between added components.
@@ -143,7 +194,7 @@ const HPC_INTEGRATED = (() => {
       const d='M'+p.x+' '+p.y+' H'+mid+' V'+q.y+' H'+q.x;
       const s=HPC_FREE.state(hass,edge.temperature_entity);
       const color=s?HPC_FREE.color(s):null;
-      const on=edge.flow_entity && HPC_FREE.active(HPC_FREE.state(hass,edge.flow_entity));
+      const on=flowing.has(edge.id);
       return '<g class="hpi-link"><title>'+HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'
         +'<path class="pipe'+(on?' on':'')+'" d="'+d+'"'+(color?' style="--pc:'+color+'"':'')+'/>'
         +'<path class="flow'+(on?' on':'')+'" d="'+d+'"/></g>';
@@ -185,5 +236,5 @@ const HPC_INTEGRATED = (() => {
     return {defs,body:'<g id="hpc-integrated">'+links+nodes+'</g>',
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
-  return {layout,coreConfig,svg,tankPoints};
+  return {layout,coreConfig,svg,tankPoints,flowStates};
 })();
