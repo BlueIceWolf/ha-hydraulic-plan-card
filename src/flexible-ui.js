@@ -205,8 +205,6 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         <div class="hpc-row"><label>${t("Bezeichnung","Name")}<input data-name="${esc(selected.id)}"
           maxlength="75" value="${esc(selected.name)}"/></label>
           <button type="button" data-action="remove-component">${t("Entfernen","Remove")}</button></div>
-        <div class="hpc-row"><label>X<input type="number" min="0" max="7000" data-pos="x" value="${selected.x}"/></label>
-          <label>Y<input type="number" min="0" max="7000" data-pos="y" value="${selected.y}"/></label></div>
         ${HPC_FREE.byType[selected.type].fields.map(key=>sensorField(selected.id,key,selected.sensors[key])).join("")}
         ${isTank?`<h3>${t("Zusätzliche Temperaturfühler","Additional temperature sensors")}</h3>
           <p>${t("Ordne jeden Fühler seiner tatsächlichen Einbauhöhe zu. 0 % = oben, 100 % = unten.","Set each sensor to its real installation height. 0% = top, 100% = bottom.")}</p>
@@ -233,7 +231,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <div class="hpc-component-list">${p.components.map(c=>`<button type="button" data-select="${esc(c.id)}"
             aria-pressed="${selected?.id===c.id}">${esc(c.name)}</button>`).join("")}</div>
           <h3>${t("Hydraulikschema","Hydraulic schematic")}</h3>
-          <p>${t("Die Bauteile erscheinen direkt im ursprünglichen Hydraulikplan, nicht in einer zweiten Ansicht. Positionen lassen sich über X und Y einstellen. Die Live-Vorschau siehst du im Dashboard.","Components are added to the original hydraulic schematic, not a second view. Adjust positions through X and Y. The dashboard shows the live preview.")}</p>
+          <p>${t("Die Bauteile werden passend zu ihren Anschlüssen automatisch im ursprünglichen Hydraulikplan angeordnet. Du musst keine Positionen eingeben. Die Live-Vorschau siehst du im Dashboard.","Components are automatically arranged in the original hydraulic schematic. No manual coordinates are required. The dashboard shows the live preview.")}</p>
           ${chosen}
           <h3>${t("Rohrverbindungen","Pipe connections")}</h3>
           <div class="hpc-row"><label>${t("Von Anschluss","From port")}<select id="hpc-from">
@@ -241,7 +239,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             <label>${t("Zu Anschluss","To port")}<select id="hpc-to"><option value="">–</option>${portOptions}</select></label>
             <button type="button" data-action="connect" class="hpc-primary">${t("Verbinden","Connect")}</button></div>
           ${connectionRows}
-          <p>${t("Mischerstellungen und Pumpenzustände ersetzen keine hydraulische Durchflussmessung. Vor einem produktiven Einsatz Leitungswege prüfen.","Mixer and pump states do not prove hydraulic flow. Verify connections before relying on the visualization.")}</p>`}
+          <p>${t("Die Leitungen werden bei aktivem Pumpen- oder Flusssignal animiert. 0 % und 100 % Mischerstellung verhindern die Animation nicht. Ohne zugeordneten Pumpenstatus ist der Durchfluss unbekannt. Bitte die tatsächliche Hydraulik prüfen.","Pipes animate when an assigned pump or flow signal is active. Mixer positions of 0% or 100% do not disable circulation. Without a pump signal, flow is unknown. Verify actual pipework.")}</p>`}
         ${dataList}
       </div>`;
       if(!this._freeUi){this._freeUi=document.createElement("div");this.append(this._freeUi);}
@@ -296,7 +294,6 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       root.querySelectorAll("[data-select]").forEach(b=>b.addEventListener("click",()=>{this._selectedId=b.dataset.select;this._renderFlex();}));
       const fieldUpdate=(selector,fn)=>root.querySelectorAll(selector).forEach(el=>el.addEventListener("change",()=>changePlan(plan=>fn(plan,el))));
       fieldUpdate("[data-name]",(plan,el)=>{const c=plan.components.find(x=>x.id===el.dataset.name);if(c)c.name=el.value.slice(0,75);});
-      fieldUpdate("[data-pos]",(plan,el)=>{const c=plan.components.find(x=>x.id===selected?.id);if(c)c[el.dataset.pos]=Number(el.value);});
       fieldUpdate("[data-sensor]",(plan,el)=>{const c=plan.components.find(x=>x.id===el.dataset.sensor);if(c){
         if(el.value)c.sensors[el.dataset.field]=el.value;else delete c.sensors[el.dataset.field];
       }});

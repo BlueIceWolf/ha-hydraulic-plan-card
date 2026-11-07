@@ -171,6 +171,16 @@
       'Additional boilers, buffers, heater and mixer are appended as original-style units');
     check(freeSvg?.querySelectorAll('g.hpi-link').length===1,
       'Only additional pipes are appended, original circuit pipes remain');
+
+    const automaticBefore=freeSvg.querySelector('g[data-hpi-node="puffer2"] rect.tank')?.getAttribute('x');
+    const movedInputs=sample.map((node)=>({...node,x:3210,y:4890}));
+    free.setConfig({type:'custom:hydraulic-plan-card',
+      plan:{components:movedInputs,connections:edges}});
+    free.hass=hassFree;
+    const autoAfter=free.shadowRoot.getElementById('svg')
+      ?.querySelector('g[data-hpi-node="puffer2"] rect.tank')?.getAttribute('x');
+    check(automaticBefore===autoAfter && !!automaticBefore,
+      'Equipment auto layout ignores legacy X/Y and preserves original component positions');
     const newTank=freeSvg?.querySelector('g[data-hpi-node="puffer2"] rect.tank');
     check(!!newTank, 'Additional tanks use the original .tank drawing, not a flat node');
     const firstGradient=freeSvg?.querySelector('linearGradient[id="hpi-puffer1"]');
@@ -201,6 +211,7 @@
     editor.setConfig({type:'custom:hydraulic-plan-card',plan:{components:sample,connections:edges}});
     document.body.appendChild(editor);editor.hass=hassFree;
     check(!editor.querySelector('#hpc-free-svg') && !editor.querySelector('[data-action="classic"]'), 'Editor extends original view without separate canvas or view switch');
+    check(editor.querySelectorAll('[data-pos]').length===0,'Editor never asks for X/Y coordinates');
     const select=editor.querySelector('[data-select="puffer1"]');select?.click();
     check(!!editor.querySelector('input[data-sensor="puffer1"]'),'Editor exposes buffer entity fields');
     const focusInput=editor.querySelector('input[data-name="puffer1"]');
@@ -230,6 +241,39 @@
     if(addNode)addNode.value='diverter';
     editor.querySelector('button[data-action="add-component"]')?.click();
     check(updatedConfig?.plan?.components.length===11,'New components are saved through config-changed');
+
+    // Mixer percentage is a valve position; it must NOT suppress a pump-driven
+    // animation at either end of its 0–100% travel.
+    const flowNodes=[
+      {id:'source',type:'wood_gasifier',name:'Holzvergaser',sensors:{state:ids.burning}},
+      {id:'buffer',type:'buffer',name:'Puffer',sensors:{}},
+      {id:'pump',type:'pump',name:'Kesselpumpe',sensors:{state:ids.pump}},
+      {id:'mix',type:'mixer',name:'Rücklaufanhebung',
+        sensors:{position:'sensor.test_mix_position'}},
+      {id:'buffer2',type:'buffer',name:'Puffer 2',sensors:{}},
+    ];
+    const flowEdges=[
+      {id:'l1',from:'source',from_port:'flow',to:'pump',to_port:'in'},
+      {id:'l2',from:'pump',from_port:'out',to:'mix',to_port:'a'},
+      {id:'l3',from:'mix',from_port:'ab',to:'buffer2',to_port:'top_in'},
+      {id:'l4',from:'buffer2',from_port:'bottom_out',to:'buffer',to_port:'bottom_in'},
+    ];
+    const flowCard=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:flowNodes,connections:flowEdges}},
+      hassOf({'sensor.test_mix_position':state('sensor.test_mix_position',0,'%')}));
+    const activeFlow=()=>flowCard.shadowRoot.querySelectorAll('g.hpi-link path.flow.on').length;
+    check(activeFlow()===4,'Running mapped pump animates connected flow even when mixer is at 0%');
+    flowCard.hass=hassOf({'sensor.test_mix_position':state('sensor.test_mix_position',100,'%')});
+    check(activeFlow()===4,'Running mapped pump animates connected flow when mixer is at 100%');
+    flowCard.hass=hassOf({[ids.pump]:state(ids.pump,'off'),
+      'sensor.test_mix_position':state('sensor.test_mix_position',100,'%')});
+    check(activeFlow()===0,'Stopped pump disables inferred flow irrespective of mixer position');
+    flowCard.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:flowNodes.map(n=>n.id==='pump'?{...n,sensors:{}}:n),
+        connections:flowEdges}});
+    flowCard.hass=hassOf({'sensor.test_mix_position':state('sensor.test_mix_position',100,'%')});
+    check(activeFlow()===0,'Unknown pump status never fabricates circulation');
+    flowCard.remove();
     editor.remove();free.remove();
 
     const brandNew=await mount({type:'custom:hydraulic-plan-card',preset:'none'},hassOf());
