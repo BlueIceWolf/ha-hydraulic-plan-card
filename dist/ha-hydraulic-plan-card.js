@@ -8,7 +8,7 @@
  *
  * https://github.com/Sturmi77/heatpump-hydraulic-card · MIT License
  */
-const HFC_VERSION = '0.2.0-alpha.3';
+const HFC_VERSION = '0.2.0-alpha.4';
 // Derivative of Heat Pump Hydraulic Card (MIT, Sturmi77). Keep its engine reusable.
 const HPC_GENERATORS = ['heat_pump', 'wood_gasifier', 'oil', 'pellet', 'gas', 'electric'];
 const HPC_BOILERS = HPC_GENERATORS.slice(1);
@@ -8057,13 +8057,28 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       svg.setAttribute('viewBox','0 0 '+model.width+' '+height);
       svg.style.width=model.width+'px';
       svg.style.maxWidth='none';
-      const stage=this._renderRoot().querySelector('.stage');
-      if(stage){stage.style.overflowX='auto';stage.style.overscrollBehavior='contain';}
       const root=this._renderRoot();
+      // This SVG can be much wider than the dashboard. The stage owns horizontal
+      // scrolling, but vertical wheel/touch scrolling must continue to the
+      // fullscreen card (or to the page outside fullscreen). A blanket
+      // overscroll-behavior: contain trapped wheel events over the stage.
+      const stage=root.querySelector('.stage');
+      const card=root.querySelector('ha-card');
+      card?.classList.add('hpi-expanded');
+      if(stage){
+        stage.style.overflowX='auto';
+        stage.style.overscrollBehaviorX='contain';
+        stage.style.overscrollBehaviorY='auto';
+        stage.style.touchAction='pan-x pan-y';
+      }
       if(!root.querySelector('#hpi-styles')){
         const style=document.createElement('style');
         style.id='hpi-styles';
-        style.textContent='.hpi-component .tap{cursor:pointer}.hpi-component .tank-title{font-size:16px}'
+        style.textContent=
+          '.hpi-expanded .stage{overflow-x:auto;overscroll-behavior-x:contain;overscroll-behavior-y:auto;scrollbar-width:thin;}'
+          +'.hpi-expanded.fullscreen{overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;}'
+          +'.hpi-expanded .stage #svg{display:block;max-width:none;height:auto;}'
+          +'.hpi-component .tap{cursor:pointer}.hpi-component .tank-title{font-size:16px}'
           +'.hpi-component .unit-title{font-size:15px}.hpi-component .small{font-size:13px}'
           +'.hpi-component .heater{fill:none;stroke:var(--hfc-heat,#c8783d);stroke-width:5;stroke-linecap:round}'
           +'.hpi-component .rib{fill:none;stroke:var(--hfc-muted,#94a3b8);stroke-width:8;stroke-linecap:round}';
