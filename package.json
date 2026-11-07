@@ -1,8 +1,8 @@
 {
   "name": "ha-hydraulic-plan-card",
-  "version": "0.1.0-alpha.1",
+  "version": "0.2.0-alpha.1",
   "private": true,
-  "description": "HACS dashboard card for boilers, heat pumps and hydronic heating systems",
+  "description": "Visual Home Assistant heating hydraulic editor: wood/oil/pellet boilers, heat pumps, mixers and layered buffer tanks",
   "type": "module",
   "scripts": {
     "dev": "node scripts/serve.mjs",

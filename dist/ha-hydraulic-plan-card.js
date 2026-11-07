@@ -7847,7 +7847,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
   }
   class HydraulicPlanCardEditor extends HeatpumpFlowCardEditor {
     _free(){return this._config?.plan_mode==="free"||Array.isArray(this._config?.plan?.components);}
-    _unconfigured(){return !this._free()&&(!this._config?.preset||this._config.preset==="none")&&
+    _unconfigured(){return !this._free()&&this._config?.editor_mode!=="classic"&&(!this._config?.preset||this._config.preset==="none")&&
       !Object.values(this._config?.entities||{}).some(Boolean);}
     setConfig(config){
       this._config=config||{};
@@ -7880,6 +7880,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     _renderFlex(){
       if(!this._config)return;
       if(this._form){this._form.remove();this._form=null;}
+      this._assistant?.remove();this._assistant=null;
+      this._warn?.remove();this._warn=null;
       this._switch?.remove();this._switch=null;
       const lang=String(this._hass?.locale?.language||navigator.language||"de").startsWith("de")?"de":"en";
       const t=(de,en)=>lang==="de"?de:en,esc=HPC_FREE.esc;
@@ -7970,7 +7972,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(action==="start")return this._applyPlan({components:[],connections:[]});
         if(action==="example")return this._applyPlan(HPC_FREE.sample());
         if(action==="classic"){
-          const c={...this._config};delete c.plan;delete c.plan_mode;
+          const c={...this._config,editor_mode:"classic"};delete c.plan;delete c.plan_mode;
           this._selectedId=null;this._save(c);return;
         }
         if(action==="add-component"){
@@ -8000,8 +8002,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             const taken=new Set((c.level_sensors||[]).map(p=>p.position));
             let pos=25;while(taken.has(pos)&&pos<100)pos+=5;
             c.level_sensors=[...(c.level_sensors||[]),{position:pos,entity:""}];
-            // Empty entities are not kept by normalize; see transient input UI below.
-            this._pendingLevel={id:c.id,position:pos};
+            // New fields are initially blank until an entity is selected.
           });
         }
         if(action==="remove-level"&&selected){
