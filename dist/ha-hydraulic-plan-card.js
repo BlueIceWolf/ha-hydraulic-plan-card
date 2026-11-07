@@ -7859,7 +7859,9 @@ const HPC_INTEGRATED = (() => {
       }
       return startX+Math.max(1,Math.ceil(items.length/wCount))*stepX;
     };
-    const sourceEnd=placeColumn(byGroup.source,1110,95,245,205);
+    // Additional heat sources stay below the original generator, not far outside
+    // the visible diagram. The first extra boiler is visible immediately.
+    placeColumn(byGroup.source,50,475,245,160);
     // Discover the buffer sequence from the user's directed pipe connections.
     // This works regardless of the order in which buffers were added.
     const orderedBuffers=byGroup.storage.filter(c=>c.type==='buffer');
@@ -7880,7 +7882,7 @@ const HPC_INTEGRATED = (() => {
     }
     orderedBuffers.sort((a,b)=>(distances.get(a.id)??Infinity)-(distances.get(b.id)??Infinity));
     const extraDhw=byGroup.storage.filter(c=>c.type==='dhw_tank');
-    const storageStart=sourceEnd+90;
+    const storageStart=1110;
     // A second DHW row must not overlap the buffer row.
     const bufferStartY=330+Math.max(0,Math.ceil(extraDhw.length/4)-1)*225;
     orderedBuffers.forEach((node,index)=>{
@@ -8152,7 +8154,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       if(firstDhw)svg.querySelector('rect.tank[x="520"][y="40"]')?.setAttribute('fill','url(#hpi-'+firstDhw+')');
       const height=Math.max(model.height,560+(this._hcCount-1)*250);
       svg.setAttribute('viewBox','0 0 '+model.width+' '+height);
-      svg.style.width=model.width+'px';
+      // Keep the ORIGINAL 1000-unit schematic scaled to the card width.
+      // Extra components extend the scrollable canvas without zooming in the
+      // existing equipment when the editor preview is only ~500px wide.
+      // Percentages also adapt automatically when HA resizes the editor/card.
+      svg.style.width=(model.width/10)+'%';
       svg.style.maxWidth='none';
       const root=this._renderRoot();
       // This SVG can be much wider than the dashboard. The stage owns horizontal
@@ -8239,7 +8245,28 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // User action (not a HA data refresh) is the only reason to redraw the form.
       this._render();
     }
-    _applyPlan(plan){this._save({...this._config,plan:HPC_FREE.normalize(plan)});}
+    _applyPlan(plan,extra={}){this._save({...this._config,...extra,plan:HPC_FREE.normalize(plan)});}
+    _legacyPlan(){
+      // When adding to an existing classic card, retain its original heat
+      // generator instead of silently replacing it with the first new part.
+      const c=this._config||{};
+      const kinds={wood_gasifier:'wood_gasifier',oil:'oil_boiler',pellet:'pellet_boiler',
+        gas:'gas_boiler',heat_pump:'heat_pump'};
+      const type=kinds[c.generator_type];
+      if(!type)return {components:[],connections:[]};
+      const primary=HPC_FREE.newNode(type,{components:[],connections:[]});
+      primary.id='bestand_waermeerzeuger';
+      primary.name=type==='heat_pump'?HPC_FREE.display(type):(c.boiler_name||HPC_FREE.display(type));
+      const keys=type==='heat_pump'
+        ?{state:'mode',flow:'flow',return:'return',power:'power',pump:'primary'}
+        :{state:'boiler_state',flow:'boiler_flow',return:'boiler_return',
+          exhaust:'boiler_exhaust',oxygen:'boiler_o2',fan:'boiler_fan',
+          power:'boiler_power',pump:'boiler_pump'};
+      for(const [field,role] of Object.entries(keys)){
+        if(c.entities?.[role])primary.sensors[field]=c.entities[role];
+      }
+      return HPC_FREE.normalize({components:[primary],connections:[]});
+    }
     _showFreeButton(){
       if(!this._config||!this._hass||this._free())return;
       if(this._switch?.isConnected)return;
@@ -8342,9 +8369,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(action==="start")return this._applyPlan({components:[],connections:[]});
         if(action==="example")return this._applyPlan(HPC_FREE.sample());
         if(action==="add-component"){
-          const node=HPC_FREE.newNode(root.querySelector("#hpc-free-type")?.value,p);
+          const importing=!p.components.length&&!this._config.hpc_legacy_imported;
+          const legacy=importing?this._legacyPlan():{components:[],connections:[]};
+          const base=legacy.components.length?legacy:p;
+          const node=HPC_FREE.newNode(root.querySelector("#hpc-free-type")?.value,base);
           if(!node)return;this._selectedId=node.id;
-          return this._applyPlan({components:[...p.components,node],connections:p.connections});
+          return this._applyPlan({components:[...base.components,node],connections:base.connections},
+            legacy.components.length?{hpc_legacy_imported:true}:{});
         }
         if(action==="remove-component"&&selected){
           this._selectedId=null;
