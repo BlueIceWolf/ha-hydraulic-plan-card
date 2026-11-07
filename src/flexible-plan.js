@@ -154,9 +154,22 @@ const HPC_FREE = (function makeFreeHelpers() {
   function color(s) {
     if(!s||s.number===null||!["°c","c","°f","k"].includes(s.unit.toLowerCase()))return "#718096";
     const t=s.unit==="°F"?(s.number-32)*5/9:s.unit==="K"?s.number-273.15:s.number;
-    const f=Math.min(1,Math.max(0,(t-15)/65));
-    const cold=[70,145,186],hot=[223,88,52];
-    return "rgb("+cold.map((v,i)=>Math.round(v+(hot[i]-v)*f)).join(",")+")";
+    // Matching the upstream tank palette: blue → teal → warm amber → red.
+    const ranges=[
+      [10,[72,110,170]],
+      [30,[63,145,164]],
+      [50,[200,120,61]],
+      [80,[199,91,91]],
+    ];
+    if(t<=ranges[0][0])return "rgb("+ranges[0][1].join(",")+")";
+    for(let i=1;i<ranges.length;i++){
+      if(t<=ranges[i][0]){
+        const [at,b]=ranges[i-1], [next,c]=ranges[i];
+        const f=(t-at)/(next-at);
+        return "rgb("+b.map((v,j)=>Math.round(v+(c[j]-v)*f)).join(",")+")";
+      }
+    }
+    return "rgb("+ranges.at(-1)[1].join(",")+")";
   }
   function portXY(c,key) {
     const [w,h]=dimension(c.type);
