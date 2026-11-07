@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Collision: another card owns the generic element names</title>
+<!-- Loaded in an iframe by selftest.html: another card registered the generic names first; this card must still be reachable. -->
+<script>
+window.__warns = [];
+const warn = console.warn;
+console.warn = (...a) => { window.__warns.push(a.join(' ')); warn.apply(console, a); };
+customElements.define('heatpump-flow-card', class extends HTMLElement {});
+customElements.define('heatpump-flow-card-editor', class extends HTMLElement {});
+</script>
+<script src="../dist/heatpump-hydraulic-card.js"></script>
+</head><body></body></html>
