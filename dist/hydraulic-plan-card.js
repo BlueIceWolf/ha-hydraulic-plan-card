@@ -45,7 +45,7 @@ const HFC_SCRIPT_URL = (() => {
     if (document.currentScript?.src) return document.currentScript.src
     // The file name of this card first: another project's card may be called heatpump-flow-card.js as well.
     const names = performance.getEntriesByType('resource').map((r) => r.name);
-    return names.find((n) => /heatpump-hydraulic-card[^/?]*\.js/.test(n)) || names.find((n) => /heatpump-flow-card[^/?]*\.js/.test(n)) || '';
+    return names.find((n) => /hydraulic-plan-card[^/?]*\.js/.test(n)) || '';
   } catch (e) { return ''; }
 })();
 
@@ -3495,7 +3495,7 @@ class HeatpumpFlowCard extends HTMLElement {
   // PV / battery / grid power from the Energy dashboard (its "stat_rate" power sensors), loaded once per page.
   // Conventions of the Energy dashboard: battery positive = discharging, grid positive = import.
   _loadEnergy() {
-    if (this._energyReq || this._config.power_sources === 'manual' || typeof this._hass.callWS !== 'function') return;
+    if (this._energyReq || this._config.power_sources === 'manual' || HPC_BOILERS.includes(this._config.generator_type) || typeof this._hass.callWS !== 'function') return;
     this._energyReq = true;
     HeatpumpFlowCard._energyPrefs = HeatpumpFlowCard._energyPrefs || this._hass.callWS({ type: 'energy/get_prefs' });
     HeatpumpFlowCard._energyPrefs.then((prefs) => {
@@ -4035,6 +4035,7 @@ class HeatpumpFlowCard extends HTMLElement {
       src: this._sourceType,
       unit: this._unitKey(),
       boilerPrimary: HPC_BOILERS.includes(this._config.generator_type),
+      boilerIcons: ['boiler_fan', 'boiler_pump', 'boiler_mixer', 'boiler_heater'].map((key) => +this._has(key)).join(''),
       boiler: !HPC_BOILERS.includes(this._config.generator_type)
         && ['boiler_state', 'boiler_power', 'boiler_flow', 'boiler_pump', 'boiler_heater'].some((k) => this._has(k)),
       heaters: ['heater', ...HFC_TANK_HEATERS].map((k) => (this._has(k) ? 1 : 0)).join(''),
@@ -7329,7 +7330,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
       if (boilerOnly ? !has('boiler_flow') : (!has('flow') || !has('return'))) warn.push(L.warn_temps);
       if (!boilerOnly && !has('heat') && !has('volume')) warn.push(L.warn_heat);
       // A numeric sensor as the valve without any map: 1 is read as hot water, which is wrong for valves that report 1 for heating.
-      if (valveId && valveId.startsWith('sensor.') && /^-?\d+(\.\d+)?$/.test(String(valveState ?? '').trim()) && !Object.keys(valveMap).length) warn.push(L.warn_valve);
+      if (!boilerOnly && valveId && valveId.startsWith('sensor.') && /^-?\d+(\.\d+)?$/.test(String(valveState ?? '').trim()) && !Object.keys(valveMap).length) warn.push(L.warn_valve);
     }
     // A value map under `entities` (the mistake in #109) is ignored by the card; say so, the editor cannot show or move it.
     const misplacedMaps = HFC_MAP_KEYS.filter((name) => own && typeof own === 'object' && name in own);
