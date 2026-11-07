@@ -1,0 +1,369 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Heatpump Flow Card – topology test</title>
+<!--
+  Safety net for changes to the drawing and the flow logic (docs/TOPOLOGY.md, stage 0a). Runs in a headless browser like selftest.html.
+
+  1. Snapshot: every demo installation in every layout and scenario, and every generated combination below in every operating state,
+     is reduced to two fingerprints – the geometry of the schematic and its state (which pipe flows, classes, colours, texts) – and
+     compared with test/topology-snapshot.js. A refactor that must not change what users see keeps both fingerprints.
+  2. Combinations: the storage strategies the card draws (direct, parallel buffer, series buffer with and without bypass valve,
+     combined storage) × hot-water tank (none, tank, tank with solar; a combined storage always holds it) × primary pump × 1–6 heating circuits,
+     plus the hot-water preparations (fresh-water station on the buffer or the combined storage, tank in tank); source type, emitters, heaters, power
+     sources and layout rotate through the cases. Each combination is checked for the same invariants: it renders, every pipe ends
+     at another pipe or a component, a flowing pipe never ends at a closed one, components do not overlap, everything stays inside
+     the drawing, and the schematic is one tab stop with labelled parts.
+
+  ?dump writes the full descriptions as JSON into <pre id="dump"> instead of comparing (scripts/topology-snapshot.mjs uses it).
+  Result: <pre id="result">PASS</pre> or FAIL with the failed checks.
+-->
+<style>#stage { width: 900px; } #stage.narrow { width: 420px; }</style>
+</head>
+<body>
+<pre id="result">RUNNING</pre>
+<pre id="log"></pre>
+<pre id="dump"></pre>
+<div id="stage"></div>
+<script src="../dist/heatpump-hydraulic-card.js"></script>
+<script src="../demo/setups.js"></script>
+<script src="topology-snapshot.js"></script>
+<script>
+(async () => {
+  const C = customElements.get('heatpump-flow-card');
+  const dump = new URLSearchParams(location.search).has('dump');
+  const fails = []; let checks = 0;
+  const check = (ok, label) => { checks++; if (!ok) fails.push(label); };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const stage = document.getElementById('stage');
+
+  // Same state format and Home Assistant stub as selftest.html.
+  const toStates = (obj) => {
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+      if (v && typeof v === 'object' && !Array.isArray(v)) { out[k] = { entity_id: k, attributes: {}, ...v }; continue; }
+      const [state, unit] = Array.isArray(v) ? v : [v];
+      out[k] = { entity_id: k, state, attributes: unit ? { unit_of_measurement: unit } : {} };
+    }
+    return out;
+  };
+  const hassOf = (states, registry = {}, energy, setup = {}) => ({
+    // Snapshot timestamps must use the same Home Assistant zone on developer machines and UTC CI runners.
+    states, entities: registry, config: { time_zone: 'Europe/Vienna' }, locale: { language: 'en' }, language: 'en',
+    callWS: (m) => (m.type === 'recorder/statistic_during_period' ? statChange(setup, m)
+      : m.type === 'history/history_during_period' && setup.states ? historySim(setup, m)
+      : m.type === 'energy/get_prefs' && energy ? Promise.resolve(energy) : Promise.reject(new Error('n/a'))),
+    callService: () => Promise.resolve(),
+  });
+  const mount = (config, hass, narrow = false) => {
+    C._energyPrefs = null;
+    stage.className = narrow ? 'narrow' : '';
+    const card = document.createElement('heatpump-flow-card');
+    card.setConfig(config);
+    stage.appendChild(card);
+    card.hass = hass; card.hass = { ...hass };
+    return card;
+  };
+
+  /* ---------- fingerprints ---------- */
+  // Geometry: the attributes that place and shape an element. Everything else (class, style, colours, labels, text) is state.
+  const GEO = new Set(['d', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'width', 'height', 'points', 'transform',
+    'viewBox', 'dx', 'dy', 'textLength', 'lengthAdjust', 'text-anchor', 'offset']);
+  // Placed or shortened by measured text widths, which depend on the fonts of the browser: the position is recorded as present,
+  // the text not at all. The room line of a circuit drops its target where it does not fit; the target is its own text, the
+  // room value a tspan and still recorded.
+  const measuredX = (el) => /^t-hc-(mode|room)\d*$/.test(el.id);
+  const measuredText = (el, root) => {
+    if (/^t-hc-room\d*$/.test(el.id)) return true;
+    const m = /^t-hc(\d*)$/.exec(el.id); return !!m && !!root.getElementById(`t-hc-now${m[1]}`);
+  };
+  // Inline styles set by script are serialised by each browser in its own way: declarations sorted, spaces normalised, and the
+  // depth of a transform origin (Firefox adds "0px") left out.
+  const style = (value) => value.split(';').map((d) => d.trim().replace(/\s*:\s*/, ':').replace(/\s+/g, ' ').replace(/^(transform-origin:\S+ \S+) 0px$/, '$1'))
+    .filter(Boolean).sort().join('; ');
+  const describe = (card) => {
+    const root = card.shadowRoot;
+    const svg = root.getElementById('svg');
+    if (!svg) return { geo: ['(no schematic)'], state: [`failed ${!!card._failed}`] };
+    const geo = []; const state = [];
+    for (const el of [svg, ...svg.querySelectorAll('*')]) {
+      const name = `${el.tagName}${el.id ? `#${el.id}` : ''}`;
+      const g = []; const s = [];
+      for (const a of [...el.attributes].sort((p, q) => (p.name < q.name ? -1 : 1))) {
+        if (a.name === 'id') continue;
+        if (GEO.has(a.name)) g.push(`${a.name}=${a.name === 'x' && measuredX(el) ? '*' : a.value}`);
+        else if (a.name === 'style') { if (style(a.value)) s.push(`style=${style(a.value)}`); } else s.push(`${a.name}=${a.value}`);
+      }
+      const own = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('');
+      if (own.trim() && !measuredText(el, root)) s.push(`"${own}"`);
+      geo.push(`${name} ${g.join(' ')}`);
+      state.push(`${name} ${s.join(' ')}`);
+    }
+    return { geo, state };
+  };
+  // FNV-1a, 32 bit: enough to notice a change; ?dump shows what changed.
+  const hash = (lines) => {
+    let h = 0x811c9dc5;
+    const text = lines.join('\n');
+    for (let n = 0; n < text.length; n++) { h ^= text.charCodeAt(n); h = Math.imul(h, 0x01000193) >>> 0; }
+    return h.toString(16).padStart(8, '0');
+  };
+  // Waits until asynchronous answers (energy dashboard, statistics, history) have settled: three identical readings in a row, the
+  // last two 5 ms apart. Two readings were not enough for the energy split of a demo, which once arrived between them.
+  const settled = async (card) => {
+    let last = ''; let same = 0; let d;
+    for (let n = 0; n < 40; n++) {
+      await wait(n < 2 ? 0 : 5);
+      d = describe(card);
+      const now = hash(d.geo) + hash(d.state);
+      same = now === last ? same + 1 : 0;
+      if (same >= 2) return d;
+      last = now;
+    }
+    return d;
+  };
+  const base = window.HFC_TOPOLOGY_SNAPSHOT;
+  const results = {}; const full = {};
+  const record = (key, d) => {
+    const h = `${hash(d.geo)} ${hash(d.state)}`;
+    results[key] = dump ? { h, ...d } : h;
+    // Kept in full only for the first changed case of each setup or storage strategy, at most three.
+    const group = key.split(' ').slice(0, 2).join(' ');
+    if (!dump && base && key in base && base[key] !== h && Object.keys(full).length < 3 && !Object.keys(full).some((k) => k.startsWith(`${group} `))) full[key] = d;
+  };
+
+  /* ---------- 1. demo installations ---------- */
+  for (const [i, s] of setups.entries()) {
+    for (const layout of [...HFC_LAYOUTS, 'narrow']) {
+      const narrow = layout === 'narrow';
+      const config = narrow ? s.config : { ...s.config, layout };
+      let card = null;
+      for (const [scen] of scenarios) {
+        const hass = hassOf(toStates(s.states(scen)), s.registry || {}, s.energy, s);
+        if (!card) card = mount(config, hass, narrow); else card.hass = hass;
+        record(`demo ${i} ${layout} ${scen}`, await settled(card));
+      }
+      card.remove();
+    }
+  }
+
+  /* ---------- 2. generated combinations ---------- */
+  // New strategies go at the end, so the existing cases keep their index and with it their source type and layout.
+  const STORAGE = ['direct', 'parallel', 'series', 'series-fixed', 'combined'];
+  const DHW = ['none', 'tank', 'solar'];
+  const SOURCES = ['air', 'brine', 'water'];
+  const EMITTERS = ['underfloor', 'radiator', 'column'];
+  const STATES = ['heat', 'dhw', 'defrost', 'idle', 'cool', 'sniff', 'pumps', 'heat1off'];
+  const combos = [];
+  // A combined storage always holds the hot water.
+  for (const storage of STORAGE) for (const dhw of DHW.filter((x) => storage !== 'combined' || x !== 'none')) for (const primary of [false, true]) for (let hcs = 1; hcs <= 6; hcs++) combos.push({ storage, dhw, primary, hcs });
+  // Hot-water preparation (dhw_type), appended for the same reason: a fresh-water station on the parallel buffer or the combined
+  // storage ("fws"), a tank in the combined storage ("tit").
+  for (const [storage, dhw] of [['parallel', 'fws'], ['combined', 'fws'], ['combined', 'tit']]) for (const primary of [false, true]) for (let hcs = 1; hcs <= 6; hcs++) combos.push({ storage, dhw, primary, hcs });
+  // Representative second-generator layouts: direct, parallel buffer and combined storage, with and without a primary pump.
+  combos.push({ storage: 'direct', dhw: 'tank', primary: false, hcs: 1, boiler: true });
+  combos.push({ storage: 'parallel', dhw: 'tank', primary: true, hcs: 2, boiler: true });
+  combos.push({ storage: 'combined', dhw: 'fws', primary: false, hcs: 3, boiler: true });
+  // Sensorless parallel buffers (#266), appended so every older generated case keeps its index, source type and layout.
+  for (const dhw of DHW) for (const primary of [false, true]) for (let hcs = 1; hcs <= 6; hcs++) combos.push({ storage: 'parallel-empty', dhw, primary, hcs });
+
+  // A synthetic installation without preset: every entity is mapped by hand, so the case shows exactly the parts it names.
+  const installation = (c, idx) => {
+    const ent = {
+      mode: 'sensor.t_mode', compressor: 'binary_sensor.t_compressor', power: 'sensor.t_power', flow: 'sensor.t_flow', return: 'sensor.t_return',
+      volume: 'sensor.t_volume', outdoor: 'sensor.t_outdoor', room: 'sensor.t_room', room_target: 'sensor.t_room_target',
+    };
+    const config = { entities: ent, source_type: SOURCES[idx % 3], hc_count: c.hcs, layout: HFC_LAYOUTS[idx % HFC_LAYOUTS.length] };
+    if (c.dhw !== 'none') Object.assign(ent, { valve: 'binary_sensor.t_valve', dhw_top: 'sensor.t_dhw_top', dhw_bottom: 'sensor.t_dhw_bottom' });
+    if (c.dhw !== 'none' && idx % 2) ent.dhw_middle = 'sensor.t_dhw_middle';
+    if (c.dhw === 'solar') Object.assign(ent, { solar_collector: 'sensor.t_collector', solar_pump: 'binary_sensor.t_solar_pump' });
+    if (['parallel', 'combined'].includes(c.storage)) Object.assign(ent, { buffer_top: 'sensor.t_buffer_top', buffer_bottom: 'sensor.t_buffer_bottom' });
+    if (c.storage === 'parallel-empty') config.buffer = true;
+    if (c.storage === 'combined') config.storage = 'combined';
+    if (c.dhw === 'fws') config.dhw_type = 'fresh_water';
+    if (c.dhw === 'tit') config.dhw_type = 'tank_in_tank';
+    if (c.storage.startsWith('series')) config.series_buffer = true;
+    if (c.storage === 'series-fixed') config.series_bypass = false;
+    if (c.primary) config.primary_pump = true;
+    if (c.boiler) Object.assign(ent, { boiler_state: 'binary_sensor.t_boiler', boiler_power: 'sensor.t_boiler_power', boiler_flow: 'sensor.t_boiler_flow' });
+    if (idx % 5 === 1) ent.heater = 'sensor.t_heater';
+    if (idx % 5 === 2 && c.dhw !== 'none') ent.dhw_heater = 'sensor.t_dhw_heater';
+    if (idx % 5 === 3 && ['parallel', 'parallel-empty', 'combined'].includes(c.storage)) ent.buffer_heater = 'sensor.t_buffer_heater';
+    if (idx % 4 === 1) Object.assign(ent, { pv: 'sensor.t_pv', battery: 'sensor.t_battery', grid: 'sensor.t_grid' });
+    if (idx % 4 === 1) config.power_sources = 'manual';
+    for (let n = 1; n <= c.hcs; n++) {
+      const k = (key) => (n === 1 ? `hc_${key}` : `hc${n}_${key}`);
+      Object.assign(ent, { [k('flow')]: `sensor.t_hc${n}_flow`, [k('return')]: `sensor.t_hc${n}_return`, [k('pump')]: `binary_sensor.t_hc${n}_pump` });
+      if (n > 1) config[`hc${n}_type`] = EMITTERS[(idx + n) % 3];
+    }
+    if (c.hcs === 1) config.hc_type = EMITTERS[idx % 3];
+    return config;
+  };
+  const statesOf = (c, st) => {
+    const run = !['idle', 'sniff', 'pumps'].includes(st);
+    const mode = { heat: 'heating', dhw: 'dhw', defrost: 'defrost', idle: 'idle', cool: 'cooling', sniff: 'idle', pumps: 'idle', heat1off: 'heating' }[st];
+    const out = {
+      'sensor.t_mode': mode, 'binary_sensor.t_compressor': run && st !== 'defrost' ? 'on' : 'off',
+      'sensor.t_power': [run ? '1400' : '8', 'W'], 'sensor.t_flow': [st === 'cool' ? '18' : st === 'dhw' ? '52' : '36', '°C'],
+      'sensor.t_return': [st === 'cool' ? '22' : st === 'dhw' ? '45' : '30', '°C'], 'sensor.t_volume': [run ? '900' : st === 'sniff' ? '120' : '0', 'L/h'],
+      'sensor.t_outdoor': ['3', '°C'], 'sensor.t_room': ['21.2', '°C'], 'sensor.t_room_target': ['21', '°C'],
+      'binary_sensor.t_valve': st === 'dhw' ? 'on' : 'off', 'sensor.t_dhw_top': ['49', '°C'], 'sensor.t_dhw_middle': ['44', '°C'], 'sensor.t_dhw_bottom': ['38', '°C'],
+      'sensor.t_collector': ['61', '°C'], 'binary_sensor.t_solar_pump': ['dhw', 'idle'].includes(st) ? 'on' : 'off',
+      'sensor.t_buffer_top': ['34', '°C'], 'sensor.t_buffer_bottom': ['29', '°C'],
+      'sensor.t_heater': st === 'defrost' ? '1' : '0', 'sensor.t_dhw_heater': st === 'dhw' ? '1' : '0', 'sensor.t_buffer_heater': st === 'defrost' ? '2' : '0',
+      'sensor.t_pv': ['2100', 'W'], 'sensor.t_battery': ['0', 'W'], 'sensor.t_grid': [run ? '300' : '0', 'W'],
+      'binary_sensor.t_boiler': c.boiler && ['heat', 'idle'].includes(st) ? 'on' : 'off', 'sensor.t_boiler_power': [c.boiler && ['heat', 'idle'].includes(st) ? '8000' : '0', 'W'],
+      'sensor.t_boiler_flow': ['52', '°C'],
+    };
+    for (let n = 1; n <= c.hcs; n++) {
+      out[`sensor.t_hc${n}_flow`] = [String(st === 'cool' ? 18 : 34 - n), '°C'];
+      out[`sensor.t_hc${n}_return`] = [String(st === 'cool' ? 22 : 29 - n), '°C'];
+      // The last of several circuits stays off while heating, so running and stopped circuits meet in one drawing. The circuit
+      // pumps keep running while the tank is charged (blocked by the diverter valve without a parallel buffer), stand still while
+      // the primary pump sniffs, and run alone while the heat pump idles ("pumps"). In "heat1off" the first circuit stands while the
+      // others heat, so the trunk they share with it must flow on its own.
+      const on = ['heat', 'cool', 'defrost', 'dhw', 'pumps', 'heat1off'].includes(st);
+      out[`binary_sensor.t_hc${n}_pump`] = on && !(st === 'heat' && n > 1 && n === c.hcs) && !(st === 'heat1off' && n === 1) ? 'on' : 'off';
+    }
+    return out;
+  };
+
+  /* ---------- invariants ---------- */
+  const visible = (el, svg) => {
+    for (let n = el; n && n !== svg; n = n.parentNode) {
+      const cs = getComputedStyle(n);
+      if (cs.display === 'none' || cs.visibility === 'hidden') return false;
+    }
+    return true;
+  };
+  // Box of an element in the coordinates of the schematic.
+  const rootBox = (el, svg) => {
+    const b = el.getBBox(); const m = svg.getCTM().inverse().multiply(el.getCTM());
+    const pts = [[b.x, b.y], [b.x + b.width, b.y], [b.x, b.y + b.height], [b.x + b.width, b.y + b.height]].map(([x, y]) => new DOMPoint(x, y).matrixTransform(m));
+    return { l: Math.min(...pts.map((p) => p.x)), r: Math.max(...pts.map((p) => p.x)), t: Math.min(...pts.map((p) => p.y)), b: Math.max(...pts.map((p) => p.y)) };
+  };
+  // The shapes of the schematic with their boxes and, for pipes, the end points of every sub-path (local and schematic coordinates).
+  const scene = (svg) => {
+    const toRoot = (el) => svg.getCTM().inverse().multiply(el.getCTM());
+    const shapes = [...svg.querySelectorAll('path, rect, circle, ellipse, line, polyline, polygon')]
+      .filter((el) => !el.classList.contains('flow') && !el.classList.contains('eflow') && visible(el, svg))
+      .map((el) => ({ el, box: rootBox(el, svg), pipe: el.classList.contains('pipe') }));
+    for (const s of shapes.filter((x) => x.pipe)) {
+      const m = toRoot(s.el);
+      s.ends = s.el.getAttribute('d').split(/(?=M)/).filter((d) => d.trim()).flatMap((d) => {
+        const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        p.setAttribute('d', d); s.el.parentNode.appendChild(p);
+        const pts = [p.getPointAtLength(0), p.getPointAtLength(p.getTotalLength())].map((q) => ({ x: q.x, y: q.y }));
+        p.remove();
+        return pts.map((pt) => ({ pt, at: new DOMPoint(pt.x, pt.y).matrixTransform(m) }));
+      });
+    }
+    return shapes;
+  };
+  // Whether the end point `e` of pipe `from` lies on the stroke or in the fill of shape `s` (2 units tolerance).
+  const touches = (s, from, e, svg) => {
+    const { box } = s; const { x, y } = e.at;
+    if (x < box.l - 8 || x > box.r + 8 || y < box.t - 8 || y > box.b + 8) return false;
+    const m = s.el.getCTM().inverse().multiply(from.el.getCTM());
+    const fill = s.el.tagName !== 'path' || getComputedStyle(s.el).fill !== 'none';
+    return [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2]].some(([dx, dy]) => {
+      const p = new DOMPoint(e.pt.x + dx, e.pt.y + dy).matrixTransform(m);
+      const sp = svg.createSVGPoint(); sp.x = p.x; sp.y = p.y;
+      try { return s.el.isPointInStroke(sp) || (fill && s.el.isPointInFill(sp)); } catch (err) { return false; }
+    });
+  };
+  const at = (s, e) => `${s.el.id}@${Math.round(e.at.x)},${Math.round(e.at.y)}`;
+  const COMPONENTS = '#hp-box, rect.boiler-box, rect.tank, rect.fws, circle.valve, circle.pump, rect.radiator, rect.screed, rect.collector, path.house';
+  // Components that sit on each other by design: the solar collector lies on the roof of the house.
+  const ON_TOP = [['collector', 'house']];
+  const kind = (el) => el.id || el.getAttribute('class');
+  const invariants = (card, label) => {
+    const root = card.shadowRoot; const svg = root.getElementById('svg');
+    check(!card._failed && !!svg, `${label}: renders`);
+    if (!svg) return;
+    const vb = svg.viewBox.baseVal;
+    const shapes = scene(svg);
+    // every pipe ends at another pipe or a component
+    const loose = [];
+    for (const p of shapes.filter((s) => s.pipe)) for (const e of p.ends) if (!shapes.some((s) => s !== p && touches(s, p, e, svg))) loose.push(at(p, e));
+    check(!loose.length, `${label}: every pipe ends at a pipe or a component (${loose.join(' ')})`);
+    // components do not overlap (touching edges are fine)
+    const comps = [...svg.querySelectorAll(COMPONENTS)].filter((el) => visible(el, svg)).map((el) => [el, rootBox(el, svg)]);
+    const hits = [];
+    comps.forEach(([a, ba], n) => comps.slice(n + 1).forEach(([b, bb]) => {
+      if (a.contains(b) || b.contains(a) || ON_TOP.some(([x, y]) => [kind(a), kind(b)].sort().join() === [x, y].sort().join())) return;
+      if (ba.l + 1 < bb.r && bb.l + 1 < ba.r && ba.t + 1 < bb.b && bb.t + 1 < ba.b) hits.push(`${kind(a)}×${kind(b)}`);
+    }));
+    check(!hits.length, `${label}: components do not overlap (${hits.join(' ')})`);
+    // everything stays inside the drawing
+    const out = shapes.filter(({ box: b }) => b.l < vb.x - 1 || b.t < vb.y - 1 || b.r > vb.x + vb.width + 1 || b.b > vb.y + vb.height + 1);
+    check(!out.length, `${label}: the drawing stays inside the view box ${vb.width}×${vb.height} (${out.map((s) => kind(s.el)).join(' ')})`);
+    // one tab stop, every part a labelled button
+    const parts = [...svg.querySelectorAll('[data-entity][tabindex]')];
+    check(parts.filter((el) => el.getAttribute('tabindex') === '0').length === 1, `${label}: the schematic is one tab stop`);
+    check(parts.every((el) => el.getAttribute('role') === 'button' && (el.getAttribute('aria-label') || '').trim()), `${label}: every part is a labelled button`);
+    return shapes;
+  };
+  // A flowing pipe must continue in another flowing pipe or end at a component, never at a closed pipe.
+  const flowing = (shapes, label, svg) => {
+    const dead = [];
+    for (const p of shapes.filter((s) => s.pipe && s.el.classList.contains('on'))) {
+      for (const e of p.ends) {
+        const ok = shapes.some((s) => s !== p && (!s.pipe || s.el.classList.contains('on')) && touches(s, p, e, svg));
+        if (!ok) dead.push(at(p, e));
+      }
+    }
+    check(!dead.length, `${label}: flowing pipes do not end at closed pipes (${dead.join(' ')})`);
+  };
+
+  for (const [idx, c] of combos.entries()) {
+    const config = installation(c, idx);
+    const name = `combo ${c.storage} ${c.dhw} ${c.primary ? 'pp' : 'nopp'} hc${c.hcs}${c.boiler ? ' boiler' : ''}`;
+    let card = null; let shapes = null;
+    // Hot-water operation only where a tank is drawn.
+    for (const st of STATES.filter((x) => x !== 'dhw' || c.dhw !== 'none')) {
+      const hass = hassOf(toStates(statesOf(c, st)));
+      if (!card) card = mount(config, hass); else card.hass = hass;
+      const d = await settled(card);
+      record(`${name} ${st}`, d);
+      if (dump) continue;
+      // The geometry does not change with the state, so the shapes are collected once; the classes are read live.
+      if (st === STATES[0]) shapes = invariants(card, `${name} (${config.source_type}, ${config.layout})`);
+      if (shapes) flowing(shapes, `${name} ${st}`, card.shadowRoot.getElementById('svg'));
+    }
+    card.remove();
+  }
+
+  /* ---------- result ---------- */
+  if (dump) {
+    document.getElementById('dump').textContent = JSON.stringify(results);
+    document.getElementById('result').textContent = 'DUMPED';
+    document.title = `DUMPED: ${Object.keys(results).length} cases`;
+    return;
+  }
+  check(!!base, 'snapshot baseline test/topology-snapshot.js is loaded');
+  // The first changed cases are written out in full, so they can be compared with `topology-snapshot.mjs --out` of another state.
+  let changed = '';
+  if (base) {
+    for (const [key, value] of Object.entries(results)) {
+      if (!(key in base)) { check(false, `snapshot: new case ${key} (update the baseline)`); continue; }
+      const [g, s] = value.split(' '); const [bg, bs] = base[key].split(' ');
+      check(g === bg, `snapshot: geometry of ${key} changed`);
+      check(s === bs, `snapshot: state of ${key} changed`);
+      if (full[key]) changed += `\n\nChanged case ${key} (${g !== bg ? 'geometry' : 'state'}):\n${(g !== bg ? full[key].geo : full[key].state).join('\n')}`;
+    }
+    for (const key of Object.keys(base)) if (!(key in results)) check(false, `snapshot: case ${key} is gone (update the baseline)`);
+  }
+  const res = document.getElementById('result');
+  res.textContent = fails.length ? 'FAIL' : 'PASS';
+  document.getElementById('log').textContent = `${checks} checks, ${Object.keys(results).length} snapshot cases\n${fails.map((f) => `FAIL ${f}`).join('\n')}${changed}`;
+  document.title = `${fails.length ? 'FAIL' : 'PASS'}: ${checks} checks`;
+})().catch((e) => {
+  document.getElementById('result').textContent = 'FAIL';
+  document.getElementById('log').textContent = `Error: ${e.stack || e}`;
+  document.title = 'FAIL: error';
+});
+</script>
+</body>
+</html>

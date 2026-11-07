@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Heat Pump Hydraulic Card – live demo</title>
+<link rel="icon" type="image/svg+xml" href="../docs/logo/icon-small.svg">
+<link rel="icon" type="image/png" sizes="64x64" href="../docs/logo/favicon-64.png">
+<link rel="apple-touch-icon" href="../docs/logo/apple-touch-icon.png">
+<meta name="description" content="Animated hydraulic schematic card for heat pumps in Home Assistant – try every preset with simulated data.">
+<style>
+  :root {
+    --bg: #f3f4f6; --surface: #ffffff; --text: #1f2937; --muted: #6b7280; --line: rgba(0,0,0,.12);
+    --accent: #ea580c; --accent-soft: #fff1e8; --code: #f8fafc;
+    /* Home Assistant variables the card reads */
+    --primary-text-color: #212121; --secondary-text-color: #6b6b6b; --card-background-color: #fff;
+    --secondary-background-color: #f0f0f0; --divider-color: rgba(0,0,0,.12);
+  }
+  :root.dark {
+    --bg: #0f1115; --surface: #1c1c1e; --text: #e5e7eb; --muted: #9ca3af; --line: rgba(255,255,255,.12);
+    --accent: #fb923c; --accent-soft: #3a2416; --code: #15171c;
+    --primary-text-color: #e1e1e1; --secondary-text-color: #9b9b9b; --card-background-color: #1c1c1c;
+    --secondary-background-color: #2a2a2a; --divider-color: rgba(255,255,255,.12);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 Roboto, "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; }
+  header h1 { margin: 0 0 4px; font-size: 26px; display: flex; align-items: center; gap: 12px; }
+  header h1 img { width: 44px; height: 44px; flex: none; }
+  header p { margin: 0; color: var(--muted); }
+  .links { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 10px; }
+  a { color: var(--accent); }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; margin-top: 20px; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  ha-card { display: block; background: var(--card-background-color); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .panel + .panel { margin-top: 14px; }
+  .panel h2 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .opts { display: flex; flex-direction: column; gap: 4px; }
+  .opts.row { flex-direction: row; flex-wrap: wrap; }
+  button { font: inherit; color: var(--text); background: transparent; border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 10px; cursor: pointer; text-align: left; }
+  button:hover { border-color: var(--accent); }
+  button.sel { background: var(--accent-soft); border-color: var(--accent); }
+  button small { display: block; color: var(--muted); font-size: 12px; }
+  pre { margin: 0; background: var(--code); border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow-x: auto;
+    font: 12.5px/1.45 ui-monospace, Consolas, monospace; }
+  .yhead { display: flex; justify-content: space-between; align-items: center; }
+  .yhead button { padding: 2px 8px; font-size: 12px; }
+  .note { font-size: 13px; color: var(--muted); margin-top: 10px; }
+  .warn { display: none; margin-top: 14px; padding: 10px 12px; border-radius: 8px; background: var(--accent-soft); font-size: 14px; }
+  @media (prefers-reduced-motion: reduce) { .warn { display: block; } }
+  /* ?embed=1 shows only the card (screenshots, iframes) */
+  body.embed header, body.embed aside, body.embed .note { display: none; }
+  body.embed main { max-width: none; padding: 12px; }
+  body.embed .layout { grid-template-columns: minmax(0, 1fr); margin-top: 0; }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); max-width: calc(100% - 32px);
+    background: #111827; color: #fff; padding: 10px 14px; border-radius: 8px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  #toast.on { opacity: 1; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1><img src="../docs/logo/logo-dark.svg" alt="" width="44" height="44">Heat Pump Hydraulic Card</h1>
+    <p>Live demo with simulated heat pumps – no Home Assistant needed. Pick a heat pump and an operating state.</p>
+    <div class="links">
+      <a href="https://github.com/Sturmi77/heatpump-hydraulic-card">GitHub repository and docs</a>
+      <a href="https://my.home-assistant.io/redirect/hacs_repository/?owner=Sturmi77&amp;repository=heatpump-hydraulic-card&amp;category=plugin">Install via HACS</a>
+      <a href="https://github.com/Sturmi77/heatpump-hydraulic-card/issues/new?template=preset_feedback.yml">Preset feedback</a>
+      <a href="https://community.home-assistant.io/t/card-heatpump-flow-card-animated-hydraulic-schematic-for-heat-pumps-lambda-viessmann-vaillant-bosch-buderus-panasonic/1029598">Community thread</a>
+    </div>
+    <div class="warn">Your system asks for reduced motion, so the card shows no animations – just like the default in Home Assistant. To see the flow without changing the operating system setting, choose <code>animations: always</code> in the card.</div>
+  </header>
+  <div class="layout">
+    <section>
+      <div id="wrap"></div>
+      <p class="note">Click any part of the card: in Home Assistant it opens the more-info dialog of that entity.</p>
+    </section>
+    <aside>
+      <div class="panel"><h2>Heat pump</h2><div class="opts" id="setups"></div>
+        <p class="note">Lambda, HeishaMon and Kronoterm (Cloud API) are confirmed on real installations. ViCare, myPyllant and EMS-ESP are built from the integrations' source code – feedback welcome.</p></div>
+      <div class="panel"><h2>Operating state</h2><div class="opts row" id="states"></div></div>
+      <div class="panel"><h2>Display</h2><div class="opts row" id="display"></div></div>
+      <div class="panel"><h2>Layout</h2><div class="opts row" id="layouts"></div>
+        <p class="note">Wide puts the tiles beside the schematic when the card is wide enough; compact saves space in narrow columns; wall display uses large type and hides the controls until you touch the card.</p></div>
+      <div class="panel"><h2>Card theme</h2><div class="opts row" id="themes"></div>
+        <p class="note">Automatic follows the dashboard. Night dims the card for wall tablets; high contrast strengthens text, pipes and outlines.</p></div>
+      <div class="panel"><h2>Unit drawing</h2><div class="opts row" id="units"></div>
+        <p class="note">Automatic uses the drawing of the preset (Lambda, Viessmann, Vaillant, Bosch/Buderus, Panasonic). Saunier Duval and Samsung are selectable manually. Vaillant comes in three sizes. Ground and groundwater sources keep their loop symbol.</p></div>
+      <div class="panel"><h2>Colours</h2><div class="opts row" id="palettes"></div>
+        <p class="note">Every colour is a CSS variable (<code>--hfc-*</code>) you can set in a theme or with card-mod.</p></div>
+      <div class="panel"><div class="yhead"><h2>Card configuration</h2><button id="copy">Copy</button></div><pre id="yaml"></pre>
+        <p class="note" id="ynote">Entities not listed are found by the preset.</p></div>
+    </aside>
+  </div>
+</main>
+<div id="toast"></div>
+<script src="../dist/heatpump-hydraulic-card.js"></script>
+<script src="setups.js"></script>
+<script>
+
+const q = new URLSearchParams(location.search);
+let cur = Math.min(Math.max(+q.get('setup') || 0, 0), setups.length - 1);
+let scen = scenarios.some(([k]) => k === q.get('s')) ? q.get('s') : 'heat';
+let lang = ['en', 'de', 'nl'].includes(q.get('lang')) ? q.get('lang') : 'en';
+if (q.get('embed') === '1') document.body.classList.add('embed');
+let layout = ['default', 'compact', 'wide', 'wall'].includes(q.get('layout')) ? q.get('layout') : 'default';
+let theme = ['auto', 'night', 'contrast'].includes(q.get('theme')) ? q.get('theme') : 'auto';
+const unitKeys = ['auto', 'generic', 'lambda', 'vaillant-small', 'vaillant-medium', 'vaillant-large', 'panasonic', 'panasonic-large', 'viessmann', 'bosch', 'saunier', 'samsung', 'wolf', 'kronoterm', 'alpha_innotec', 'stiebel'];
+let unit = unitKeys.includes(q.get('unit')) ? q.get('unit') : 'auto';
+let palette = q.get('palette') === 'teal' ? 'teal' : 'default';
+const palettes = { teal: { '--hfc-heat': '#14b8a6', '--hfc-hot': '#e11d48', '--hfc-flow-cold': '#5eead4', '--hfc-flow-hot': '#e11d48', '--hfc-tank-cold': '#6366f1', '--hfc-tank-hot': '#f43f5e', '--hfc-pv': '#eab308' } };
+let dark = q.has('dark') ? q.get('dark') === '1' : matchMedia('(prefers-color-scheme: dark)').matches;
+
+// Minimal YAML writer for the card config (strings, numbers, nested objects, lists of objects).
+const yv = (v) => (typeof v === 'string' && (!/^[\w.\-:/ ]+$/.test(v) || /: /.test(v)) ? JSON.stringify(v) : String(v));
+function yaml(obj, ind = '') {
+  return Object.entries(obj).map(([k, v]) => {
+    const key = /^[\w]+$/.test(k) ? k : JSON.stringify(k);
+    if (Array.isArray(v)) return `${ind}${key}:\n` + v.map((o) => ind + '  - ' + (o && typeof o === 'object' ? yaml(o, ind + '    ').slice(ind.length + 4) : yv(o))).join('\n');
+    if (v && typeof v === 'object') return `${ind}${key}:\n${yaml(v, ind + '  ')}`;
+    return `${ind}${key}: ${yv(v)}`;
+  }).join('\n');
+}
+
+const wrap = document.getElementById('wrap');
+const toast = document.getElementById('toast');
+let toastTimer;
+const say = (text) => {
+  toast.textContent = text;
+  toast.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove('on'), 2500);
+};
+// States changed through the quick controls, kept until the heat pump or scenario changes.
+let overrides = {};
+function refresh(card = document.querySelector('heatpump-flow-card')) {
+  const setup = setups[cur];
+  const states = {};
+  for (const [k, v] of Object.entries({ ...setup.states(scen), ...overrides })) {
+    if (v && typeof v === 'object' && !Array.isArray(v)) { states[k] = { entity_id: k, attributes: {}, ...v }; continue; }
+    const [state, unit] = Array.isArray(v) ? v : [v];
+    states[k] = { entity_id: k, state, attributes: unit ? { unit_of_measurement: unit } : {} };
+  }
+  const callWS = (msg) => {
+    if (msg.type === 'recorder/statistic_during_period') return statChange(setup, msg);
+    if (msg.type === 'history/history_during_period') return historySim(setup, msg);
+    return msg.type === 'energy/get_prefs' && setup.energy ? Promise.resolve(setup.energy) : Promise.reject(new Error('not simulated'));
+  };
+  // Simulated services for the quick controls.
+  const callService = (domain, service, data) => {
+    const id = data.entity_id; const st = states[id];
+    const keep = (state) => { overrides[id] = { ...st, state: String(state) }; };
+    if (service === 'toggle') keep(st.state === 'on' ? 'off' : 'on');
+    else if (service === 'select_option') keep(data.option);
+    else if (service === 'set_operation_mode') keep(data.operation_mode);
+    else if (service === 'set_hvac_mode') keep(data.hvac_mode);
+    else if (service === 'set_value') keep(data.value);
+    say(`In Home Assistant this calls ${domain}.${service} for ${id}`);
+    refresh(card);
+    return Promise.resolve();
+  };
+  card.hass = { states, entities: setup.registry || {}, locale: { language: lang }, language: lang, callWS, callService };
+}
+function draw() {
+  const setup = setups[cur];
+  document.documentElement.classList.toggle('dark', dark);
+  wrap.innerHTML = '';
+  const card = document.createElement('heatpump-flow-card');
+  const nl = { title: 'Warmtepomp', heat_pump: 'Warmtepomp', dhw: 'Warm water', buffer: 'Buffervat', house: 'Woonruimtes',
+    details: 'Details', modes: { idle: 'Stand-by', heating: 'Verwarming', dhw: 'Warm water', cooling: 'Koeling', defrost: 'Ontdooien', blocked: 'Geblokkeerd' } };
+  const cfg = { ...setup.config, ...(layout !== 'default' ? { layout } : {}), ...(theme !== 'auto' ? { theme } : {}),
+    ...(lang === 'nl' ? { language: 'nl', texts: { nl } } : {}),
+    ...(unit !== 'auto' ? { unit_style: unit.split('-')[0], ...(unit.includes('-') ? { unit_size: unit.split('-')[1] } : {}) } : {}) };
+  card.setConfig(cfg);
+  Object.entries(palettes[palette] || {}).forEach(([k, v]) => card.style.setProperty(k, v));
+  wrap.appendChild(card);
+  overrides = {};
+  customElements.get('heatpump-flow-card')._energyPrefs = null; // the card caches the Energy dashboard per page
+  refresh(card);
+  card.addEventListener('hass-more-info', (e) => say(`In Home Assistant this opens the more-info dialog of ${e.detail.entityId}`));
+  const vars = Object.entries(palettes[palette] || {}).map(([k, v]) => '      ' + k + ': ' + v + ';');
+  const modYaml = vars.length ? ['card_mod:', '  style: |', '    :host {', ...vars, '    }'].join('\n') : '';
+  document.getElementById('yaml').textContent = yaml({ type: 'custom:heatpump-flow-card', ...cfg }) + (modYaml ? '\n' + modYaml : '');
+  document.getElementById('ynote').textContent = setup.energy
+    ? 'Entities not listed are found by the preset. PV, battery and grid come from the Energy dashboard: the heat pump power is split by the current supply mix of the house.'
+    : 'Entities not listed are found by the preset.';
+  document.querySelectorAll('#setups button').forEach((b, i) => b.classList.toggle('sel', i === cur));
+  document.querySelectorAll('#states button').forEach((b) => {
+    b.classList.toggle('sel', b.dataset.k === scen);
+    b.textContent = setup.scenarioLabels?.[b.dataset.k] || Object.fromEntries(scenarios)[b.dataset.k];
+  });
+  document.querySelectorAll('#display button').forEach((b) => b.classList.toggle('sel', b.dataset.k === lang || b.dataset.k === (dark ? 'dark' : 'light')));
+  document.querySelectorAll('#units button').forEach((b) => b.classList.toggle('sel', b.dataset.k === unit));
+  document.querySelectorAll('#layouts button').forEach((b) => b.classList.toggle('sel', b.dataset.k === layout));
+  document.querySelectorAll('#themes button').forEach((b) => b.classList.toggle('sel', b.dataset.k === theme));
+  document.querySelectorAll('#palettes button').forEach((b) => b.classList.toggle('sel', b.dataset.k === palette));
+  const p = new URLSearchParams({ setup: cur, s: scen, lang, dark: dark ? 1 : 0, layout, theme, palette, unit, ...(q.get('embed') === '1' ? { embed: 1 } : {}) });
+  history.replaceState(null, '', `?${p}`);
+}
+const mk = (bar, html, key, fn) => {
+  const b = document.createElement('button'); b.innerHTML = html; b.dataset.k = key; b.onclick = () => { fn(); draw(); };
+  document.getElementById(bar).appendChild(b);
+};
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+setups.forEach((s, i) => mk('setups', `${esc(s.name)}<small>${esc(s.sub)}</small>`, String(i), () => { cur = i; }));
+scenarios.forEach(([k, l]) => mk('states', l, k, () => { scen = k; }));
+[['default', 'Default'], ['compact', 'Compact'], ['wide', 'Wide'], ['wall', 'Wall display']].forEach(([k, l]) => mk('layouts', l, k, () => { layout = k; }));
+[['auto', 'Automatic'], ['night', 'Night'], ['contrast', 'High contrast']].forEach(([k, l]) => mk('themes', l, k, () => { theme = k; }));
+[
+  ['auto', 'Automatic'], ['generic', 'Generic'], ['lambda', 'Lambda'],
+  ['vaillant-small', 'Vaillant 3.5 / 5.5 kW'], ['vaillant-medium', 'Vaillant 7.5 kW'], ['vaillant-large', 'Vaillant 10.5 / 12.5 kW'],
+  ['panasonic', 'Panasonic Aquarea'], ['panasonic-large', 'Panasonic Aquarea T-CAP (2 fans)'], ['viessmann', 'Viessmann Vitocal'], ['bosch', 'Bosch / Buderus'],
+  ['saunier', 'Saunier Duval GeniaAir'], ['samsung', 'Samsung EHS Mono'], ['wolf', 'Wolf CHA'], ['kronoterm', 'Kronoterm ADAPT'], ['alpha_innotec', 'Alpha Innotec Hybrox'], ['stiebel', 'Stiebel Eltron WPL-A'],
+].forEach(([k, l]) => mk('units', l, k, () => { unit = k; }));
+[['default', 'Default'], ['teal', 'Teal']].forEach(([k, l]) => mk('palettes', l, k, () => { palette = k; }));
+mk('display', 'English', 'en', () => { lang = 'en'; });
+mk('display', 'Deutsch', 'de', () => { lang = 'de'; });
+mk('display', 'Nederlands (custom)', 'nl', () => { lang = 'nl'; });
+mk('display', 'Light', 'light', () => { dark = false; });
+mk('display', 'Dark', 'dark', () => { dark = true; });
+document.getElementById('copy').onclick = async (e) => {
+  try { await navigator.clipboard.writeText(document.getElementById('yaml').textContent); e.target.textContent = 'Copied'; }
+  catch { e.target.textContent = 'Select and copy'; }
+  setTimeout(() => { e.target.textContent = 'Copy'; }, 1500);
+};
+draw();
+</script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+# generated local preview with the script inlined
+test/preview.html
+node_modules/
+playwright-report/
+test-results/
+.DS_Store
