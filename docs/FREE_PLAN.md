@@ -1,48 +1,34 @@
-# Integrated Hydraulic Plan\n\nAdditional equipment is drawn directly in the original Heat Pump Hydraulic Card's SVG. The first generator, first buffer, first domestic hot-water tank and up to six heating circuits retain their original artwork and locations. Only extra equipment is appended to the right; pipes can be connected to existing or added units.\n\nThere is no separate free-plan view. The dashboard shows the complete original card with its extensions, and the editor manages the components.\n\n# Freier Hydraulikplan / Integrated hydraulic schematic
+# Integrated hydraulic schematic
 
-**Status: v0.2.0-alpha.1.** The graphical component editor is experimental. It preserves the classic Heat Pump Hydraulic Card mode if no `plan_mode: free` is selected.
+Hydraulic Plan Card uses the original Heat Pump Hydraulic Card SVG as its base. Additional boilers, pumps, valves, buffers and heaters are added to **that same view**. There is no second view.
 
-## What you can build
+## Configure your system
 
-Place multiple independent heat generators (heat pumps, wood gasifiers, oil, gas and pellet boilers), series/parallel buffer tanks, hot-water tanks, heating circuits, pumps, 3-way mixers/valves, electric heaters, and manifold connection points. All parts can be positioned independently, with named ports joined by directed pipe connections.
+In the card editor:
 
-To start, add `type: custom:hydraulic-plan-card` to a dashboard. The new-card editor opens with **"Leeren Plan anlegen"** and an optional example inspired by a multi-generator family-house installation. The example is illustrative, **not** an as-built drawing.
+1. Add the kinds of components that exist in your installation.
+2. Assign each component's Home Assistant sensors, including the **pump state** where available.
+3. Connect named component ports to define the **intended** hydraulic topology.
+4. The diagram automatically places components into readable source, storage, pump/valve and heating-circuit areas.
 
-## Tank temperature stratification
+**No X/Y coordinates are required or offered in the editor.** Older cards with x/y values keep their configuration, but those coordinates are ignored by the integrated auto-layout. Additional buffers are placed in their order along the directed series connections. Long drawings scroll horizontally; full screen supports vertical scrolling as well.
 
-Each buffer/hot-water tank supports `top`, `middle`, and `bottom` temperature sensors for convenience, plus **up to 24 freely positioned additional sensors**. Their installation heights are measured in **percent down from the top** (0 = top, 100 = bottom). Only reported temperature readings contribute color stops. Unknown/unmeasured areas remain neutral, avoiding imaginary heat content. Linear color interpolation between sensor heights is a visualization, not a calibrated energy-storage percentage.
+## Flow status
 
-```yaml
-type: custom:hydraulic-plan-card
-title: Heizungsanlage
-plan_mode: free
-plan:
-  components:
-    - id: puffer1
-      type: buffer
-      name: Puffer 1
-      x: 460
-      y: 80
-      sensors:
-        top: sensor.puffer_oben
-        middle: sensor.puffer_mitte
-        bottom: sensor.puffer_unten
-      level_sensors:
-        - position: 25
-          entity: sensor.puffer_viertel
-        - position: 75
-          entity: sensor.puffer_dreiviertel
-  connections: []
-```
+Each pipe can optionally map its own `flow_entity`; this overrides any inferred pump-based animation on that pipe. Without a pipe-level signal the diagram uses active pump states from connected pump components, boiler loading pumps or circuit pumps.
 
-The editor automatically offers an entity list for the available sensors. To add extra temperature points use **"Weiteren Fühler hinzufügen"** inside the selected tank.
+A mixer position of 0% or 100% is **not** automatically treated as a closed valve, since 3-way valves can route flow in either end position. Use actual pump, valve-port and flow sensors where possible.
 
-## Pipe flow versus true hydraulics
+The algorithm is a conservative diagram heuristic, not a hydraulic solver. It does **not** calculate flow rates, mixer port routes, pressure losses, temperature transfer or hydraulic safety interlocks. If no pump/flow status is known, the route is not animated.
 
-A connection defines **from component/port → to component/port**. The arrow is the configured conceptual direction, not an automatic deduction from pump or mixer status. Map an optional `flow_entity` to animate that pipe only when the mapped entity is active; if unmapped, the pipe stays static. You can assign `temperature_entity` to color a pipe by its actual temperature reading.
+## Buffer stratification
 
-The card is a **read-only dashboard**, not a hydraulic simulator or heating-system controller. No pump, boiler, safety valve, heating rod or mixer is commanded. The user is responsible for validating port direction, bypass circuits, return protection and safety interlocks against the actual installation.
+Each buffer and domestic hot-water tank can map top, middle and bottom sensors, plus up to 24 other temperature sensors at their actual positions (0% top, 100% bottom). Gradient stops use only valid values with temperature units; missing areas stay neutral. A gradient does **not** represent water level or a measured percent charge.
 
-## License
+## Example multi-generator system
 
-Derivative of Sturmi77's Heat Pump Hydraulic Card (MIT); original license/copyright notices remain.
+The editor includes a sample with Fröling-style wood gasifier, three series buffers, oil boiler and hot-water tank, heat pump, two mixed heating circuits, and a recirculating electric heater/mixer. **The sample is schematic and not a verified as-built installation**. Replace its links and sensors with the real installation before relying on the visualization.
+
+## Safety and maintenance
+
+The card is read-only. It should not actuate valves, interlocks, boilers or emergency systems. Keep the original Heat Pump Hydraulic Card installed while evaluating this alpha, and do not rely on the diagram alone for service decisions.
