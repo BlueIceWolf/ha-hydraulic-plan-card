@@ -1,6 +1,6 @@
 # Hydraulic Plan Card
 
-![Hydraulic Plan Card logo](docs/logo.svg)
+<img src="docs/logo.svg" alt="Hydraulic Plan Card" width="96" height="96" align="right" />
 
 **Project description:** *Build and monitor real heating hydraulics in Home Assistant — wood, oil, gas, pellet and heat-pump generators, layered buffer tanks, mixers, electric heaters and live pipe flows.*
 
@@ -31,7 +31,7 @@ See [Free hydraulic plan configuration and limitations](docs/FREE_PLAN.md).
 - Live boiler pump, mixer, fan and heater indicators. Flow animation is blocked when a mapped loading pump is explicitly off.
 - Manual mapping of Home Assistant entities through the card editor or YAML; no cloud service required.
 
-**Limits:** The original fixed heat-pump topology remains available in classic mode. Free-plan connections are manually defined and do not solve hydraulic network physics, mixer routing or hydraulic safety interlocks. A mapped flow-status entity can animate a drawn pipe, but it does not prove physical water flow. Never use the visualisation as a safety or control device.
+**Limits:** The integrated schematic extends the original topology with manually defined components and links; it does not compute hydraulic physics, valve routing or safety interlocks. A mapped pump/status signal may animate a pipe, but it is not a measured flow rate. Never use this visualization for safety-critical control.
 
 ## Installation
 

@@ -1,4 +1,4 @@
-# Freier Hydraulikplan / Free hydraulic plan
+# Integrated Hydraulic Plan\n\nAdditional equipment is drawn directly in the original Heat Pump Hydraulic Card's SVG. The first generator, first buffer, first domestic hot-water tank and up to six heating circuits retain their original artwork and locations. Only extra equipment is appended to the right; pipes can be connected to existing or added units.\n\nThere is no separate free-plan view. The dashboard shows the complete original card with its extensions, and the editor manages the components.\n\n# Freier Hydraulikplan / Integrated hydraulic schematic
 
 **Status: v0.2.0-alpha.1.** The graphical component editor is experimental. It preserves the classic Heat Pump Hydraulic Card mode if no `plan_mode: free` is selected.
 
