@@ -66,7 +66,7 @@ const HPC_INTEGRATED = (() => {
       points.set(node.id,{x:storageStart+(index%4)*177,
         y:75+Math.floor(index/4)*225,w,h,type:node.type});
     });
-    const storageCols=Math.max(1,Math.min(4,extraBuffers.length),Math.min(4,extraDhw.length));
+    const storageCols=Math.max(1,Math.min(4,orderedBuffers.length),Math.min(4,extraDhw.length));
     const controlStart=storageStart+storageCols*177+80;
     const controlEnd=placeColumn(byGroup.control,controlStart,90,205,150);
     placeColumn(byGroup.load,controlEnd+90,115,230,225,3);
