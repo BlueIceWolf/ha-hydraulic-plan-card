@@ -17,7 +17,7 @@ An animated heating-system card for **Home Assistant**, based on [Heat Pump Hydr
 
 ## Installation
 
-Use [HACS](https://www.hacs.xyz/) → Custom repositories → add `https://github.com/BlueIceWolf/ha-hydraulic-plan-card` as a **Dashboard** repository. Download the card and reload the Home Assistant browser. If you install it manually, place `dist/hydraulic-plan-card.js` under `/config/www/` and add it as a JavaScript module dashboard resource.
+Use [HACS](https://www.hacs.xyz/) → Custom repositories → add `https://github.com/BlueIceWolf/ha-hydraulic-plan-card` as a **Dashboard** repository. Download the card and reload the Home Assistant browser. If you install it manually, place `dist/ha-hydraulic-plan-card.js` under `/config/www/` and add it as a JavaScript module dashboard resource.
 
 Add a dashboard card of type:
 
