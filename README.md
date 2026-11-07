@@ -22,6 +22,10 @@ The editor preserves focused controls when Home Assistant updates sensor states;
 
 See [Free hydraulic plan configuration and limitations](docs/FREE_PLAN.md).
 
+### Scrolling large heating systems
+
+Complex systems extend the original hydraulic schematic, so the drawing can be wider and taller than the available dashboard area. The **diagram can scroll horizontally**, and normal vertical mouse-wheel, trackpad and touch scrolling continues to the page or the fullscreen card. Fullscreen mode has its own vertical scrollbar. This fixes wheel events being trapped by the diagram on older versions.
+
 ## What is supported
 
 - Original heat-pump visualisation, EMS-ESP and other upstream presets, storage gradients, heating circuits, tank heating rods, diagnostics and statistics.

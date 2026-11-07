@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hydraulic Plan – fullscreen scrolling regression</title>
+<style>html,body{margin:0;min-height:100%;background:#111}body{font-family:Arial,sans-serif}</style>
+</head><body>
+<script src="../dist/ha-hydraulic-plan-card.js"></script>
+<script>
+  const state=(id,value,unit)=>({entity_id:id,state:String(value),attributes:{unit_of_measurement:unit||''},
+    last_changed:new Date().toISOString(),last_updated:new Date().toISOString()});
+  const hass={
+    language:'de',locale:{language:'de'},entities:{},devices:{},
+    config:{version:'2026.10.4'},
+    states:{
+      'binary_sensor.boiler_on':state('binary_sensor.boiler_on','on'),
+      'sensor.boiler_flow':state('sensor.boiler_flow',77,'°C'),
+      'sensor.boiler_return':state('sensor.boiler_return',61,'°C'),
+      'sensor.buffer_top':state('sensor.buffer_top',74,'°C'),
+      'sensor.buffer_bottom':state('sensor.buffer_bottom',38,'°C'),
+      'switch.loading_pump':state('switch.loading_pump','on')
+    },
+    callService:()=>Promise.resolve(),callWS:()=>Promise.reject(new Error('No API required'))
+  };
+  const card=document.createElement('hydraulic-plan-card');
+  const plan={
+    components:[
+      {id:'wood',type:'wood_gasifier',name:'Holzvergaser',x:40,y:90,
+        sensors:{state:'binary_sensor.boiler_on',flow:'sensor.boiler_flow',return:'sensor.boiler_return'}},
+      {id:'buf1',type:'buffer',name:'Puffer 1',x:570,y:75,
+        sensors:{top:'sensor.buffer_top',bottom:'sensor.buffer_bottom'}},
+      {id:'buf2',type:'buffer',name:'Puffer 2',x:780,y:75,sensors:{}},
+      {id:'buf3',type:'buffer',name:'Puffer 3',x:1000,y:75,sensors:{}},
+      {id:'heat',type:'electric_heater',name:'Heizstab',x:700,y:770,sensors:{}},
+      {id:'pump',type:'pump',name:'Ladepumpe',x:1250,y:550,sensors:{state:'switch.loading_pump'}},
+      {id:'hc1',type:'heating_circuit',name:'Heizkreis 1',x:1480,y:240,sensors:{}},
+      {id:'hc2',type:'heating_circuit',name:'Heizkreis 2',x:1480,y:650,sensors:{}},
+      {id:'wp',type:'heat_pump',name:'Wärmepumpe',x:50,y:650,sensors:{}}
+    ],
+    connections:[
+      {id:'wood_buffer',from:'wood',from_port:'flow',to:'buf1',to_port:'top_in',
+        flow_entity:'switch.loading_pump',temperature_entity:'sensor.boiler_flow'},
+      {id:'buffer_2',from:'buf1',from_port:'bottom_out',to:'buf2',to_port:'top_in'},
+      {id:'buffer_3',from:'buf2',from_port:'bottom_out',to:'buf3',to_port:'top_in'}
+    ]
+  };
+  card.setConfig({type:'custom:hydraulic-plan-card',title:'Heizungsanlage',preset:'none',
+    fullscreen:true,plan});
+  document.body.append(card);
+  card.hass=hass;
+  card._openFullscreen();
+  window.__scrollCard=card;
+</script>
+</body></html>
