@@ -4108,7 +4108,7 @@ class HeatpumpFlowCard extends HTMLElement {
     const T = this._esc(this._config.title ?? (P.boilerPrimary ? hpcText(this._lang).system_title : i.title));
     if (this._startState()) {
       this._renderRoot().innerHTML = `<style>${HeatpumpFlowCard.styles}</style><ha-card class="start"><div class="head">${T ? `<div class="title">${T}</div>` : '<div></div>'}</div>
-        <div class="hint" id="start-hint">${this._esc(i.start)} <a href="https://github.com/Sturmi77/heatpump-hydraulic-card#quick-start" target="_blank" rel="noopener noreferrer">${this._esc(i.start_link)}</a></div></ha-card>`;
+        <div class="hint" id="start-hint">${this._esc(i.start)} <a href="https://github.com/BlueIceWolf/ha-hydraulic-plan-card#installation" target="_blank" rel="noopener noreferrer">${this._esc(i.start_link)}</a></div></ha-card>`;
       this._rendered = true;
       return;
     }
@@ -7511,88 +7511,27 @@ class HeatpumpFlowCardEditor extends HTMLElement {
     this._render();
   }
 }
-// Registration. Other cards use the same generic element names (heatpump-flow-card, heatpump-flow-card-editor) and a browser keeps only the
-// first definition, so this card is always available under names of its own as well: custom:heatpump-hydraulic-card.
-HeatpumpFlowCard.hfcOwner = 'sturmi77';
-HeatpumpFlowCardEditor.hfcOwner = 'sturmi77';
-// The version marker tells this script whether another copy of the card took the element names first (#171).
-HeatpumpFlowCard.hfcVersion = HFC_VERSION;
-HeatpumpFlowCardEditor.hfcVersion = HFC_VERSION;
-class HeatpumpHydraulicCard extends HeatpumpFlowCard {
-  static getConfigElement() { return document.createElement('heatpump-hydraulic-card-editor'); }
+// The derivative registers its own elements exclusively; loading it alongside
+// Heat Pump Hydraulic Card must never replace either card's custom elements.
+class HydraulicPlanCard extends HeatpumpFlowCard {
+  static getConfigElement() { return document.createElement('hydraulic-plan-card-editor'); }
 }
-class HeatpumpHydraulicCardEditor extends HeatpumpFlowCardEditor {}
-const hfcDefine = (name, cls) => { if (!customElements.get(name)) customElements.define(name, cls); };
-// A class of this card from another copy of the script: marked since 0.9.3, recognised before by its name together with two
-// helpers every release has had. Another project's card uses the same element and class name (Xerolux/heatpump-flow-card), so
-// the name alone would report it as an old copy of this card and suggest deleting its folder (forum, 4 November).
-const hfcOwnCopy = (cls) => !!cls && (cls.hfcOwner === 'sturmi77' || (['HeatpumpFlowCard', 'HeatpumpHydraulicCard'].includes(cls.name)
-  && typeof cls.prototype?._txt === 'function' && typeof cls.prototype?._cls === 'function'));
-const hfcMine = (name) => { const c = customElements.get(name); return !c || hfcOwnCopy(c); };
-const hfcNewer = (a, b) => {
-  const p = (v) => String(v).split('.').map((n) => parseInt(n, 10) || 0);
-  const x = p(a); const y = p(b);
-  for (let n = 0; n < 3; n++) if ((x[n] || 0) !== (y[n] || 0)) return (x[n] || 0) > (y[n] || 0);
-  return false;
-};
-// An older copy of this card that owns an element name: releases before 0.15 carry no version marker. A newer copy, the same
-// version loaded twice and a foreign card with the same name are no conflict here.
-const hfcOlderCopy = (cls, own = HFC_VERSION) => (hfcOwnCopy(cls) && (!cls.hfcVersion || hfcNewer(own, cls.hfcVersion))
-  ? { version: cls.hfcVersion || 'older than 0.15' } : null);
-// Every script of this card the page loaded, without query strings; the first one wins the element names.
+class HydraulicPlanCardEditor extends HeatpumpFlowCardEditor {}
 const hfcCardScripts = () => {
-  const re = /heatpump-(flow|hydraulic)-card[^/?#]*\.js/;
-  let urls = [...document.querySelectorAll('script[src]')].map((s) => s.src);
-  try { urls = urls.concat(performance.getEntriesByType('resource').map((r) => r.name)); } catch (e) { /* no timing API */ }
-  // While another project's card holds the generic name, a script of that name is its file, not a copy of this card.
-  const foreign = !hfcMine('heatpump-flow-card');
-  return [...new Set(urls.filter((u) => re.test(u) && !(foreign && /\/heatpump-flow-card[^/?#]*\.js/.test(u))).map((u) => u.replace(/[?#].*$/, '')))];
+  const names = [...document.querySelectorAll('script[src]')].map((el) => el.src);
+  try { names.push(...performance.getEntriesByType('resource').map((r) => r.name)); } catch (err) { /* not supported */ }
+  return [...new Set(names.filter((name) => /hydraulic-plan-card[^/?#]*\\.js/.test(name)))];
 };
-// The warning for an older copy: in the console, and once per browser session as a Home Assistant notification, because the
-// dashboard keeps running the old code and nothing else would show it (#166).
-const hfcOldCopyText = (conflict, scripts = hfcCardScripts()) => {
-  const others = scripts.filter((u) => u !== HFC_SCRIPT_URL.replace(/[?#].*$/, ''));
-  return `An older copy of the Heat Pump Hydraulic Card (${conflict.version}) was loaded before version ${HFC_VERSION}, so dashboards still run the old one.`
-    + `${others.length ? ` Card scripts on this page: ${others.join(', ')}.` : ''}`
-    + ' In Settings → Dashboards → ⋮ → Resources, delete the resource of the old copy (on installations from before the rename: every entry with'
-    + ' "heatpump-flow-card"), delete the folder /config/www/community/heatpump-flow-card/ if it exists, and reload the browser.'
-    + ' Details: https://github.com/Sturmi77/heatpump-hydraulic-card#upgrading-an-installation-from-before-the-rename';
-};
-const hfcNotifyOldCopy = (text, getHass = () => document.querySelector('home-assistant')?.hass, tries = 20) => {
-  try { if (sessionStorage.getItem('hfc-old-copy')) return; } catch (e) { /* storage blocked: notify anyway */ }
-  const hass = getHass();
-  if (typeof hass?.callService !== 'function') { if (tries > 0) setTimeout(() => hfcNotifyOldCopy(text, getHass, tries - 1), 3000); return; }
-  try { sessionStorage.setItem('hfc-old-copy', '1'); } catch (e) { /* storage blocked */ }
-  Promise.resolve(hass.callService('persistent_notification', 'create', {
-    notification_id: 'heatpump_hydraulic_card_old_copy', title: 'Heat Pump Hydraulic Card: an older copy is loaded', message: text,
-  })).catch(() => {});
-};
-const hfcConflict = hfcOlderCopy(customElements.get('heatpump-flow-card')) || hfcOlderCopy(customElements.get('heatpump-hydraulic-card'));
-hfcDefine('heatpump-hydraulic-card-editor', HeatpumpHydraulicCardEditor);
-hfcDefine('heatpump-hydraulic-card', HeatpumpHydraulicCard);
-hfcDefine('heatpump-flow-card-editor', HeatpumpFlowCardEditor);
-hfcDefine('heatpump-flow-card', HeatpumpFlowCard);
-if (hfcConflict) {
-  const text = hfcOldCopyText(hfcConflict);
-  console.warn(`heatpump-flow-card: ${text}`);
-  hfcNotifyOldCopy(text);
-}
-// The card picker lists the card once: with the generic element name when this card owns it, otherwise with the unique one; the
-// shown name is always "Heat Pump Hydraulic Card", as in HACS and the README (#144).
-const hfcGeneric = hfcMine('heatpump-flow-card') && hfcMine('heatpump-flow-card-editor');
-if (!hfcGeneric) {
-  console.warn('heatpump-flow-card: the element name "heatpump-flow-card" is already used by another card, so "type: custom:heatpump-flow-card" opens that card. '
-    + 'Use "type: custom:heatpump-hydraulic-card" for this card (github.com/Sturmi77/heatpump-hydraulic-card).');
-}
-const hfcType = hfcGeneric ? 'heatpump-flow-card' : 'heatpump-hydraulic-card';
+if (!customElements.get('hydraulic-plan-card-editor')) customElements.define('hydraulic-plan-card-editor', HydraulicPlanCardEditor);
+if (!customElements.get('hydraulic-plan-card')) customElements.define('hydraulic-plan-card', HydraulicPlanCard);
 window.customCards = window.customCards || [];
-if (!window.customCards.some((c) => c.type === hfcType)) {
+if (!window.customCards.some((card) => card.type === 'hydraulic-plan-card')) {
   window.customCards.push({
-    type: hfcType,
-    name: 'Heat Pump Hydraulic Card',
-    description: 'Animated hydraulic schematic of a heat pump with tanks, heating circuits and power sources. Presets for Lambda, Viessmann, Vaillant, Bosch/Buderus, Panasonic, Wolf, Kronoterm, Luxtronik, Stiebel Eltron, Samsung and more.',
+    type: 'hydraulic-plan-card',
+    name: 'Hydraulic Plan Card',
+    description: 'Heating hydraulics for heat pumps, wood gasifiers, oil, pellet, gas and electric boilers.',
     preview: true,
-    documentationURL: 'https://github.com/Sturmi77/heatpump-hydraulic-card',
+    documentationURL: 'https://github.com/BlueIceWolf/ha-hydraulic-plan-card',
   });
 }
-console.info(`%c HEATPUMP-FLOW-CARD %c ${HFC_VERSION} `, 'background:#f97316;color:#fff;border-radius:3px 0 0 3px', 'background:#334155;color:#fff;border-radius:0 3px 3px 0');
+console.info(`%c HYDRAULIC PLAN CARD %c ${HFC_VERSION} `, 'background:#f97316;color:#fff', 'background:#334155;color:#fff');
