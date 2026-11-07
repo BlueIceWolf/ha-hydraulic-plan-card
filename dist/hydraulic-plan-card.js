@@ -4086,13 +4086,26 @@ class HeatpumpFlowCard extends HTMLElement {
     };
   }
 
+  _primaryBoilerSvg() {
+    // Sensors only select what is drawn. The symbols do not infer mixing direction.
+    return '<g id="primary-boiler-art" class="boiler primary-boiler">'
+      + '<rect class="boiler-box" x="92" y="238" width="156" height="99" rx="14"/>'
+      + '<path class="boiler-water" d="M92 327 H248"/>'
+      + '<path class="boiler-flame" d="M170 310 C143 295 145 272 166 251 C164 271 188 273 184 294 C182 307 177 311 170 310Z"/>'
+      + (this._has('boiler_fan') ? '<g id="primary-boiler-fan" class="hpc-fan"><circle cx="121" cy="270" r="12"/><path d="M121 260 L128 273 L115 270 Z M121 280 L114 267 L127 270 Z"/></g>' : '')
+      + (this._has('boiler_pump') ? '<g id="primary-boiler-pump" class="hpc-pump"><circle cx="219" cy="270" r="13"/><path d="M213 263 L227 270 L213 277Z"/></g>' : '')
+      + (this._has('boiler_mixer') ? '<g id="primary-boiler-mixer" class="hpc-mixer"><circle cx="219" cy="310" r="13"/><path d="M211 310 H227 M219 302 V318"/></g>' : '')
+      + (this._has('boiler_heater') ? '<g id="primary-boiler-heater" class="hpc-heater"><path d="M112 305 l8 -8 l-2 9 l8 -8 l-3 12"/></g>' : '')
+      + '</g>';
+  }
+
   _render() {
     if (!this._hass || !this._config) return;
     this._sig = this._layoutSignature();
     const P = this._parts;
     const e = this._e;
     const i = this._i;
-    const T = this._esc(this._config.title ?? i.title);
+    const T = this._esc(this._config.title ?? (P.boilerPrimary ? hpcText(this._lang).system_title : i.title));
     if (this._startState()) {
       this._renderRoot().innerHTML = `<style>${HeatpumpFlowCard.styles}</style><ha-card class="start"><div class="head">${T ? `<div class="title">${T}</div>` : '<div></div>'}</div>
         <div class="hint" id="start-hint">${this._esc(i.start)} <a href="https://github.com/Sturmi77/heatpump-hydraulic-card#quick-start" target="_blank" rel="noopener noreferrer">${this._esc(i.start_link)}</a></div></ha-card>`;
@@ -4116,7 +4129,7 @@ class HeatpumpFlowCard extends HTMLElement {
     const SRC = [['pv', 70, i.pv, P_SRC, 'pv'], ['bat', 170, i.battery, 'M170 70 V190', 'battery'], ['grid', 270, i.grid, G_SRC, 'grid']]
       .filter((s) => shown.includes(s[4]));
     const showHc = P.hc || this._hcCount > 1;
-    const U = this._sourceType === 'air' ? this._unitArt() : null;
+    const U = !P.boilerPrimary && this._sourceType === 'air' ? this._unitArt() : null;
     const H = 560 + (showHc ? (this._hcCount - 1) * 250 : 0);
     const equalBuffer = this._config.buffer_values === 'equal';
     const nf = this._narrowFocus();
@@ -4178,7 +4191,7 @@ class HeatpumpFlowCard extends HTMLElement {
     // The trunk shared by all circuits lies over circuit 1 and under the risers. The risers lie under circuits 2 to 6, so their
     // labels stay in front of the pipes (#302).
     + (n === 0 && this._hcCount > 1 ? `${pipePair('hc-trunk-vl', 'M640 360 H660')}${pipePair('hc-trunk-rl', 'M676 495 H640')}${this._risersSvg()}` : '')).join('') : ''}
-          ${this._sourceSvg()}
+          ${P.boilerPrimary ? '' : this._sourceSvg()}
 
           ${this._primaryPump() ? `<g class="tap" ${de(e.volume ? 'volume' : 'mode')}>
             <circle class="pump" cx="${P.boiler ? 316 : 340}" cy="250" r="16"/>
@@ -4190,8 +4203,8 @@ class HeatpumpFlowCard extends HTMLElement {
 
           <g class="tap" ${de('mode')}>
             <rect class="unit" id="hp-box" x="50" y="190" width="240" height="235" rx="20"/>
-            <text class="unit-title" x="170" y="218" text-anchor="middle">${this._esc(i.heat_pump)}</text>
-            ${U ? `${U.below}${U.fans.map((fn, n) => this._fanSvg(n ? `fan${n + 1}` : 'fan', ...fn)).join('')}${U.above}${U.snows.map((sn, n) => this._snowSvg(n ? `snow${n + 1}` : 'snow', ...sn)).join('')}`
+            <text class="unit-title" x="170" y="218" text-anchor="middle">${this._esc(P.boilerPrimary ? (this._config.boiler_name || hpcText(this._lang)['gen_' + this._config.generator_type]) : i.heat_pump)}</text>
+            ${P.boilerPrimary ? this._primaryBoilerSvg() : U ? `${U.below}${U.fans.map((fn, n) => this._fanSvg(n ? `fan${n + 1}` : 'fan', ...fn)).join('')}${U.above}${U.snows.map((sn, n) => this._snowSvg(n ? `snow${n + 1}` : 'snow', ...sn)).join('')}`
               : `<circle class="fan-ring" cx="170" cy="288" r="50"/>
             <g class="fan" id="fan"><path class="blade" d="M170 254 L184 288 L156 288Z M170 322 L156 288 L184 288Z"/><circle cx="170" cy="288" r="7" class="hub"/></g>
             ${this._snowSvg('snow', 170, 288, 18)}`}
@@ -4201,10 +4214,10 @@ class HeatpumpFlowCard extends HTMLElement {
             <text class="unit-val strong" id="t-hp-cop" x="170" y="412" text-anchor="middle"></text>
             ${nf ? '<text class="unit-val" id="t-hp-heat" x="170" y="374" text-anchor="middle"></text>' : ''}
           </g>
-          ${this._sourceType === 'air' ? `<g class="tap" ${de(e.source_in ? 'source_in' : 'source_volume')}><text class="small${nf ? ' nf-moved' : ''}" id="t-src-in" x="170" y="450" text-anchor="middle"></text></g>${this._has('outdoor') ? `<g class="tap" ${de('outdoor')}><text class="small" id="t-outdoor-hp" x="170" y="472" text-anchor="middle"></text></g>` : ''}` : ''}
+          ${!P.boilerPrimary && this._sourceType === 'air' ? `<g class="tap" ${de(e.source_in ? 'source_in' : 'source_volume')}><text class="small${nf ? ' nf-moved' : ''}" id="t-src-in" x="170" y="450" text-anchor="middle"></text></g>${this._has('outdoor') ? `<g class="tap" ${de('outdoor')}><text class="small" id="t-outdoor-hp" x="170" y="472" text-anchor="middle"></text></g>` : ''}` : ''}
           ${this._heaterSvg('heater', 'inline')}
           ${P.boiler ? `<g class="tap boiler" id="boiler" ${de(e.boiler_state ? 'boiler_state' : (e.boiler_power ? 'boiler_power' : 'boiler_flow'))}>
-            <text class="boiler-title" x="372" y="207" text-anchor="middle">${this._esc(i.boiler)}</text>
+            <text class="boiler-title" x="372" y="207" text-anchor="middle">${this._esc(this._config.boiler_name || hpcText(this._lang)['gen_' + this._config.boiler_type] || i.boiler)}</text>
             <rect class="boiler-box" x="348" y="216" width="48" height="68" rx="8"/>
             <path class="boiler-water" d="M348 250 H396"/>
             <path class="flow" id="f-boiler" d="M348 250 H396"/>
