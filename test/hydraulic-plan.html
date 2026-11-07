@@ -167,6 +167,9 @@
     check(freeSvg?.querySelectorAll('g.hpc-node').length===10,'Multiple independently placed generators, tanks and circuits');
     check(freeSvg?.querySelectorAll('g.hpc-connection, g.hpc-route').length===2,'Connected pipes render');
     check(freeSvg?.querySelectorAll('linearGradient stop').length>=5,'Five buffer temperature points generate multiple stratification stops');
+    check(!!freeSvg?.querySelector('g.hpc-tank rect.hpc-tank-main') &&
+      !!freeSvg?.querySelector('g.hpc-appliance .hpc-component-icon'),
+      'Free schematic uses illustrated original-style heating components, not flat tiles');
     check(freeSvg?.textContent?.includes('65') && freeSvg.textContent.includes('42'),
       'Intermediate buffer sensors show their live measured values');
     const firstGrad=freeSvg?.querySelector('linearGradient');
@@ -182,12 +185,36 @@
     check(free.shadowRoot.querySelectorAll('path.hpc-pulse').length===0,
       'Pump off stops the explicit pipe animation');
 
+    const untouchedSvg=free.shadowRoot.getElementById('hpc-free-svg');
+    free.hass=hassOf({
+      'sensor.buffer_25':state('sensor.buffer_25',65,'°C'),
+      'sensor.buffer_75':state('sensor.buffer_75',42,'°C'),
+      'sensor.unrelated_thing':state('sensor.unrelated_thing',900,'W'),
+      [ids.pump]:state(ids.pump,'off'),
+    });
+    check(free.shadowRoot.getElementById('hpc-free-svg') === untouchedSvg,
+      'Unrelated HA entity changes do not rebuild the card SVG');
+
     const editor=document.createElement('hydraulic-plan-card-editor');
     editor.setConfig({type:'custom:hydraulic-plan-card',plan_mode:'free',plan:{components:sample,connections:edges}});
     document.body.appendChild(editor);editor.hass=hassFree;
     check(!!editor.querySelector('#hpc-free-svg'),'Free plan is previewed in the editor');
     const select=editor.querySelector('[data-select="puffer1"]');select?.click();
     check(!!editor.querySelector('input[data-sensor="puffer1"]'),'Editor exposes buffer entity fields');
+    const focusInput=editor.querySelector('input[data-name="puffer1"]');
+    if(focusInput){
+      focusInput.focus();
+      focusInput.value='Puffer direkt bearbeiten';
+      editor.hass=hassOf({ 'sensor.buffer_25':state('sensor.buffer_25',66,'°C') });
+      const inputAfter=editor.querySelector('input[data-name="puffer1"]');
+      check(inputAfter===focusInput && document.activeElement===focusInput &&
+        inputAfter.value==='Puffer direkt bearbeiten',
+        'Frequent HA state updates never destroy focused editor input');
+      editor.setConfig({...editor._config});
+      check(editor.querySelector('input[data-name="puffer1"]')===focusInput,
+        'Equivalent config updates do not reset active editor fields');
+      focusInput.value='Puffer 1';
+    }
     check(editor.querySelectorAll('[data-level-entity="puffer1"]').length===2,
       'Additional buffer sensors are editable');
     let updatedConfig;
