@@ -4201,7 +4201,7 @@ class HeatpumpFlowCard extends HTMLElement {
           <g class="tap" ${de('volume')}><text class="vol-label" id="t-vol" x="${P.boiler ? 316 : (this._primaryPump() ? 340 : 346)}" y="${this._primaryPump() ? 284 : 275}" text-anchor="middle"></text></g>
           <g class="tap" ${de('return')}><text class="pipe-label" id="t-rl" x="335" y="406" text-anchor="middle"></text></g>
 
-          <g class="tap" ${de('mode')}>
+          <g class="tap" ${de(P.boilerPrimary ? (e.boiler_state ? 'boiler_state' : 'boiler_power') : 'mode')}>
             <rect class="unit" id="hp-box" x="50" y="190" width="240" height="235" rx="20"/>
             <text class="unit-title" x="170" y="218" text-anchor="middle">${this._esc(P.boilerPrimary ? (this._config.boiler_name || hpcText(this._lang)['gen_' + this._config.generator_type]) : i.heat_pump)}</text>
             ${P.boilerPrimary ? this._primaryBoilerSvg() : U ? `${U.below}${U.fans.map((fn, n) => this._fanSvg(n ? `fan${n + 1}` : 'fan', ...fn)).join('')}${U.above}${U.snows.map((sn, n) => this._snowSvg(n ? `snow${n + 1}` : 'snow', ...sn)).join('')}`
@@ -4224,6 +4224,8 @@ class HeatpumpFlowCard extends HTMLElement {
             <path class="boiler-flame" d="M372 244 C360 237 365 226 373 222 C371 229 384 232 378 242 C377 244 375 245 372 244Z"/>
             <text class="boiler-value" id="t-boiler-power" x="372" y="274" text-anchor="middle"></text>
             <text class="small boiler-flow" id="t-boiler-flow" x="372" y="304" text-anchor="middle"></text>
+            ${this._has('boiler_pump') ? '<circle id="boiler-loading-pump" class="hpc-mini-pump" cx="342" cy="331" r="10"/>' : ''}
+            ${this._has('boiler_mixer') ? '<circle id="boiler-return-mixer" class="hpc-mini-mixer" cx="401" cy="331" r="10"/><text class="small hpc-mixer-value" id="t-boiler-mixer" x="401" y="352" text-anchor="middle"></text>' : ''}
           </g>` : ''}
 
           ${P.station ? this._stationSvg() : ''}
@@ -6518,6 +6520,10 @@ class HeatpumpFlowCard extends HTMLElement {
         ? (Number.isFinite(boilerPower) && boilerPower > 0 ? `${this._fmt(boilerPower >= 1000 ? boilerPower / 1000 : boilerPower, boilerPower >= 1000 ? 1 : 0)} ${boilerPower >= 1000 ? 'kW' : 'W'}` : i.running)
         : i.boiler_off);
       this._txt('t-boiler-flow', this._has('boiler_flow') ? this._t(tBoiler) : '');
+      this._cls('boiler-loading-pump', this._has('boiler_pump') && this._pumpOn('boiler_pump'));
+      this._cls('boiler-return-mixer', this._has('boiler_mixer') && this._n('boiler_mixer') > 0);
+      const m = this._n('boiler_mixer');
+      this._txt('t-boiler-mixer', Number.isFinite(m) ? `${this._fmt(m, 0)} %` : '');
       const boiler = this._$('boiler');
       if (boiler) {
         const state = { hp_only: `${i.heat_pump}: ${i.running}; ${i.boiler_off}`, boiler_only: `${i.heat_pump}: ${i.compressor_off}; ${i.boiler}: ${i.running}`, both: `${i.heat_pump}: ${i.running}; ${i.boiler}: ${i.running}`, idle: `${i.compressor_off}; ${i.boiler_off}` }[generatorMode];
@@ -6743,6 +6749,35 @@ class HeatpumpFlowCard extends HTMLElement {
       this._a11y(true);
       if (had !== undefined) box.querySelector(`[data-tile="${had}"]`)?.focus();
     }
+    if (P.boilerPrimary) {
+      const words = hpcText(this._lang);
+      const output = this._w('boiler_power');
+      const ret = this._n('boiler_return');
+      const exhaust = this._n('boiler_exhaust');
+      const state = boilerRunning ? words.running : words.stopped;
+      const powerText = Number.isFinite(output) && output > 0
+        ? `${this._fmt(output / 1000, 1)} kW`
+        : (this._has('boiler_flow') ? `${this._t(tBoiler)} VL` : '');
+      const extras = [];
+      if (Number.isFinite(exhaust)) extras.push(`${words.flue} ${this._t(exhaust)}`);
+      if (Number.isFinite(ret)) extras.push(`${words.ret} ${this._t(ret)}`);
+      this._cls('primary-boiler-art', boilerRunning);
+      this._cls('hp-box', boilerRunning);
+      this._cls('primary-boiler-fan', this._has('boiler_fan') && this._pumpOn('boiler_fan'));
+      this._cls('primary-boiler-pump', F.boilerHydraulicOn);
+      this._cls('primary-boiler-mixer', this._has('boiler_mixer') && this._n('boiler_mixer') > 0);
+      this._cls('primary-boiler-heater', this._level('boiler_heater') > 0);
+      this._hpStatus(state);
+      this._txt('t-hp-power', powerText || state);
+      this._txt('t-hp-cop', extras.join(' · '));
+      this._txtPre('t-vl', 'VL', this._has('boiler_flow') ? this._t(tBoiler) : '');
+      this._txtPre('t-rl', 'RL', this._has('boiler_return') ? this._t(ret) : '');
+      const chip = this._$('chip-mode');
+      if (chip) {
+        chip.textContent = `${this._config.boiler_name || words['gen_' + this._config.generator_type]} · ${state}`;
+        chip.className = `chip mode-${boilerRunning ? 'heat' : 'idle'}`;
+      }
+    }
     this._speeds();
     this._updateControls();
     this._updateDrawer();
@@ -6915,6 +6950,16 @@ HeatpumpFlowCard.styles = `
   .heater.on .heater-el { stroke: ${hfcVar('heat')}; filter: url(#glow); }
   .heater.on.stage2 .heater-el { stroke: ${hfcVar('hot')}; }
   .heater.rod.on .heater-el, .rod-waves .wave { stroke: ${hfcVar('hot')}; } .rod-waves .wave { stroke-width: 2; }
+  .hpc-fan circle, .hpc-pump circle, .hpc-mixer circle, .hpc-mini-pump, .hpc-mini-mixer {
+    fill: var(--card-background-color, #fff); stroke: var(--disabled-text-color, #9e9e9e); stroke-width: 2; }
+  .hpc-fan path, .hpc-pump path, .hpc-mixer path { fill: none; stroke: var(--hfc-muted); stroke-width: 2; stroke-linecap: round; }
+  .hpc-pump path { fill: var(--hfc-muted); stroke: none; }
+  .hpc-pump.on circle, .hpc-mini-pump.on { stroke: var(--hfc-hot, #dc6f44); }
+  .hpc-mixer.on circle, .hpc-mini-mixer.on { stroke: var(--hfc-heat, #f59e0b); }
+  .hpc-fan.on path { fill: var(--hfc-hot, #dc6f44); }
+  .hpc-heater path { stroke: var(--hfc-muted); stroke-width: 3; fill: none; }
+  .hpc-heater.on path { stroke: var(--hfc-hot, #dc6f44); }
+  .hpc-mixer-value { font-size: 9px; }
   .boiler-title { font-size: 12px; font-weight: 600; fill: var(--primary-text-color); }
   .boiler-box { fill: var(--card-background-color, #fff); stroke: var(--divider-color, rgba(127,127,127,.5)); stroke-width: 2; }
   .boiler-water { fill: none; stroke: var(--hfc-muted); stroke-width: 6; }
