@@ -6,13 +6,32 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     setConfig(config) {
       if (!config || typeof config!=="object") throw Error("Invalid card configuration");
       if (config.plan_mode==="free" || Array.isArray(config.plan?.components)) {
-        this._config={...config,plan_mode:"free",plan:HPC_FREE.normalize(config.plan)};
-        if(this._hass)this._renderFree();
+        const next={...config,plan_mode:"free",plan:HPC_FREE.normalize(config.plan)};
+        const changed=JSON.stringify(this._config)!==JSON.stringify(next);
+        this._config=next;
+        if(changed){this._freeLayoutSig=null;this._freeLiveSig=null;}
+        if(this._hass&&(changed||!this._rendered))this._renderFree();
       } else super.setConfig(config);
+    }
+    _liveSignature(){
+      const ids=new Set();
+      const p=this._config?.plan||{};
+      for(const n of p.components||[]){
+        for(const id of Object.values(n.sensors||{}))if(id)ids.add(id);
+        for(const point of n.level_sensors||[])if(point.entity)ids.add(point.entity);
+      }
+      for(const edge of p.connections||[])
+        for(const id of [edge.flow_entity,edge.temperature_entity])if(id)ids.add(id);
+      return [...ids].sort().map(id=>{
+        const st=this._hass?.states?.[id];
+        return id+":"+(st?.state??"unavailable")+":"+(st?.attributes?.unit_of_measurement??"");
+      }).join("|");
     }
     set hass(hass) {
       if (!this._isFree()) { super.hass=hass; return; }
-      this._hass=hass;this._renderFree();
+      this._hass=hass;
+      const sig=this._liveSignature();
+      if(sig!==this._freeLiveSig||!this._rendered)this._renderFree();
     }
     getCardSize() { return this._isFree()?12:super.getCardSize(); }
     getGridOptions() { return {columns:"full",min_columns:6,rows:"auto"}; }
@@ -24,7 +43,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const head=de?"Heizungsanlage einrichten":"Set up heating system";
         const message=de?"Füge im Karteneditor Wärmeerzeuger, Pufferspeicher, Heizkreise und Verbindungen hinzu. Eine Wärmepumpen-Integration ist nicht notwendig.":"Add heat sources, buffer tanks, circuits and connections in the card editor. No heat pump integration is needed.";
         const root=this._renderRoot();
-        root.innerHTML=`<style>${HPC_FREE.css}
+        root.innerHTML=`<style>${HeatpumpFlowCard.styles}${HPC_FREE.css}
           .hpc-empty{padding:20px;border-radius:14px;background:var(--secondary-background-color,rgba(100,130,180,.11))}
           .hpc-empty h3{margin:0 0 10px;font-size:1.1em}.hpc-empty p{margin:0;line-height:1.45}</style>
           <ha-card><h2 style="font-size:1.15em;margin:0 0 12px">${title}</h2>
@@ -38,12 +57,20 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const plan=HPC_FREE.normalize(this._config.plan);
       const lang=String(this._hass.locale?.language||navigator.language||"de").startsWith("de")?"de":"en";
       const title=HPC_FREE.esc(this._config.title||"Hydraulic Plan Card");
-      this._renderRoot().innerHTML=`<style>${HPC_FREE.css}</style><ha-card>
-        <h2 style="font-size:1.15em;margin:0 0 12px">${title}</h2>
-        ${!plan.components.length?`<div class="hpc-note">${lang==="de"?"Noch keine Bauteile. Öffne den Karteneditor und lege die Hydraulik an.":"No components yet. Open the card editor to build your hydraulic system."}</div>`:""}
-        <div class="hpc-board">${HPC_FREE.draw(plan,this._hass,{lang})}</div>
-        <div class="hpc-note">${lang==="de"?"Pfeile = konfigurierte Richtung. Animation nur bei aktivem zugeordnetem Statussensor.":"Arrows show configured direction. Animation requires a mapped active flow/status sensor."}</div>
-        </ha-card>`;
+      const layoutSig=JSON.stringify(plan);
+      const root=this._renderRoot();
+      if(this._freeLayoutSig!==layoutSig||!root.querySelector(".hpc-board")){
+        root.innerHTML=`<style>${HeatpumpFlowCard.styles}${HPC_FREE.css}</style><ha-card>
+          <div class="head"><div class="title">${title}</div></div>
+          ${!plan.components.length?`<div class="hpc-note">${lang==="de"?"Noch keine Bauteile. Öffne den Karteneditor und lege die Hydraulik an.":"No components yet. Open the card editor to build your hydraulic system."}</div>`:""}
+          <div class="hpc-board"></div>
+          <div class="hpc-note">${lang==="de"?"Die Rohrrichtung ist konfiguriert. Eine Animation zeigt nur einen zugeordneten aktiven Pumpenstatus, keinen gemessenen Durchfluss.":"Directions are configured. Animation indicates a mapped active pump signal, not measured flow."}</div>
+          </ha-card>`;
+        this._freeLayoutSig=layoutSig;
+      }
+      const board=root.querySelector(".hpc-board");
+      if(board)board.innerHTML=HPC_FREE.draw(plan,this._hass,{lang});
+      this._freeLiveSig=this._liveSignature();
       this._renderRoot().querySelectorAll("[data-node]").forEach(node=>node.addEventListener("click",()=>{
         const c=plan.components.find(c=>c.id===node.dataset.node);
         const entity=c&&(c.sensors.state||c.sensors.flow||c.sensors.top||c.level_sensors?.[0]?.entity);
