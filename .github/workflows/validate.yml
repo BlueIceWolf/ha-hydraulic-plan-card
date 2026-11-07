@@ -20,6 +20,9 @@ jobs:
         uses: hacs/action@main
         with:
           category: plugin
+          # Repository description/topics must be configured under GitHub → About by the owner.
+          # They are not code checks and can be enabled once the metadata is filled in.
+          ignore: "description topics"
 
   browser:
     name: Syntax and ${{ matrix.browser }} smoke tests

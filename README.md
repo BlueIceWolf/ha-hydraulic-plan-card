@@ -2,6 +2,10 @@
 
 An animated heating-system card for **Home Assistant**, based on [Heat Pump Hydraulic Card](https://github.com/Sturmi77/heatpump-hydraulic-card) by Sturmi77.
 
+![Reference image: the original Heat Pump Hydraulic Card heat-pump layout](https://raw.githubusercontent.com/Sturmi77/heatpump-hydraulic-card/main/docs/social-preview.png)
+
+*Reference: original heat-pump layout by Sturmi77. Hydraulic Plan Card retains this view and adds boiler variants; the picture does not yet show the boiler extensions.*
+
 > **Development status: 0.1.0-alpha.1.** First functional heating-generator extension. Not a stable release and not yet a free drag-and-drop hydraulic editor.
 
 ## What is supported
