@@ -70,6 +70,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // existing equipment when the editor preview is only ~500px wide.
       // Percentages also adapt automatically when HA resizes the editor/card.
       svg.style.width=(model.width/10)+'%';
+      // Fullscreen on phones must not shrink to an unreadable overview.
+      // Preserve a minimum drawing scale there; the stage is scrollable in
+      // both directions, while the normal editor preview remains responsive.
+      svg.style.minWidth=this._fullscreenOpen?(model.width*.85)+'px':'';
       svg.style.maxWidth='none';
       const root=this._renderRoot();
       // This SVG can be much wider than the dashboard. The stage owns horizontal
