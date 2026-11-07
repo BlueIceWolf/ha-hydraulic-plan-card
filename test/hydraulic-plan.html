@@ -186,8 +186,8 @@
     editor.setConfig({type:'custom:hydraulic-plan-card',plan_mode:'free',plan:{components:sample,connections:edges}});
     document.body.appendChild(editor);editor.hass=hassFree;
     check(!!editor.querySelector('#hpc-free-svg'),'Free plan is previewed in the editor');
-    check(!!editor.querySelector('input[data-sensor="puffer1"]'),'Editor exposes buffer entity fields');
     const select=editor.querySelector('[data-select="puffer1"]');select?.click();
+    check(!!editor.querySelector('input[data-sensor="puffer1"]'),'Editor exposes buffer entity fields');
     check(editor.querySelectorAll('[data-level-entity="puffer1"]').length===2,
       'Additional buffer sensors are editable');
     let updatedConfig;
