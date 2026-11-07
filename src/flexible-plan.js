@@ -54,7 +54,7 @@ const HPC_FREE = (function makeFreeHelpers() {
         for(const point of n.level_sensors.slice(0,24)){
           const entity=point?.entity;
           const position=Number(point?.position);
-          if(typeof entity!=="string"||!entityRx.test(entity)||!Number.isFinite(position)||position<0||position>100)continue;
+          if(typeof entity!=="string"||(entity&&!entityRx.test(entity))||!Number.isFinite(position)||position<0||position>100)continue;
           const key=Math.round(position*10)/10;
           if(slots.has(key))continue;
           slots.add(key);
