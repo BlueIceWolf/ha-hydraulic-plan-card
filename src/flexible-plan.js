@@ -46,8 +46,24 @@ const HPC_FREE = (function makeFreeHelpers() {
         const id=n.sensors?.[key];
         if(typeof id==="string"&&entityRx.test(id))sensors[key]=id;
       }
+      // Heights are measured from the top of the tank, 0..100 %. Arbitrarily
+      // many additional sensor points can be inserted between the fixed legacy slots.
+      const level_sensors=[];
+      if(["buffer","dhw_tank"].includes(n.type)&&Array.isArray(n.level_sensors)){
+        const slots=new Set();
+        for(const point of n.level_sensors.slice(0,24)){
+          const entity=point?.entity;
+          const position=Number(point?.position);
+          if(typeof entity!=="string"||!entityRx.test(entity)||!Number.isFinite(position)||position<0||position>100)continue;
+          const key=Math.round(position*10)/10;
+          if(slots.has(key))continue;
+          slots.add(key);
+          level_sensors.push({position:key,entity});
+        }
+        level_sensors.sort((a,b)=>a.position-b.position);
+      }
       components.push({id:n.id,type:n.type,name:String(n.name||display(n.type)).slice(0,75),
-        x:coord(n.x,defaults[group]),y:coord(n.y,70+index*(group==="storage"?240:180)),sensors});
+        x:coord(n.x,defaults[group]),y:coord(n.y,70+index*(group==="storage"?240:180)),sensors,level_sensors});
     }
     const byId=Object.fromEntries(components.map(c=>[c.id,c]));
     const connections=[], edgeIds=new Set();
@@ -155,11 +171,28 @@ const HPC_FREE = (function makeFreeHelpers() {
     const by=Math.max(510,...plan.components.map(c=>c.y+dimension(c.type)[1]+85));
     const width=Math.min(bx,8500),height=Math.min(by,8500);
     const tanks=plan.components.filter(c=>["buffer","dhw_tank"].includes(c.type));
+    // Store measured stratification points in height order. SVG interpolates colors
+    // BETWEEN real readings, and never invents an unmeasured temperature.
+    const tankPoints=c=>{
+      const standard=[["top",0],["middle",50],["bottom",100]]
+        .filter(([key])=>!!c.sensors[key]).map(([key,position])=>({key,position,entity:c.sensors[key]}));
+      const extra=(c.level_sensors||[]).map((p,i)=>({key:"extra_"+i,position:p.position,entity:p.entity}));
+      return [...standard,...extra].filter(p=>state(hass,p.entity)?.number!==null&&!!state(hass,p.entity))
+        .sort((a,b)=>a.position-b.position);
+    };
     const gradients=tanks.map(c=>{
-      const top=color(state(hass,c.sensors.top));
-      const middle=c.sensors.middle?color(state(hass,c.sensors.middle)):top;
-      const bottom=color(state(hass,c.sensors.bottom));
-      return `<linearGradient id="hpc-${esc(c.id)}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${top}"/><stop offset="50%" stop-color="${middle}"/><stop offset="100%" stop-color="${bottom}"/></linearGradient>`;
+      const points=tankPoints(c);
+      const stops=[];
+      if(!points.length){stops.push('<stop offset="0%" stop-color="#586575"/>',
+        '<stop offset="100%" stop-color="#586575"/>');}
+      else{
+        const first=points[0],last=points[points.length-1];
+        const add=(pos,c)=>stops.push(`<stop offset="${pos}%" stop-color="${c}"/>`);
+        if(first.position>0){add(0,"#586575");add(Math.max(0,first.position-.5),"#586575");}
+        points.forEach(p=>add(p.position,color(state(hass,p.entity))));
+        if(last.position<100){add(Math.min(100,last.position+.5),"#586575");add(100,"#586575");}
+      }
+      return `<linearGradient id="hpc-${esc(c.id)}" x1="0" y1="0" x2="0" y2="1">${stops.join("")}</linearGradient>`;
     }).join("");
     const map=Object.fromEntries(plan.components.map(c=>[c.id,c]));
     const connectors=plan.connections.map(e=>{
@@ -177,9 +210,17 @@ const HPC_FREE = (function makeFreeHelpers() {
       const isTank=["buffer","dhw_tank"].includes(c.type);
       const sensor=c.sensors.state||c.sensors.pump||c.sensors.heater;
       const on=active(state(hass,sensor));
-      const rows=(isTank?["top","middle","bottom"]:c.type==="heating_circuit"?["flow","return","mixer"]:["flow","return","power","exhaust","position"])
+      const rows=(c.type==="heating_circuit"?["flow","return","mixer"]:["flow","return","power","exhaust","position"])
         .filter(key=>!!c.sensors[key]).slice(0,3);
-      const values=rows.map((key,i)=>`<text x="${c.x+14}" y="${c.y+57+i*22}" class="hpc-reading">${esc(fieldLabel(key,lang))}: ${esc(format(state(hass,c.sensors[key])))}</text>`).join("");
+      const tankRows=isTank?tankPoints(c):[];
+      const values=isTank
+        ? tankRows.map(p=>{
+          const ry=c.y+Math.max(44,Math.min(h-10,h*p.position/100));
+          const v=state(hass,p.entity);
+          return `<circle cx="${c.x+9}" cy="${Math.max(c.y+8,Math.min(c.y+h-8,c.y+h*p.position/100))}" r="3" fill="#fff" opacity=".85"/>
+            <text x="${c.x+16}" y="${ry}" class="hpc-reading hpc-tank-reading">${esc(format(v))}</text>`;
+        }).join("")
+        : rows.map((key,i)=>`<text x="${c.x+14}" y="${c.y+57+i*22}" class="hpc-reading">${esc(fieldLabel(key,lang))}: ${esc(format(state(hass,c.sensors[key])))}</text>`).join("");
       const outline=isTank?`fill="url(#hpc-${esc(c.id)})"`:`fill="${on?"#294839":"#202f41"}"`;
       const border=selected===c.id?"#f4c25c":on?"#6dd7ad":"#60758d";
       const circles=ports(c.type).map(p=>{
@@ -205,7 +246,8 @@ const HPC_FREE = (function makeFreeHelpers() {
     #hpc-free-svg{width:100%;height:auto;min-width:600px;max-height:76vh;display:block}
     .hpc-node{cursor:pointer}.hpc-node:focus-visible rect{stroke:#ffcc6f;stroke-width:4}
     .hpc-name{font:600 16px sans-serif;fill:#f3f6fa}
-    .hpc-reading{font:13px sans-serif;fill:#eff6ff}.hpc-muted{font:13px sans-serif;fill:#aabbd0}
+    .hpc-reading{font:13px sans-serif;fill:#eff6ff;paint-order:stroke fill;stroke:#172130;stroke-width:2.5px}
+    .hpc-tank-reading{font-size:12px}.hpc-muted{font:13px sans-serif;fill:#aabbd0}
     .hpc-pipe{fill:none;stroke-width:7;stroke-linejoin:round;stroke-linecap:round}
     .hpc-pulse{fill:none;stroke:#ebf6ff;stroke-width:3;stroke-dasharray:4 13;animation:hpc-motion 1.4s linear infinite}
     @keyframes hpc-motion{to{stroke-dashoffset:-34}}
