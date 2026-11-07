@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/serve.mjs",
-    "syntax": "node --check dist/hydraulic-plan-card.js && node --check demo/setups.js",
+    "syntax": "node --check dist/ha-hydraulic-plan-card.js && node --check demo/setups.js",
     "test": "playwright test",
     "test:chromium": "playwright test --project=chromium",
     "test:firefox": "playwright test --project=firefox",

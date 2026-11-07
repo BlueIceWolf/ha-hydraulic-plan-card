@@ -2,6 +2,10 @@
 
 An animated heating-system card for **Home Assistant**, based on [Heat Pump Hydraulic Card](https://github.com/Sturmi77/heatpump-hydraulic-card) by Sturmi77.
 
+![Reference image: the original Heat Pump Hydraulic Card heat-pump layout](https://raw.githubusercontent.com/Sturmi77/heatpump-hydraulic-card/main/docs/social-preview.png)
+
+*Reference: original heat-pump layout by Sturmi77. Hydraulic Plan Card retains this view and adds boiler variants; the picture does not yet show the boiler extensions.*
+
 > **Development status: 0.1.0-alpha.1.** First functional heating-generator extension. Not a stable release and not yet a free drag-and-drop hydraulic editor.
 
 ## What is supported
@@ -17,7 +21,7 @@ An animated heating-system card for **Home Assistant**, based on [Heat Pump Hydr
 
 ## Installation
 
-Use [HACS](https://www.hacs.xyz/) → Custom repositories → add `https://github.com/BlueIceWolf/ha-hydraulic-plan-card` as a **Dashboard** repository. Download the card and reload the Home Assistant browser. If you install it manually, place `dist/hydraulic-plan-card.js` under `/config/www/` and add it as a JavaScript module dashboard resource.
+Use [HACS](https://www.hacs.xyz/) → Custom repositories → add `https://github.com/BlueIceWolf/ha-hydraulic-plan-card` as a **Dashboard** repository. Download the card and reload the Home Assistant browser. If you install it manually, place `dist/ha-hydraulic-plan-card.js` under `/config/www/` and add it as a JavaScript module dashboard resource.
 
 Add a dashboard card of type:
 

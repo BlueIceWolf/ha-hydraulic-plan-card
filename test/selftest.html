@@ -20,7 +20,7 @@
   Object.defineProperty(navigator, 'language', { get: () => 'en-US', configurable: true });
   Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'], configurable: true });
 </script>
-<script src="../dist/heatpump-hydraulic-card.js"></script>
+<script src="fixtures/heatpump-hydraulic-card.js"></script>
 <script src="../demo/setups.js"></script>
 <script>
 (async () => {
@@ -2838,7 +2838,7 @@
       console.warn = (...a) => { window.__warns.push(a.join(' ')); warn.apply(console, a); };
       customElements.define('heatpump-flow-card', class extends HTMLElement {});
       customElements.define('heatpump-flow-card-editor', class extends HTMLElement {});
-      <\/script><script src="../dist/heatpump-hydraulic-card.js"><\/script>`;
+      <\/script><script src="fixtures/heatpump-hydraulic-card.js"><\/script>`;
     fr.style.cssText = 'width:10px;height:10px;position:absolute;left:-99px';
     document.body.appendChild(fr);
     await new Promise((resolve) => { fr.onload = resolve; setTimeout(resolve, 3000); });
@@ -2876,7 +2876,7 @@
           class HeatpumpFlowCard extends HTMLElement {} HeatpumpFlowCard.hfcOwner = 'sturmi77'; ${marker ? `HeatpumpFlowCard.hfcVersion = '${marker}';` : ''}
           customElements.define('heatpump-flow-card', HeatpumpFlowCard); customElements.define('heatpump-hydraulic-card', class HeatpumpHydraulicCard extends HeatpumpFlowCard {});
         }
-        <\/script><script src="../dist/heatpump-hydraulic-card.js"><\/script>`;
+        <\/script><script src="fixtures/heatpump-hydraulic-card.js"><\/script>`;
       f.style.cssText = 'width:10px;height:10px;position:absolute;left:-99px';
       document.body.appendChild(f);
       await new Promise((resolve) => { f.onload = resolve; setTimeout(resolve, 3000); });
