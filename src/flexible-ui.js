@@ -57,14 +57,29 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     _unconfigured(){return !this._free()&&this._config?.editor_mode!=="classic"&&(!this._config?.preset||this._config.preset==="none")&&
       !Object.values(this._config?.entities||{}).some(Boolean);}
     setConfig(config){
-      this._config=config||{};
-      if(this._free()||this._unconfigured())this._renderFlex();
-      else {this._freeUi?.remove();this._freeUi=null;super.setConfig(config);this._showFreeButton();}
+      // Home Assistant can call setConfig repeatedly (including for our own config-changed
+      // event). Redrawing on an equivalent config destroys focused text inputs and selects.
+      const newConfig=config||{};
+      const changed=JSON.stringify(this._config)!==JSON.stringify(newConfig);
+      this._config=newConfig;
+      if(this._free()||this._unconfigured()){
+        if(changed || !this._freeUi?.isConnected)this._renderFlex();
+      } else {
+        this._freeUi?.remove();this._freeUi=null;
+        if(changed||!this._form)super.setConfig(config);
+        this._showFreeButton();
+      }
     }
     set hass(hass){
+      const first=!this._hass;
       this._hass=hass;
-      if(this._free()||this._unconfigured())this._renderFlex();
-      else {super.hass=hass;this._showFreeButton();}
+      // Live HA data changes frequently. Never replace the whole configuration form;
+      // this would interrupt typing, select popovers and drag operations.
+      if(this._free()||this._unconfigured()){
+        if(first||!this._freeUi?.isConnected)this._renderFlex();
+        return;
+      }
+      super.hass=hass;this._showFreeButton();
     }
     _render(){
       if(this._free()||this._unconfigured())this._renderFlex();
@@ -73,6 +88,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     _save(config){
       this._config=config;
       this.dispatchEvent(new CustomEvent("config-changed",{detail:{config},bubbles:true,composed:true}));
+      // User action (not a HA data refresh) is the only reason to redraw the form.
       this._render();
     }
     _applyPlan(plan){this._save({...this._config,plan_mode:"free",plan:HPC_FREE.normalize(plan)});}
@@ -171,7 +187,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         ${dataList}
       </div>`;
       if(!this._freeUi){this._freeUi=document.createElement("div");this.append(this._freeUi);}
+      // Repaint only after an intentional editor action. Preserve the scroll position
+      // when adding sensors, switching components or moving the hydraulic schematic.
+      const oldY=this._freeUi.scrollTop;
       this._freeUi.innerHTML=html;
+      this._freeUi.scrollTop=oldY;
       const root=this._freeUi;
       const changePlan=(fn)=>{const next=HPC_FREE.normalize(p);fn(next);this._applyPlan(next);};
       root.querySelectorAll("[data-action]").forEach(button=>button.addEventListener("click",()=>{
