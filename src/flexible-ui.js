@@ -126,7 +126,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       if(!this._config||!this._hass||this._free())return;
       if(this._switch?.isConnected)return;
       this._switch=document.createElement("div");
-      this._switch.innerHTML=`<style>${HPC_FREE.css}</style><div class="hpc-editor hpc-actions"><button type="button" class="hpc-primary">Bauteile zur bestehenden Hydraulik ergänzen</button></div>`;
+      this._switch.innerHTML=`<style>${HPC_FREE.css}</style><div class="hpc-editor hpc-actions"><button type="button" class="hpc-primary">Bauteile im vorhandenen Hydraulikplan ergänzen</button></div>`;
       this.prepend(this._switch);
       this._switch.querySelector("button").addEventListener("click",()=>this._applyPlan({components:[],connections:[]}));
     }
@@ -201,9 +201,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             <button type="button" class="hpc-primary" data-action="add-component">${t("Hinzufügen","Add")}</button></div>
           <div class="hpc-component-list">${p.components.map(c=>`<button type="button" data-select="${esc(c.id)}"
             aria-pressed="${selected?.id===c.id}">${esc(c.name)}</button>`).join("")}</div>
-          <h3>${t("Hydraulikplan","Hydraulic plan")}</h3>
-          <p>${t("Bauteile im Plan anklicken und verschieben. Verbindungspfeile sind keine automatisch erkannten Fließrichtungen.","Select and drag components. Arrow directions are configured, not automatically measured.")}</p>
-          <div class="hpc-board">${HPC_FREE.draw(p,this._hass,{lang,selected:selected?.id})}</div>
+          <h3>${t("Hydraulikschema","Hydraulic schematic")}</h3>
+          <p>${t("Die Bauteile erscheinen direkt im ursprünglichen Hydraulikplan, nicht in einer zweiten Ansicht. Positionen lassen sich über X und Y einstellen. Die Live-Vorschau siehst du im Dashboard.","Components are added to the original hydraulic schematic, not a second view. Adjust positions through X and Y. The dashboard shows the live preview.")}</p>
           ${chosen}
           <h3>${t("Rohrverbindungen","Pipe connections")}</h3>
           <div class="hpc-row"><label>${t("Von Anschluss","From port")}<select id="hpc-from">
