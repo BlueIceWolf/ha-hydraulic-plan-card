@@ -216,8 +216,9 @@ const HPC_FREE = (function makeFreeHelpers() {
       // Every sensor affects the gradient. To prevent overlapping labels at dense
       // installation heights, show up to seven evenly spaced values. All sensor
       // markers retain a tooltip with their real position and reading.
-      const visibleTankRows=tankRows.length<=7?tankRows:
-        tankRows.filter((p,i)=>i===0||i===tankRows.length-1||Math.round(i*6/(tankRows.length-1))!==Math.round((i-1)*6/(tankRows.length-1)));
+      const tankLabelIndices=new Set(Array.from({length:Math.min(7,tankRows.length)},(_,i)=>
+        Math.round(i*(tankRows.length-1)/Math.max(1,Math.min(7,tankRows.length)-1))));
+      const visibleTankRows=tankRows.filter((p,i)=>tankLabelIndices.has(i));
       const values=isTank
         ? tankRows.map(p=>{
           const physicalY=c.y+Math.max(9,Math.min(h-9,h*p.position/100));
