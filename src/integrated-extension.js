@@ -15,15 +15,42 @@ const HPC_INTEGRATED = (() => {
     if(firstDhw)anchored.set(firstDhw.id,{x:520,y:40,w:120,h:200,type:'dhw_tank'});
     p.components.filter(c=>c.type==='heating_circuit').slice(0,Math.min(hcCount,6))
       .forEach((c,index)=>anchored.set(c.id,{x:815,y:330+index*250,w:155,h:140,type:'heating_circuit'}));
-    // Preserve the user's own relative positions, but place extra equipment beside
-    // the original 1000-unit schematic so neither the original boiler nor the
-    // heat pump/pipes are obscured by a second representation.
+    // Deterministic automatic layout: no manual X/Y placement is required.
+    // Keep the original Heat Pump Hydraulic Card positions for its main units,
+    // and arrange additional equipment in distinct, non-overlapping lanes.
+    // Connection order and type determine the visual grouping, not stored X/Y.
     const extras=p.components.filter(c=>!anchored.has(c.id));
+    const byGroup={source:[],storage:[],control:[],load:[]};
+    for(const node of extras)byGroup[HPC_FREE.byType[node.type].group].push(node);
     const points=new Map();
-    extras.forEach(c=>{
-      const [w,h]=HPC_FREE.dimension(c.type);
-      points.set(c.id,{x:1090+Math.round(c.x*.80),y:90+Math.round(c.y*.88),w,h,type:c.type});
+    // A column has no more than four items; add further columns automatically.
+    const placeColumn=(items,startX,startY,stepX,stepY,wCount=4)=>{
+      for(const [idx,node] of items.entries()){
+        const [w,h]=HPC_FREE.dimension(node.type);
+        const column=Math.floor(idx/wCount),row=idx%wCount;
+        points.set(node.id,{x:startX+column*stepX,y:startY+row*stepY,w,h,type:node.type});
+      }
+      return startX+Math.max(1,Math.ceil(items.length/wCount))*stepX;
+    };
+    const sourceEnd=placeColumn(byGroup.source,1110,95,245,205);
+    // Buffer rows follow the storage connection order and remain adjacent.
+    const extraBuffers=byGroup.storage.filter(c=>c.type==='buffer');
+    const extraDhw=byGroup.storage.filter(c=>c.type==='dhw_tank');
+    const storageStart=sourceEnd+90;
+    extraBuffers.forEach((node,index)=>{
+      const [w,h]=HPC_FREE.dimension(node.type);
+      points.set(node.id,{x:storageStart+(index%4)*177,
+        y:330+Math.floor(index/4)*225,w,h,type:node.type});
     });
+    extraDhw.forEach((node,index)=>{
+      const [w,h]=HPC_FREE.dimension(node.type);
+      points.set(node.id,{x:storageStart+(index%4)*177,
+        y:75+Math.floor(index/4)*225,w,h,type:node.type});
+    });
+    const storageCols=Math.max(1,Math.min(4,extraBuffers.length),Math.min(4,extraDhw.length));
+    const controlStart=storageStart+storageCols*177+80;
+    const controlEnd=placeColumn(byGroup.control,controlStart,90,205,150);
+    placeColumn(byGroup.load,controlEnd+90,115,230,225,3);
     const maxX=Math.max(1000,...[...points.values()].map(n=>n.x+n.w+70));
     const maxY=Math.max(560+(hcCount-1)*250,...[...points.values()].map(n=>n.y+n.h+70));
     return {plan:p,anchored,points,extras,width:maxX,height:maxY};
