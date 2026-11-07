@@ -33,14 +33,33 @@ const HPC_INTEGRATED = (() => {
       return startX+Math.max(1,Math.ceil(items.length/wCount))*stepX;
     };
     const sourceEnd=placeColumn(byGroup.source,1110,95,245,205);
-    // Buffer rows follow the storage connection order and remain adjacent.
-    const extraBuffers=byGroup.storage.filter(c=>c.type==='buffer');
+    // Discover the buffer sequence from the user's directed pipe connections.
+    // This works regardless of the order in which buffers were added.
+    const orderedBuffers=byGroup.storage.filter(c=>c.type==='buffer');
+    const adjacency=new Map();
+    for(const edge of p.connections){
+      if(!adjacency.has(edge.from))adjacency.set(edge.from,[]);
+      adjacency.get(edge.from).push(edge.to);
+    }
+    const distances=new Map(),queue=firstBuffer?[firstBuffer.id]:[];
+    if(firstBuffer)distances.set(firstBuffer.id,0);
+    while(queue.length){
+      const from=queue.shift(),depth=distances.get(from);
+      for(const to of adjacency.get(from)||[]){
+        if(distances.has(to))continue;
+        distances.set(to,depth+1);
+        queue.push(to);
+      }
+    }
+    orderedBuffers.sort((a,b)=>(distances.get(a.id)??Infinity)-(distances.get(b.id)??Infinity));
     const extraDhw=byGroup.storage.filter(c=>c.type==='dhw_tank');
     const storageStart=sourceEnd+90;
-    extraBuffers.forEach((node,index)=>{
+    // A second DHW row must not overlap the buffer row.
+    const bufferStartY=330+Math.max(0,Math.ceil(extraDhw.length/4)-1)*225;
+    orderedBuffers.forEach((node,index)=>{
       const [w,h]=HPC_FREE.dimension(node.type);
       points.set(node.id,{x:storageStart+(index%4)*177,
-        y:330+Math.floor(index/4)*225,w,h,type:node.type});
+        y:bufferStartY+Math.floor(index/4)*225,w,h,type:node.type});
     });
     extraDhw.forEach((node,index)=>{
       const [w,h]=HPC_FREE.dimension(node.type);
