@@ -35,6 +35,13 @@ test('fullscreen large hydraulic schema scrolls vertically with wheel over diagr
   await page.evaluate(()=>{window.__scrollCard.shadowRoot.querySelector('ha-card.fullscreen').scrollTop=0;});
   await page.mouse.move(box.x + Math.min(box.width/2,280),box.y + Math.min(box.height/2,200));
   await page.mouse.wheel(410,0);
+  // Some headless Firefox builds don't generate horizontal wheel gestures.
+  // Verify the documented Shift+mouse-wheel fallback as well.
+  if(await page.evaluate(()=>window.__scrollCard.shadowRoot.querySelector('.stage').scrollLeft) < 50){
+    await page.keyboard.down('Shift');
+    await page.mouse.wheel(0,410);
+    await page.keyboard.up('Shift');
+  }
   await expect.poll(()=>page.evaluate(()=>window.__scrollCard.shadowRoot.querySelector('.stage').scrollLeft)).toBeGreaterThan(50);
 
   // The normal dashboard must regain normal body scrolling after closing fullscreen.
