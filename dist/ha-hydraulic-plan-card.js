@@ -8118,6 +8118,19 @@ const HPC_INTEGRATED = (() => {
       p.connections.some(e=>e.from===n.id&&
         p.components.some(t=>t.id===e.to&&t.type==='dhw_tank'&&e.to_port==='coil_in')));
     chargeControls.forEach((node,index)=>{
+      if(node.type==='pump'){
+        // A DHW charging pump belongs ON the coil supply pipe. Place its
+        // 40px-wide symbol immediately before the coil inlet, not in a
+        // separate 157×96px control tile overlapping the hot-water tank.
+        const edge=p.connections.find(e=>e.from===node.id&&e.to_port==='coil_in');
+        const tank=edge&&p.components.find(c=>c.id===edge.to&&c.type==='dhw_tank');
+        const tankBox=tank&&(anchored.get(tank.id)||points.get(tank.id));
+        if(tankBox){
+          const inletY=tankBox.y+40;
+          points.set(node.id,{x:tankBox.x-90,y:inletY-20,w:40,h:40,type:'pump',inline:true});
+          return;
+        }
+      }
       const [w,h]=HPC_FREE.dimension(node.type);
       points.set(node.id,{x:320,y:72+index*242,w,h,type:node.type});
     });
@@ -8609,6 +8622,17 @@ const HPC_INTEGRATED = (() => {
       const s=HPC_FREE.state(hass,node.sensors.state||node.sensors.pump);
       const on=HPC_FREE.active(s);
       const title=HPC_FREE.esc(node.name);
+      if(node.type==='pump'&&b.inline){
+        const cx=b.x+b.w/2,cy=b.y+b.h/2;
+        // Keep the device interactive, including entity details, but do not
+        // draw a unit rectangle, giant heading or oversized generic icon.
+        // The pump has the same centreline as the pipe's in/out ports.
+        return '<g class="tap hpi-inline-pump" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.state||'')+'">'
+          +'<title>'+title+'</title>'
+          +'<circle cx="'+cx+'" cy="'+cy+'" r="20" fill="var(--card-background-color,#202124)" stroke="var(--primary-text-color,#b0b0b0)" stroke-width="3"/>'
+          +'<path d="M'+(cx-7)+' '+(cy-11)+' L'+(cx+11)+' '+cy+' L'+(cx-7)+' '+(cy+11)+'Z" fill="'+(on?'var(--hfc-hot,#ff7043)':'var(--primary-text-color,#b0b0b0)')+'"/>'
+          +'</g>';
+      }
       const isStore=isTank(node);
       if(isStore){
         const allPoints=tankPoints(node,hass);
