@@ -589,6 +589,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         : `<label>${esc(label)}<input list="hpc-free-entities" data-edge="${esc(edge.id)}" data-edge-field="${field}" value="${esc(edge[field])}"/></label>`;
       // Selecting two components is easier than choosing four separate ports.
       // A heat-source/tank pair creates its hot supply and matching return.
+      const dhwTanks=p.components.filter(c=>c.type==='dhw_tank');
+      const dhwSources=p.components.filter(c=>c.type==='buffer'||HPC_FREE.byType[c.type]?.group==='source');
+      const dhwOptions=dhwTanks.filter(c=>!p.connections.some(e=>
+        e.to===c.id&&e.to_port==='coil_in'||e.from===c.id&&e.from_port==='coil_out'));
       const suggestedPairs=HPC_FREE.connectionPairs(p);
       const pairOptions=suggestedPairs.map(c=>
         '<option value="'+esc(c.from+'|'+c.to)+'">'+esc(c.label)+' · '+
@@ -633,6 +637,25 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <h3>${t("Hydraulikschema","Hydraulic schematic")}</h3>
           <p>${t("Die Bauteile werden passend zu ihren Anschlüssen automatisch im ursprünglichen Hydraulikplan angeordnet. Du musst keine Positionen eingeben. Die Live-Vorschau siehst du im Dashboard.","Components are automatically arranged in the original hydraulic schematic. No manual coordinates are required. The dashboard shows the live preview.")}</p>
           ${chosen}
+          ${dhwTanks.length&&dhwSources.length?`<section class="hpc-ems">
+            <h3>${t("Warmwasserbereitung anschließen","Connect domestic hot-water charging")}</h3>
+            <p>${t("Wähle die Wärmequelle und wie der Speicher geladen wird. Vorlauf und Rücklauf werden zusammen angelegt; vorhandene WW-Leitungen werden nicht überschrieben.","Choose the heat source and charging method. Flow and return are created together. Existing DHW pipes are not overwritten.")}</p>
+            <div class="hpc-row">
+              <label>${t("Wärmequelle","Heat source")}<select id="hpc-dhw-source">
+                ${dhwSources.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+              </select></label>
+              <label>${t("Warmwasserspeicher","Hot-water tank")}<select id="hpc-dhw-target">
+                ${dhwOptions.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+              </select></label>
+              <label>${t("Ladeart","Charging method")}<select id="hpc-dhw-kind">
+                <option value="pump">${t("Über Ladepumpe","Via charging pump")}</option>
+                <option value="diverter">${t("Über Umschaltventil","Via diverter valve")}</option>
+                <option value="direct">${t("Direkt verbunden","Direct connection")}</option>
+              </select></label>
+              <button type="button" data-action="dhw-route" class="hpc-primary" ${dhwOptions.length?'':'disabled'}>${t("WW-Kreis anlegen","Create DHW circuit")}</button>
+            </div>
+            <p>${t("Bei einer Umschaltung muss der tatsächliche Ventilzustand für die Flussanzeige zugeordnet werden. Die Darstellung ersetzt keine hydraulische Prüfung.","For diverting, assign the actual valve state to display flow correctly. This does not replace checking the actual pipework.")}</p>
+          </section>`:""}
           <h3>${t("Bauteile verbinden","Connect components")}</h3>
           <div class="hpc-row hpc-quick-connect">
             <label class="hpc-field">${t("Was soll verbunden werden?","What should be connected?")}
@@ -905,6 +928,14 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           this._selectedId=null;
           return this._applyPlan({components:p.components.filter(c=>c.id!==selected.id),
             connections:p.connections.filter(c=>c.from!==selected.id&&c.to!==selected.id)});
+        }
+        if(action==="dhw-route"){
+          const source=root.querySelector('#hpc-dhw-source')?.value;
+          const tank=root.querySelector('#hpc-dhw-target')?.value;
+          const kind=root.querySelector('#hpc-dhw-kind')?.value;
+          const next=HPC_FREE.connectDhwCharge(p,source,tank,kind);
+          if(!next)return;
+          return this._applyPlan(next);
         }
         if(action==="connect-pair"){
           const [from,to]=(root.querySelector('#hpc-pair')?.value||'').split('|');
