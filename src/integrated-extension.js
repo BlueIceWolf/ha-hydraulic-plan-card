@@ -226,11 +226,33 @@ const HPC_INTEGRATED = (() => {
       // The core pipe path already connects legacy core units. Only draw extra
       // paths for links crossing into or between added components.
       // Every user-defined link is drawn, even between primary SVG parts.
-      const p=port(all[edge.from],loc(edge.from),edge.from_port);
-      const q=port(all[edge.to],loc(edge.to),edge.to_port);
-      const mid=(p.x+q.x)/2;
-      const d='M'+p.x+' '+p.y+' H'+mid+' V'+q.y+' H'+q.x;
-      const s=HPC_FREE.state(hass,edge.temperature_entity);
+      const fromShape=loc(edge.from),toShape=loc(edge.to);
+      const p=port(all[edge.from],fromShape,edge.from_port);
+      const q=port(all[edge.to],toShape,edge.to_port);
+      let d;
+      if(p.x>q.x+8){
+        // Right-hand outlet feeding a left-hand inlet: route outside
+        // both components rather than crossing their interiors.
+        const farX=p.x+38,entryX=q.x-36;
+        const laneY=p.y<q.y-120
+          ?Math.max(fromShape.y+fromShape.h+32,toShape.y-32)
+          :p.y>q.y+120
+          ?Math.min(fromShape.y-32,toShape.y+toShape.h+32)
+          :Math.max(fromShape.y+fromShape.h,toShape.y+toShape.h)+38;
+        d='M'+p.x+' '+p.y+' H'+farX+' V'+laneY+' H'+entryX+' V'+q.y+' H'+q.x;
+      }else{
+        const mid=(p.x+q.x)/2;
+        d='M'+p.x+' '+p.y+' H'+mid+' V'+q.y+' H'+q.x;
+      }
+      const inferred=(()=>{
+        const node=all[edge.from],field=edge.from_port;
+        if(field==="flow")return node.sensors.flow;
+        if(field==="top_out")return node.sensors.top;
+        if(field==="mid_out")return node.sensors.middle;
+        if(field==="bottom_out")return node.sensors.bottom;
+        return "";
+      })();
+      const s=HPC_FREE.state(hass,edge.temperature_entity||inferred);
       const color=s?HPC_FREE.color(s):null;
       const on=flowing.has(edge.id);
       return '<g class="hpi-link"><title>'+HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'

@@ -7638,6 +7638,26 @@ const HPC_FREE = (function makeFreeHelpers() {
     if(portRole(a.type,fromPort)==="in"||portRole(b.type,toPort)==="out")return false;
     return !p.connections.some(e=>e.from===from&&e.from_port===fromPort&&e.to===to&&e.to_port===toPort);
   }
+  function connectBufferSeries(input) {
+    const plan=normalize(input),buffers=plan.components.filter(c=>c.type==="buffer");
+    if(buffers.length<2)return plan;
+    const existing=new Set(plan.connections.map(e=>e.from+"|"+e.from_port+"|"+e.to+"|"+e.to_port));
+    const ids=new Set(plan.connections.map(e=>e.id));
+    const connect=(from,fromPort,to,toPort)=>{
+      const identity=from+"|"+fromPort+"|"+to+"|"+toPort;
+      if(existing.has(identity))return;
+      const id=nextId("leitung",ids);ids.add(id);existing.add(identity);
+      plan.connections.push({id,from,from_port:fromPort,to,to_port:toPort,flow_entity:"",temperature_entity:""});
+    };
+    for(let i=0;i<buffers.length-1;i++){
+      const first=buffers[i].id,second=buffers[i+1].id;
+      // Hot top line runs from first to next. Cool return comes back from
+      // the next tank's bottom to the previous tank's bottom.
+      connect(first,"top_out",second,"top_in");
+      connect(second,"bottom_out",first,"bottom_in");
+    }
+    return normalize(plan);
+  }
   const nextId=(prefix,ids)=>{let i=1;while(ids.has(prefix+"_"+i))i++;return prefix+"_"+i;};
   function newNode(type,plan) {
     if(!byType[type])return null;
@@ -7863,7 +7883,7 @@ const HPC_FREE = (function makeFreeHelpers() {
   </svg>`;
 }
   const css="\n  :host { display:block; --hpc-muted: var(--secondary-text-color, #7b8798); }\n  ha-card { background:var(--ha-card-background,var(--card-background-color,#fff)); padding:14px;overflow:hidden; }\n  .hpc-board {width:100%;overflow:auto;overscroll-behavior:contain;border-radius:12px;\n    border:1px solid var(--divider-color,rgba(110,125,145,.22));\n    background:var(--card-background-color,rgba(0,0,0,.02));}\n  #hpc-free-svg{min-width:650px;display:block;width:100%;height:auto;max-height:72vh;}\n  .hpc-appliance .hpc-unit-border{fill:var(--secondary-background-color,rgba(126,144,160,.1));\n    stroke:var(--divider-color,#9ca3af);stroke-width:2.3;}\n  .hpc-appliance.is-on .hpc-unit-border{stroke:var(--hfc-heat,#ca793e);}\n  .hpc-node.is-selected .hpc-unit-border,.hpc-node.is-selected .hpc-tank-shadow{\n    stroke:var(--primary-color,#2196f3);stroke-width:4;}\n  .hpc-unit-border,.hpc-tank-shadow,.hpc-tank-main{filter:drop-shadow(0 2px 3px rgba(0,0,0,.08))}\n  .hpc-component-icon{stroke:var(--hpc-muted);fill:none;stroke-width:2.8}\n  .hpc-component-icon.is-on{stroke:var(--hfc-hot,#b35b38)}\n  .hpc-component-icon circle,.hpc-component-icon rect{fill:var(--card-background-color,#fff)}\n  .hpc-node{cursor:pointer}.hpc-node:hover .hpc-unit-border{stroke:var(--primary-color,#2196f3)}\n  .hpc-label{font:600 16px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-name{font-size:15px}\n  .hpc-reading{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-reading{font:600 12px var(--ha-font-family-body,system-ui,sans-serif);\n    fill:#fff;stroke:rgba(29,46,62,.85);paint-order:stroke fill;stroke-width:3px;}\n  .hpc-detail{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--secondary-text-color,#7d8590);}\n  .hpc-tank-shadow{fill:var(--card-background-color,#fff);stroke:var(--divider-color,#8e9bab);stroke-width:2.4;}\n  .hpc-tank-main{stroke:var(--divider-color,rgba(70,90,110,.6));stroke-width:1.3}\n  .hpc-tank-shine{fill:none;stroke:rgba(255,255,255,.28);stroke-width:6;stroke-linecap:round}\n  .hpc-tank-tick{fill:none;stroke:rgba(255,255,255,.50);stroke-width:1.1;}\n  .hpc-port{fill:var(--card-background-color,#fff);stroke:var(--hfc-flow-hot,#ad584b);stroke-width:2}\n  .hpc-route{pointer-events:none;}\n  .hpc-pipe-outline{fill:none;stroke:var(--divider-color,rgba(110,125,145,.5));\n    stroke-width:13;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-pipe{fill:none;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-arrow{fill:var(--primary-text-color,#516274);}\n  .hpc-pulse{fill:none;stroke:rgba(255,255,255,.9);stroke-width:3;stroke-dasharray:5 13;\n    animation:hpc-motion 1.35s linear infinite;}\n  @keyframes hpc-motion{to{stroke-dashoffset:-36}}\n  @media(prefers-reduced-motion:reduce){.hpc-pulse{animation:none;}}\n  .hpc-note{font-size:.82em;color:var(--secondary-text-color,#7d8590);margin:10px 3px 4px;}\n  .hpc-editor{font-family:var(--ha-font-family-body,inherit);color:var(--primary-text-color,inherit);}\n  .hpc-editor h3{font-size:1.02em;font-weight:600;margin:18px 0 9px;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding-bottom:6px}\n  .hpc-editor p{font-size:.88em;line-height:1.5;color:var(--secondary-text-color,#7d8590)}\n  .hpc-actions,.hpc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:9px 0}\n  .hpc-editor button,.hpc-editor select,.hpc-editor input{\n    box-sizing:border-box;font:inherit;border-radius:10px;\n    border:1px solid var(--divider-color,rgba(127,127,127,.34));\n    padding:10px 12px;color:var(--primary-text-color,inherit);\n    background:var(--card-background-color,#fff);max-width:100%;min-width:0}\n  .hpc-editor input:focus,.hpc-editor select:focus{outline:2px solid var(--primary-color,#03a9f4);outline-offset:1px}\n  .hpc-editor button{cursor:pointer;font-weight:500}\n  .hpc-editor button:hover{background:var(--secondary-background-color,rgba(127,127,127,.12))}\n  .hpc-editor button.hpc-primary{background:var(--primary-color,#03a9f4);color:#fff;border:0;}\n  .hpc-editor label{display:flex;flex-direction:column;gap:5px;font-size:.86em;font-weight:500;flex:1 1 170px;}\n  .hpc-editor .hpc-checkbox{display:flex;flex-direction:row;align-items:center;gap:11px;flex:1 1 100%;cursor:pointer;padding:11px 12px;border:1px solid var(--divider-color,rgba(127,127,127,.32));border-radius:10px;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-editor .hpc-checkbox input{width:19px;height:19px;margin:0;flex:0 0 auto;accent-color:var(--primary-color,#03a9f4);}\n  .hpc-editor .hpc-field{margin:6px 0;}\n  .hpc-editor .hpc-component-list{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}\n  .hpc-ems{border:1px solid var(--primary-color,#03a9f4);border-radius:12px;padding:8px 14px 14px;margin:14px 0;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-ems h3{margin-top:5px;}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
-  return {types,byType,ports,portRole,validConnection,dimension,display,fieldLabel,esc,normalize,newNode,sample,state,active,format,color,portXY,draw,css,text};
+  return {types,byType,ports,portRole,validConnection,connectBufferSeries,dimension,display,fieldLabel,esc,normalize,newNode,sample,state,active,format,color,portXY,draw,css,text};
 })();
 
 // Additional heating components share the original Heat Pump Hydraulic Card SVG.
@@ -8094,11 +8114,33 @@ const HPC_INTEGRATED = (() => {
       // The core pipe path already connects legacy core units. Only draw extra
       // paths for links crossing into or between added components.
       // Every user-defined link is drawn, even between primary SVG parts.
-      const p=port(all[edge.from],loc(edge.from),edge.from_port);
-      const q=port(all[edge.to],loc(edge.to),edge.to_port);
-      const mid=(p.x+q.x)/2;
-      const d='M'+p.x+' '+p.y+' H'+mid+' V'+q.y+' H'+q.x;
-      const s=HPC_FREE.state(hass,edge.temperature_entity);
+      const fromShape=loc(edge.from),toShape=loc(edge.to);
+      const p=port(all[edge.from],fromShape,edge.from_port);
+      const q=port(all[edge.to],toShape,edge.to_port);
+      let d;
+      if(p.x>q.x+8){
+        // Right-hand outlet feeding a left-hand inlet: route outside
+        // both components rather than crossing their interiors.
+        const farX=p.x+38,entryX=q.x-36;
+        const laneY=p.y<q.y-120
+          ?Math.max(fromShape.y+fromShape.h+32,toShape.y-32)
+          :p.y>q.y+120
+          ?Math.min(fromShape.y-32,toShape.y+toShape.h+32)
+          :Math.max(fromShape.y+fromShape.h,toShape.y+toShape.h)+38;
+        d='M'+p.x+' '+p.y+' H'+farX+' V'+laneY+' H'+entryX+' V'+q.y+' H'+q.x;
+      }else{
+        const mid=(p.x+q.x)/2;
+        d='M'+p.x+' '+p.y+' H'+mid+' V'+q.y+' H'+q.x;
+      }
+      const inferred=(()=>{
+        const node=all[edge.from],field=edge.from_port;
+        if(field==="flow")return node.sensors.flow;
+        if(field==="top_out")return node.sensors.top;
+        if(field==="mid_out")return node.sensors.middle;
+        if(field==="bottom_out")return node.sensors.bottom;
+        return "";
+      })();
+      const s=HPC_FREE.state(hass,edge.temperature_entity||inferred);
       const color=s?HPC_FREE.color(s):null;
       const on=flowing.has(edge.id);
       return '<g class="hpi-link"><title>'+HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'
