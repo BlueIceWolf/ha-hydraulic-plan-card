@@ -421,6 +421,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <span>${t("Rücklaufanhebung am Holzvergaser","Return-temperature lift at wood gasifier")}</span>
         </label>
         <p>${t("Die Rücklaufanhebung wird direkt hinter dem Kessel eingezeichnet. Ein zusätzlicher Mischer ist dafür nicht erforderlich. Den Pumpenstatus und die Mischerstellung kannst du unten zuordnen.","The return-temperature lift is drawn behind the boiler. No separate mixer component is needed. You can map its pump state and mixer position below.")}</p>`:""}
+        ${selected.type==="gas_boiler"?`<label class="hpc-field">${t("Wärmeerzeuger korrigieren","Correct heat source")}
+          <select data-source-type="${esc(selected.id)}">
+            <option value="gas_boiler" selected>${t("Gaskessel","Gas boiler")}</option>
+            <option value="oil_boiler">${t("Ölkessel (mit Brenner)","Oil boiler (with burner)")}</option>
+          </select></label>`:""}
         ${["oil_boiler","gas_boiler","pellet_boiler"].includes(selected.type)?`<label class="hpc-field">${t("Kesselbauart","Boiler construction")}
           <select data-boiler-kind="${esc(selected.id)}">
             ${[["standard",t("Standardkessel","Standard boiler")],["low_temp",t("Niedertemperaturkessel","Low-temperature boiler")],["condensing",t("Brennwertkessel","Condensing boiler")]]
@@ -597,6 +602,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             copy.components.push(node);
           }
           node.options={...node.options,eta_model:target?.options?.eta_model||chosenEta.model};
+          node.discovery={provider:'eta',id:String(chosenEta.id)};
           for(const [key,id] of Object.entries(chosenEta.entities)){
             if(HPC_FREE.byType[node.type].fields.includes(key)&&!node.sensors[key])
               node.sensors[key]=id;
@@ -605,21 +611,36 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           return this._applyPlan(copy,{hpc_legacy_imported:true});
         }
         if(action==="ems-apply"&&chosenEms){
-          const matches=p.components.filter(c=>c.type===chosenEms.type&&
-            HPC_FREE.byType[c.type]?.group==="source");
-          const same=matches.find(c=>Object.values(c.sensors||{}).some(id=>Object.values(chosenEms.entities).includes(id)));
-          const target=same||matches[0]||
-            (chosenEms.type==="unknown"&&selected&&HPC_FREE.byType[selected.type]?.group==="source"?selected:null);
-          if(!target&&chosenEms.type==="unknown")return;
+          const type=root.querySelector('#hpc-ems-type')?.value;
+          if(!['oil_boiler','gas_boiler','pellet_boiler','wood_gasifier'].includes(type))return;
+          const detectedIds=new Set(Object.values(chosenEms.entities));
+          // Match by persistent device ID first, then by actual sensor IDs.
+          // Never pick the first unrelated boiler merely because the fuel
+          // happens to be the same.
+          const sources=p.components.filter(c=>HPC_FREE.byType[c.type]?.group==="source");
+          const match=sources.find(c=>c.discovery?.provider==='ems-esp'&&
+            c.discovery.id===String(chosenEms.id))||
+            sources.find(c=>Object.values(c.sensors||{}).some(id=>detectedIds.has(id)));
           const copy=HPC_FREE.normalize(p);
-          const node=target?copy.components.find(c=>c.id===target.id):HPC_FREE.newNode(chosenEms.type,copy);
+          const node=match?copy.components.find(c=>c.id===match.id):HPC_FREE.newNode(type,copy);
           if(!node)return;
-          if(!target)copy.components.push(node);
-          // Never overwrite a value the user selected manually.
-          for(const [key,id] of Object.entries(chosenEms.entities)){
-            if(HPC_FREE.byType[node.type].fields.includes(key)&&!node.sensors[key])node.sensors[key]=id;
+          if(!match){
+            node.name=chosenEms.name.slice(0,75);
+            copy.components.push(node);
           }
-          if(!target)node.name=chosenEms.name.slice(0,75);
+          // User-selected fuel type is authoritative; this also repairs old
+          // auto-imports labeled as gas despite an existing oil burner.
+          if(node.type!==type){
+            node.type=type;
+            node.sensors=Object.fromEntries(Object.entries(node.sensors||{})
+              .filter(([key])=>HPC_FREE.byType[type].fields.includes(key)));
+            node.options={boiler_kind:'standard'};
+          }
+          node.discovery={provider:'ems-esp',id:String(chosenEms.id)};
+          for(const [key,id] of Object.entries(chosenEms.entities)){
+            if(HPC_FREE.byType[node.type].fields.includes(key)&&!node.sensors[key])
+              node.sensors[key]=id;
+          }
           this._selectedId=node.id;
           return this._applyPlan(copy,{hpc_legacy_imported:true});
         }
@@ -686,6 +707,14 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const c=plan.components.find(x=>x.id===el.dataset.returnLift);
         if(c?.type==="wood_gasifier")c.options={...c.options,return_lift:el.checked};
       })));
+      fieldUpdate('[data-source-type]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.sourceType);
+        if(!node||node.type!=='gas_boiler'||el.value!=='oil_boiler')return;
+        node.type='oil_boiler';
+        if(['Gaskessel','Gas boiler'].includes(node.name))node.name='Ölkessel';
+        node.options={boiler_kind:node.options?.boiler_kind||'standard'};
+        // Shared flow/return ports and existing sensor assignments survive.
+      });
       fieldUpdate("[data-boiler-kind]",(plan,el)=>{
         const c=plan.components.find(x=>x.id===el.dataset.boilerKind);
         if(c)c.options={...c.options,boiler_kind:el.value};
