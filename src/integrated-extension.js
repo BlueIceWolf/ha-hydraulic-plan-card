@@ -192,51 +192,97 @@ const HPC_INTEGRATED = (() => {
     return a.join('');
   }
   function flowStates(plan,hass) {
-    // A mixer position of 0% or 100% is NOT a flow sensor and is never used
-    // to disable circulation. Only an explicitly mapped pipe flow status or
-    // the state of an actual pump can activate animation.
+    // Pipe animation is a *circuit* state, not an independent property of
+    // every line. An off DHW charging pump closes the supply AND the return of
+    // its coil, even when an unrelated heating pump is running elsewhere.
     const nodes=Object.fromEntries(plan.components.map(c=>[c.id,c]));
     const adjacent=new Map(plan.components.map(c=>[c.id,[]]));
+    const incoming=new Map(plan.components.map(c=>[c.id,[]]));
+    const outgoing=new Map(plan.components.map(c=>[c.id,[]]));
     const flowing=new Set();
-    const mappedFlow=(edge)=>{
+    const mappedFlow=edge=>{
       if(!edge.flow_entity)return null;
-      // Explicit pipe-level state always overrides topology inference.
-      const status=HPC_FREE.state(hass,edge.flow_entity);
-      return status?HPC_FREE.active(status):null;
+      const state=HPC_FREE.state(hass,edge.flow_entity);
+      return state?HPC_FREE.active(state):null;
     };
     for(const edge of plan.connections){
       adjacent.get(edge.from)?.push({edge,neighbor:edge.to});
       adjacent.get(edge.to)?.push({edge,neighbor:edge.from});
-      if(mappedFlow(edge)===true)flowing.add(edge.id);
+      incoming.get(edge.to)?.push(edge);
+      outgoing.get(edge.from)?.push(edge);
     }
-    const pumpEntity=(node)=>{
+    const pumpEntity=node=>{
       if(node.type==='pump')return node.sensors.state||node.sensors.pump||node.sensors.volume;
       if(isSource(node)||node.type==='heating_circuit')return node.sensors.pump;
       return null;
     };
-    const pumpState=(node)=>{
+    const pumpState=node=>{
       const id=pumpEntity(node);
-      const status=id&&HPC_FREE.state(hass,id);
-      return status?HPC_FREE.active(status):null;
+      const state=id&&HPC_FREE.state(hass,id);
+      return state?HPC_FREE.active(state):null;
     };
-    const blocked=(node)=>pumpState(node)===false;
-    const sources=plan.components.filter(n=>pumpState(n)===true);
-    for(const pump of sources){
+    const blocked=node=>pumpState(node)===false;
+    const stoppedChargeCircuits=new Set();
+    const stoppedReturnEdges=new Set();
+
+    for(const tank of plan.components.filter(node=>node.type==='dhw_tank')){
+      // Inspect *directed supply* going into the heating coil. Never walk
+      // backwards through the DHW return to find an unrelated source pump.
+      const feeders=(incoming.get(tank.id)||[]).filter(e=>e.to_port==='coil_in');
+      const visited=new Set();
+      const hasStoppedFeed=id=>{
+        if(visited.has(id))return false;
+        visited.add(id);
+        const node=nodes[id];
+        if(!node||node.type==='dhw_tank')return false;
+        if(blocked(node))return true;
+        // Heat sources are the beginning of the charging route. Other
+        // circuits sharing a return manifold must not influence the feed.
+        if(isSource(node)||node.type==='heating_circuit')return false;
+        return (incoming.get(id)||[]).some(edge=>hasStoppedFeed(edge.from));
+      };
+      if(!feeders.some(edge=>hasStoppedFeed(edge.from)))continue;
+      stoppedChargeCircuits.add(tank.id);
+      // Suppress the return leg until it rejoins a larger circuit. Pipes
+      // after a shared manifold may still correctly animate for heating.
+      const traceReturn=(id,seen=new Set())=>{
+        if(seen.has(id))return;
+        seen.add(id);
+        for(const edge of outgoing.get(id)||[]){
+          if(id===tank.id&&edge.from_port!=='coil_out')continue;
+          const next=nodes[edge.to];
+          if(!next)continue;
+          stoppedReturnEdges.add(edge.id);
+          const branches=(adjacent.get(next.id)||[]).length;
+          if(!isSource(next)&&next.type!=='dhw_tank'&&
+            next.type!=='heating_circuit'&&branches<=2)traceReturn(next.id,seen);
+        }
+      };
+      traceReturn(tank.id);
+    }
+
+    for(const edge of plan.connections){
+      if(mappedFlow(edge)===true&&!stoppedReturnEdges.has(edge.id)&&
+        !stoppedChargeCircuits.has(edge.from)&&
+        !stoppedChargeCircuits.has(edge.to))flowing.add(edge.id);
+    }
+    const activePumps=plan.components.filter(node=>pumpState(node)===true);
+    for(const pump of activePumps){
       const queue=[pump.id],visited=new Set();
       while(queue.length){
         const id=queue.shift();
         if(visited.has(id))continue;
         visited.add(id);
         for(const {edge,neighbor} of adjacent.get(id)||[]){
-          const explicit=mappedFlow(edge);
-          if(explicit===false)continue;
+          if(mappedFlow(edge)===false||stoppedReturnEdges.has(edge.id)||
+            stoppedChargeCircuits.has(edge.from)||stoppedChargeCircuits.has(edge.to))continue;
           const next=nodes[neighbor];
           if(!next||blocked(next))continue;
           flowing.add(edge.id);
-          // Stop at an unmapped heat source / heating circuit instead of
-          // assuming a different, uninstrumented boiler branch is running.
+          // Avoid treating a different heat generator or heating zone as
+          // evidence that its whole branch is flowing.
           const unknownSource=(isSource(next)||next.type==='heating_circuit')
-            && pumpEntity(next)==null && next.id!==pump.id;
+            && pumpEntity(next)==null&&next.id!==pump.id;
           if(!unknownSource&&!visited.has(neighbor))queue.push(neighbor);
         }
       }
