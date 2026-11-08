@@ -8864,57 +8864,37 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     }
     _polishBufferPipes(svg,plan,bufferId) {
       if(!bufferId)return;
-      const heaterCount=plan.components.filter(c=>c.type==='heating_circuit').length;
-      // The original heating card draws a shared supply riser at x=660.
-      // Between heating circuits it crosses the previous circuit's return.
-      // Route that crossing as a short insulated bridge, not a red stripe
-      // through a blue return. Each native riser remains a single pipe with
-      // its existing per-heating-circuit animation and state handling.
-      for(let n=2;n<=Math.min(heaterCount,6);n++){
-        const top=360+(n-2)*250;
-        const bottom=top+250;
-        const cross=top+135;
-        const d='M660 '+top+' V'+(cross-13)
-          +' C644 '+(cross-13)+' 644 '+(cross+13)+' 660 '+(cross+13)
-          +' V'+bottom;
+      const count=Math.min(6,plan.components.filter(c=>c.type==='heating_circuit').length);
+      // All heating-circuit returns belong to the ONE original collector at
+      // x=676. The first circuit already connects it to the buffer at y=495;
+      // every further circuit uses one segment of the same return riser.
+      // Avoid extra custom blue return paths and any red bridge around it.
+      for(let n=2;n<=count;n++){
+        const y=360+(n-2)*250;
+        const cross=y+135;
+        const bottom=y+250;
+        // The rising supply crosses an existing horizontal return. Leave a
+        // small drafting gap in the SUPPLY at that crossing. The return stays
+        // completely straight/continuous, so it cannot look like another
+        // parallel branch or an additional hydraulic connection.
+        const d='M660 '+y+' V'+(cross-8)
+          +' M660 '+(cross+8)+' V'+bottom;
         const pipe=svg.querySelector('#p-hc-up'+n);
         const flow=svg.querySelector('#f-hc-up'+n);
-        if(!pipe||!flow)continue;
-        pipe.setAttribute('d',d);
-        flow.setAttribute('d',d);
-        // Mask only the narrow crossing; never draw an extra parallel pipe.
-        // The regular SVG pipe and animation paths stay authoritative.
-        const bridge=svg.querySelector('#hpi-riser-bridge-'+n)
-          ||document.createElementNS('http://www.w3.org/2000/svg','path');
-        bridge.id='hpi-riser-bridge-'+n;
-        bridge.setAttribute('class','hpi-riser-bridge');
-        bridge.setAttribute('d','M660 '+(cross-13)
-          +' C644 '+(cross-13)+' 644 '+(cross+13)+' 660 '+(cross+13));
-        bridge.setAttribute('fill','none');
-        bridge.setAttribute('stroke','var(--card-background-color,#1d1d1d)');
-        bridge.setAttribute('stroke-width','15');
-        bridge.setAttribute('stroke-linecap','round');
-        pipe.parentNode.insertBefore(bridge,pipe);
+        if(pipe)pipe.setAttribute('d',d);
+        if(flow)flow.setAttribute('d',d);
+        svg.querySelector('#hpi-riser-bridge-'+n)?.remove();
       }
-      // Small coupling rings mark the hot and cold ports without introducing
-      // new hydraulic routes or covering the original temperature labels.
+      // Remove the prominent port circles added in an earlier iteration:
+      // they covered the real pipe junctions and made one return look like
+      // two independently connected return lines.
+      svg.querySelector('#hpi-buffer-couplings')?.remove();
       const tank=svg.querySelector('rect.tank[x="520"][y="320"]');
-      if(!tank)return;
-      tank.setAttribute('rx','23');
-      tank.setAttribute('stroke','var(--divider-color,#737b82)');
-      tank.setAttribute('stroke-width','1.25');
-      const group=svg.querySelector('#hpi-buffer-couplings')||
-        document.createElementNS('http://www.w3.org/2000/svg','g');
-      group.id='hpi-buffer-couplings';
-      // Only show actual connections; heating circuits alone do not imply
-      // that a buffer was plumbed into the system.
-      const hot=plan.connections.some(e=>e.from===bufferId&&
-        ['top_out','mid_out'].includes(e.from_port));
-      const cold=plan.connections.some(e=>e.to===bufferId&&
-        ['bottom_in','mid_in'].includes(e.to_port));
-      group.innerHTML=(hot?'<circle cx="640" cy="360" r="5" class="hpi-buffer-port hpi-buffer-hot"/>':'')
-        +(cold?'<circle cx="640" cy="495" r="5" class="hpi-buffer-port hpi-buffer-cold"/>':'');
-      tank.parentNode.appendChild(group);
+      if(tank){
+        tank.setAttribute('rx','23');
+        tank.setAttribute('stroke','var(--divider-color,#737b82)');
+        tank.setAttribute('stroke-width','1.25');
+      }
     }
     _syncAdditional(force=false) {
       const p=this._integratedPlan;
