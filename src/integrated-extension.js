@@ -74,7 +74,13 @@ const HPC_INTEGRATED = (() => {
         y:40+Math.floor(index/2)*220,w:120,h:200,type:node.type});
     });
     const controlStart=Math.max(1190,storageStart+530);
-    const controlEnd=placeColumn(byGroup.control,controlStart,90,205,150);
+    const controlEnd=placeColumn(byGroup.control,controlStart,90,265,260);
+    // Tall standalone separator uses the same native-sized container as the
+    // other pieces of equipment without colliding with a following control.
+    for(const node of byGroup.control.filter(c=>c.type==='particle_separator')){
+      const box=points.get(node.id);
+      if(box){box.w=240;box.h=235;}
+    }
     placeColumn(byGroup.load,controlEnd+90,115,230,225,3);
     const maxX=Math.max(1000,...[...points.values()].map(n=>n.x+n.w+70));
     const maxY=Math.max(560+(hcCount-1)*250,...[...points.values()].map(n=>n.y+n.h+70));
