@@ -821,8 +821,18 @@
       mixEditor.querySelector('#hpc-native-sensors')?.schema?.[0]?.schema?.some(x=>x.name==='mixer'),
       'Switching the mixer on reveals its native HA entity selector');
     const noSensorMixer=await mount(mixResult,hassOf());
-    check(!!noSensorMixer.shadowRoot.querySelector('.hpi-manual-mixer[data-hpi-mixer="hk_mixed"]'),
-      'A sensorless heating circuit still shows its mixing valve on the original diagram');
+    check(!!noSensorMixer.shadowRoot.querySelector('#mixer') &&
+      !!noSensorMixer.shadowRoot.querySelector('#p-hc-mix') &&
+      !noSensorMixer.shadowRoot.querySelector('.hpi-manual-mixer'),
+      'Sensorless circuit uses the ORIGINAL built-in mixer symbol and bypass, never a duplicate');
+    const nativeSvg=noSensorMixer.shadowRoot.getElementById('svg');
+    const nativeFlow=nativeSvg.querySelector('#p-hc-vl');
+    const nativeReturn=nativeSvg.querySelector('#p-hc-rl');
+    check(nativeFlow?.style.display!== 'none'&&nativeReturn?.style.display!=='none',
+      'Original radiator supply and return paths stay visible and reusable');
+    check(!!nativeSvg.querySelector('rect.radiator')&&
+      !!nativeSvg.querySelector('.rib'),
+      'Original panel radiator illustration is preserved');
     noSensorMixer.remove();
     const mixForm=mixEditor.querySelector('#hpc-native-sensors');
     mixForm?.dispatchEvent(new CustomEvent('value-changed',{bubbles:true,detail:{
