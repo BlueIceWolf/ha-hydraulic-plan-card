@@ -103,8 +103,8 @@ const HPC_INTEGRATED = (() => {
       for(const key of ['top','middle','bottom'])set(prefix+'_'+key,node,key);
     circuits.forEach((node,index)=>{
       const prefix=index?'hc'+(index+1)+'_':'hc_';
-      for(const key of ['flow','return','target','pump','mixer']){
-        if(key==='mixer'&&node.options?.mixed===false)continue;
+      for(const key of ['flow','return','target','pump','mixer','mixer_opening','mixer_closing']){
+        if(key.startsWith('mixer')&&node.options?.mixed===false)continue;
         set(prefix+(key==='target'?'setpoint':key),node,key);
       }
     });
@@ -529,7 +529,7 @@ const HPC_INTEGRATED = (() => {
     // hc_mixer is configured. With no entity, show the same schematic valve
     // (without a fictitious position or animated flow).
     const manualMixers=plan.components.filter(c=>c.type==='heating_circuit'&&
-      c.options?.mixed&&!c.sensors.mixer).slice(0,6).map(c=>{
+      c.options?.mixed&&!c.sensors.mixer&&!c.sensors.mixer_opening&&!c.sensors.mixer_closing).slice(0,6).map(c=>{
       const index=plan.components.filter(p=>p.type==='heating_circuit').indexOf(c);
       const dy=index*250;
       const x=760,y=360+dy;
