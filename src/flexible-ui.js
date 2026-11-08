@@ -298,13 +298,15 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       for(let i=1;i<=6;i++){
         const prefix=i===1?'hc_':'hc'+i+'_';
         const roles={flow:prefix+'flow',return:prefix+'return',target:prefix+'setpoint',
-          pump:prefix+'pump',mixer:prefix+'mixer'};
+          pump:prefix+'pump',mixer:prefix+'mixer',
+          mixer_opening:prefix+'mixer_opening',mixer_closing:prefix+'mixer_closing'};
         if(i<=count||Object.values(roles).some(role=>entities[role])){
           add('heating_circuit','Heizkreis '+i,roles);
           const circuit=result.components.at(-1);
           if(circuit?.type==='heating_circuit'){
             const oldKey=i===1?'hc_type':'hc'+i+'_type';
-            circuit.options={emitter:HFC_EMITTERS.includes(c[oldKey])?c[oldKey]:'radiator'};
+            circuit.options={emitter:HFC_EMITTERS.includes(c[oldKey])?c[oldKey]:'radiator',
+              mixed:!!(circuit.sensors.mixer||circuit.sensors.mixer_opening||circuit.sensors.mixer_closing)};
           }
         }
       }
@@ -366,13 +368,15 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const useNativeForm=!!globalThis.customElements?.get('ha-form');
       const useNativePicker=!!globalThis.customElements?.get('ha-entity-picker');
       const hcMixed=selected?.type==='heating_circuit'
-        ?(typeof selected.options?.mixed==='boolean'?selected.options.mixed:!!selected.sensors.mixer)
+        ?(typeof selected.options?.mixed==='boolean'?selected.options.mixed:
+          !!(selected.sensors.mixer||selected.sensors.mixer_opening||selected.sensors.mixer_closing))
         :false;
       // Mixer measurement is always available on a mixed heating circuit.
       // Only a wood-gasifier return-lift mixer belongs behind a separate toggle.
       const activeFields=selected?HPC_FREE.byType[selected.type].fields.filter(key=>
-        key!=='mixer'||selected.type==='heating_circuit'&&hcMixed||
-        selected.type==='wood_gasifier'&&selected.options?.return_lift):[];
+        !['mixer','mixer_opening','mixer_closing'].includes(key)||
+        selected.type==='heating_circuit'&&hcMixed||
+        key==='mixer'&&selected.type==='wood_gasifier'&&selected.options?.return_lift):[];
       const mainFields={wood_gasifier:['state','flow','return','pump'],oil_boiler:['state','flow','return','pump'],
         pellet_boiler:['state','flow','return','pump'],gas_boiler:['state','flow','return','pump'],
         heat_pump:['state','flow','return','power'],buffer:['top','middle','bottom'],
