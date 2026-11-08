@@ -446,7 +446,7 @@ const HPC_INTEGRATED = (() => {
       const s=HPC_FREE.state(hass,edge.temperature_entity||inferred);
       const color=s?HPC_FREE.color(s):null;
       const on=flowing.has(edge.id);
-      return '<g class="hpi-link"><title>'+HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'
+      return '<g class="hpi-link" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"><title>'+HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'
         +'<path class="pipe'+(on?' on':'')+'" d="'+d+'"'+(color?' style="--pc:'+color+'"':'')+'/>'
         +'<path class="flow'+(on?' on':'')+'" d="'+d+'"/></g>';
     }).join('');
