@@ -26,7 +26,7 @@ const HPC_EMS = (() => {
       // Oil preheating is useful evidence of fuel type but not a burner status.
       // A heating block is NOT a flow temperature and must never be
       // automatically assigned as such. It can still identify the gateway.
-      if(!itemRole&&!['oilpreheat','heatingblock','gastype'].includes(suffix))continue;
+      if(!itemRole&&!['oilpreheat','heatingblock'].includes(suffix))continue;
       const registry=registrations[id]||{};
       const device=devices[registry.device_id]||{};
       const gateway=devices[device.via_device_id]||{};
@@ -59,12 +59,13 @@ const HPC_EMS = (() => {
       // "Logamax" alone names an entire product family and is inconclusive.
       const gasModel=/\b(?:gb172(?:i)?|gb192(?:i)?|gb162(?:i)?|gb122(?:i)?|gb132|gb142|gb212|gb402|gb272|kb192i|gasboiler|gaskessel|gas\s+boiler|gas\s+brennwertkessel)\b/i.test(description);
       const oilSignal=item.evidence.some(e=>e.suffix==='oilpreheat');
-      const gasSignal=item.evidence.some(e=>e.suffix==='gastype');
-      const fuel=oilModel||oilSignal?'oil_boiler':gasModel||gasSignal?'gas_boiler':'unknown';
+      const fuel=oilModel||oilSignal?'oil_boiler':gasModel?'gas_boiler':'unknown';
       // One definitive EMS-ESP oil boiler can be recognized even when it
       // exposes only a heating-block status and no temperatures yet.
       if(count<2 && !(item.marker&&fuel!=='unknown'&&item.evidence.length>0))continue;
-      if(!item.marker&&count<3)continue;
+      // A generic MQTT boiler is not sufficient evidence of EMS-ESP. Without
+      // gateway evidence it would conflict with ETA and other integrations.
+      if(!item.marker)continue;
       output.push({
         id:item.group,name:item.description||'EMS-ESP Boiler',
         source:item.marker?'EMS-ESP':'MQTT (EMS-ESP möglicherweise)',
