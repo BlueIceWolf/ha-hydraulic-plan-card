@@ -8021,6 +8021,7 @@ const HPC_INTEGRATED = (() => {
   function port(node,shape,key) {
     if(shape.type==='source') {
       if(key==='return')return{x:290,y:380};
+      if(key==='dhw')return{x:290,y:310};
       return{x:290,y:250};
     }
     if(shape.type==='buffer'){
@@ -8028,7 +8029,13 @@ const HPC_INTEGRATED = (() => {
       return{x:key.includes('out')?640:520,y};
     }
     if(shape.type==='dhw_tank'){
-      const y=key.includes('out')?215:80;return{x:key.includes('out')?640:520,y};
+      // The heat-exchanger circuit is on the LEFT. Domestic hot and cold
+      // outlets belong on the RIGHT; never intersect the vessel internally.
+      const positions={
+        coil_in:{x:520,y:80},coil_out:{x:520,y:215},
+        hot_out:{x:640,y:80},cold_in:{x:640,y:215}
+      };
+      return positions[key]||{x:520,y:80};
     }
     if(shape.type==='heating_circuit')return{x:shape.x,y:key==='return_out'?shape.y+135:shape.y+30};
     const def=HPC_FREE.ports(node.type).find(p=>p.id===key);

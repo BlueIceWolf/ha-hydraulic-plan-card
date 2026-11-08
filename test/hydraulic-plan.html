@@ -434,6 +434,18 @@
       'Adding a series twice does not duplicate already connected pipes');
     buffersEditor.remove();
 
+    const dual=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[{id:'oilSource',type:'oil_boiler',name:'Ölkessel',sensors:{}},
+        {id:'hot',type:'dhw_tank',name:'Warmwasser',sensors:{}}],
+        connections:[{id:'charge',from:'oilSource',from_port:'dhw',to:'hot',to_port:'coil_in'},
+          {id:'coilback',from:'hot',from_port:'coil_out',to:'oilSource',to_port:'return'}]}},hassOf());
+    const chargeSvg=dual.shadowRoot.querySelector('#hpi-root');
+    const lines=[...chargeSvg.querySelectorAll('g.hpi-link')].map(g=>g.querySelector('path.pipe')?.getAttribute('d'));
+    check(lines[0]?.startsWith('M290 310') &&
+      lines[1]?.startsWith('M520 215'),
+      'Hot-water charging supply and coil return use distinct real ports');
+    dual.remove();
+
     const storageOnly=await mount({type:'custom:hydraulic-plan-card',
       generator_type:'oil',preset:'none',
       plan:{components:[{id:'tankonly',type:'buffer',name:'Puffer',sensors:{}}],connections:[]}},hassOf());
