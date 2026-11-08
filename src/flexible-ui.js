@@ -247,13 +247,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       if(this._free()||this._unconfigured())this._renderFlex();
       else {this._freeUi?.remove();this._freeUi=null;super._render();this._showFreeButton();}
     }
-    _save(config){
+    _save(config,{repaint=true}={}){
       this._config=config;
       this.dispatchEvent(new CustomEvent("config-changed",{detail:{config},bubbles:true,composed:true}));
-      // User action (not a HA data refresh) is the only reason to redraw the form.
-      this._render();
+      // A changed sensor value must not destroy the expanded native ha-form.
+      // Repaint only for changes that affect which controls exist.
+      if(repaint)this._render();
     }
-    _applyPlan(plan,extra={}){this._save({...this._config,...extra,plan:HPC_FREE.normalize(plan)});}
+    _applyPlan(plan,extra={},options={}){
+      this._save({...this._config,...extra,plan:HPC_FREE.normalize(plan)},options);
+    }
     _legacyPlan(){
       // Classic setups often already contain buffers, DHW and heat circuits.
       // Import ALL configured roles into editable components before the first
@@ -490,7 +493,14 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       this._freeUi.innerHTML=html;
       this._freeUi.scrollTop=oldY;
       const root=this._freeUi;
-      const changePlan=(fn)=>{const next=HPC_FREE.normalize(p);fn(next);this._applyPlan(next);};
+      // Always edit the latest plan, not the snapshot used to render this form.
+      // Multiple sensor selections can otherwise overwrite each other when
+      // the form intentionally stays mounted between changes.
+      const changePlan=(fn,options={})=>{
+        const next=HPC_FREE.normalize(this._config.plan);
+        fn(next);
+        this._applyPlan(next,{},options);
+      };
       const settingsForm=root.querySelector('#hpc-native-settings');
       if(settingsForm){
         const choice=(name,options)=>({name,selector:{select:{mode:'dropdown',
@@ -529,7 +539,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           for(const key of ['title','layout','theme','animations','fullscreen','diagnostic','controls']){
             if(Object.hasOwn(values,key))changed[key]=values[key];
           }
-          if(Object.keys(changed).length)this._save({...this._config,...changed});
+          // Keep the appearance section and its current focus open, too.
+          if(Object.keys(changed).length)this._save({...this._config,...changed},{repaint:false});
         });
       }
       const chosenForm=root.querySelector('#hpc-native-sensors');
@@ -538,6 +549,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const entityField=key=>({name:key,selector:{entity:{}}});
         chosenForm.hass=this._hass;
         chosenForm.schema=[{type:'expandable',name:'sensors',title:t('Sensoren und Messwerte','Sensors and measurements'),
+          expanded:true,
           schema:[...coreFields.map(entityField),
             ...(moreFields.length?[{type:'expandable',name:'more',flatten:true,
               title:t('Weitere Felder','More fields'),expanded:moreFields.some(key=>!!selected.sensors[key]),
@@ -553,10 +565,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             const node=next.components.find(c=>c.id===selected.id);
             if(!node)return;
             for(const key of activeFields){
+              // ha-form may emit partial values. Missing keys are not a
+              // request to clear another already assigned sensor.
+              if(!Object.hasOwn(values,key))continue;
               if(values[key])node.sensors[key]=values[key];
               else delete node.sensors[key];
             }
-          });
+          },{repaint:false});
         });
       }
       const typePicker=root.querySelector('#hpc-free-type');
@@ -575,7 +590,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           changePlan(next=>{
             const row=next.connections.find(c=>c.id===picker.dataset.edge);
             if(row)row[picker.dataset.edgeField]=event.detail?.value||'';
-          });
+          },{repaint:false});
         });
       });
       // Allow an uncertain boiler model to be selected before importing.
