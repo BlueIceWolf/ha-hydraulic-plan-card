@@ -90,7 +90,8 @@ const HPC_FREE = (function makeFreeHelpers() {
         :n.type==="wood_chip_boiler"
           ?{eta_model:["ehack","hack","hack_vr"].includes(n.options?.eta_model)?n.options.eta_model:"ehack"}
         :n.type==="heating_circuit"
-          ?{emitter:HFC_EMITTERS.includes(n.options?.emitter)?n.options.emitter:"radiator"}
+          ?{emitter:HFC_EMITTERS.includes(n.options?.emitter)?n.options.emitter:"radiator",
+            mixed:typeof n.options?.mixed==="boolean"?n.options.mixed:!!n.sensors?.mixer}
         :["oil_boiler","gas_boiler","pellet_boiler"].includes(n.type)
           ?{boiler_kind:["standard","low_temp","condensing"].includes(n.options?.boiler_kind)?n.options.boiler_kind:"standard"}
           :n.type==="heat_pump"
