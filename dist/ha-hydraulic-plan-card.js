@@ -7542,6 +7542,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     {type:"wood_gasifier",de:"Holzvergaser",en:"Wood gasifier",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","mixer"],ports:["flow:R:.25","return:L:.75"]},
     {type:"oil_boiler",de:"Ölkessel",en:"Oil boiler",group:"source",fields:["state","flow","return","power","pump","starts"],ports:["flow:R:.25","return:L:.75","dhw:R:.56"]},
     {type:"pellet_boiler",de:"Pelletkessel",en:"Pellet boiler",group:"source",fields:["state","flow","return","exhaust","pump"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"wood_chip_boiler",de:"ETA Hackschnitzelkessel",en:"ETA Wood-chip boiler",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","fuel_feed","ash_removal","fuel_level"],ports:["flow:R:.25","return:L:.75"]},
     {type:"gas_boiler",de:"Gaskessel",en:"Gas boiler",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
     {type:"heat_pump",de:"Wärmepumpe",en:"Heat pump",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
     {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:L:.8","bottom_out:R:.8"]},
@@ -7559,6 +7560,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     fan:["Gebläse","Fan"],power:["Leistung","Power"],pump:["Pumpe","Pump"],starts:["Starts","Starts"],
     top:["Oben","Top"],middle:["Mitte","Middle"],bottom:["Unten","Bottom"],heater:["Heizstab","Immersion heater"],
     target:["Sollwert","Setpoint"],mixer:["Mischer","Mixer"],position:["Stellung","Position"],volume:["Volumenstrom","Flow rate"],
+    fuel_feed:["Austragung / Förderschnecke","Fuel feed / auger"],ash_removal:["Entaschung","Ash removal"],fuel_level:["Brennstoffvorrat","Fuel stock"],
   };
   const byType = Object.fromEntries(types.map(t=>[t.type,t]));
   const entityRx = /^(?:sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/;
@@ -7573,6 +7575,7 @@ const HPC_FREE = (function makeFreeHelpers() {
       wood_gasifier: '<rect x="7" y="7" width="34" height="34" rx="5"/><path d="M10 35h28M14 31h20M18 28c-5-7 3-12 5-18 2 7 10 11 8 18-2 5-10 7-13 0Z"/>',
       oil_boiler: '<rect x="5" y="5" width="27" height="38" rx="4"/><path d="M9 35h19M11 11h15M18 17c-3 4-5 7-5 9a5 5 0 0 0 10 0c0-2-2-5-5-9Z"/><rect x="32" y="17" width="11" height="16" rx="3"/><circle cx="37.5" cy="25" r="2"/><path d="M32 22h-4"/>',
       pellet_boiler: '<rect x="6" y="6" width="36" height="36" rx="5"/><path d="M10 29h28M10 33h28M12 38h24"/><circle cx="16" cy="18" r="3"/><circle cx="25" cy="18" r="3"/><circle cx="34" cy="18" r="3"/>',
+      wood_chip_boiler: '<rect x="16" y="5" width="26" height="38" rx="4"/><path d="M20 10h18M20 35h18M24 15h11M12 35 5 40M6 29h10M6 33h10M9 26l2 7M5 29l6-3M9 33l7-3"/><rect x="24" y="20" width="11" height="8" rx="2"/>',
       gas_boiler: '<rect x="6" y="6" width="36" height="36" rx="5"/><path d="M13 37h22M19 33c-6-7 3-13 6-22 0 8 10 12 8 20-1 7-12 10-14 2Z"/>',
       heat_pump: '<rect x="5" y="6" width="38" height="36" rx="5"/><circle cx="24" cy="24" r="13"/><path d="M24 24V13c-7 0-9 6-4 9m4 2 10 5c4-7 0-12-6-10m-4 5-9 6c4 7 10 7 12 0"/>',
       buffer: '<rect x="12" y="5" width="24" height="38" rx="8"/><path d="M12 17h24M12 30h24M19 9h10M19 39h10"/>',
@@ -7623,6 +7626,8 @@ const HPC_FREE = (function makeFreeHelpers() {
       }
       const options=n.type==="wood_gasifier"
         ?{return_lift:n.options?.return_lift===true}
+        :n.type==="wood_chip_boiler"
+          ?{eta_model:["ehack","hack","hack_vr"].includes(n.options?.eta_model)?n.options.eta_model:"ehack"}
         :["oil_boiler","gas_boiler","pellet_boiler"].includes(n.type)
           ?{boiler_kind:["standard","low_temp","condensing"].includes(n.options?.boiler_kind)?n.options.boiler_kind:"standard"}
           :{};
@@ -7684,10 +7689,10 @@ const HPC_FREE = (function makeFreeHelpers() {
     const nodes=normalize(plan).components;
     const group=byType[type].group;
     const index=nodes.filter(c=>byType[c.type].group===group).length;
-    const prefix={wood_gasifier:"holzvergaser",oil_boiler:"oelkessel",pellet_boiler:"pelletkessel",gas_boiler:"gaskessel",heat_pump:"waermepumpe",
+    const prefix={wood_gasifier:"holzvergaser",oil_boiler:"oelkessel",pellet_boiler:"pelletkessel",wood_chip_boiler:"eta_hackgut",gas_boiler:"gaskessel",heat_pump:"waermepumpe",
       buffer:"puffer",dhw_tank:"warmwasser",heating_circuit:"heizkreis",pump:"pumpe",mixer:"mischer",diverter:"ventil",
       electric_heater:"heizstab",manifold:"verteiler"}[type];
-    return {id:nextId(prefix,new Set(nodes.map(c=>c.id))),type,name:display(type),x:{source:75,control:365,storage:635,load:910}[group],
+    return {id:nextId(prefix,new Set(nodes.map(c=>c.id))),type,name:type==="wood_chip_boiler"?"ETA eHACK":display(type),x:{source:75,control:365,storage:635,load:910}[group],
       y:70+index*(group==="storage"?240:180),sensors:{},options:{}};
   }
   const sample = () => {
@@ -7912,7 +7917,7 @@ const HPC_FREE = (function makeFreeHelpers() {
 // The first heat source, first buffer, first DHW tank and up to six heating circuits
 // reuse their original renderer. All other components are ADDED to that same SVG.
 const HPC_INTEGRATED = (() => {
-  const sources = new Set(['wood_gasifier','oil_boiler','pellet_boiler','gas_boiler','heat_pump']);
+  const sources = new Set(['wood_gasifier','oil_boiler','pellet_boiler','wood_chip_boiler','gas_boiler','heat_pump']);
   const isSource = (node) => sources.has(node.type);
   const isTank = node => node.type==='buffer'||node.type==='dhw_tank';
   function layout(plan, hcCount=1) {
@@ -7945,7 +7950,7 @@ const HPC_INTEGRATED = (() => {
     // Additional heat sources stay below the original generator, not far outside
     // the visible diagram. The first extra boiler is visible immediately.
     for(const [index,node] of byGroup.source.entries()){
-      const [width,height]=node.type==='oil_boiler'?[240,195]:[240,165];
+      const [width,height]=['oil_boiler','wood_chip_boiler'].includes(node.type)?[240,195]:[240,165];
       points.set(node.id,{x:50+Math.floor(index/4)*265,
         y:475+(index%4)*218,w:width,h:height,type:node.type});
     }
@@ -7996,7 +8001,7 @@ const HPC_INTEGRATED = (() => {
     const buffer=p.components.find(c=>c.type==='buffer');
     const dhw=p.components.find(c=>c.type==='dhw_tank');
     const circuits=p.components.filter(c=>c.type==='heating_circuit').slice(0,6);
-    const types={wood_gasifier:'wood_gasifier',oil_boiler:'oil',pellet_boiler:'pellet',
+    const types={wood_gasifier:'wood_gasifier',oil_boiler:'oil',pellet_boiler:'pellet',wood_chip_boiler:'pellet',
       gas_boiler:'gas',heat_pump:'heat_pump'};
     const entities={};
     const set=(target,source,key)=>{if(source?.sensors?.[key])entities[target]=source.sensors[key];};
@@ -8005,7 +8010,8 @@ const HPC_INTEGRATED = (() => {
         [['flow','flow'],['return','return'],['power','power'],['state','mode']].forEach(([from,to])=>set(to,src,from));
       }else {
         [['state','boiler_state'],['flow','boiler_flow'],['return','boiler_return'],['power','boiler_power'],
-        ['exhaust','boiler_exhaust'],['oxygen','boiler_o2'],['fan','boiler_fan'],['pump','boiler_pump']].forEach(([from,to])=>set(to,src,from));
+        ['exhaust','boiler_exhaust'],['oxygen','boiler_o2'],['fan','boiler_fan'],['pump','boiler_pump'],
+        ['fuel_level','boiler_fuel_level']].forEach(([from,to])=>set(to,src,from));
       }
     }
     if(src?.type==='wood_gasifier'&&src.options?.return_lift)set('boiler_mixer',src,'mixer');
@@ -8142,11 +8148,38 @@ const HPC_INTEGRATED = (() => {
     return flowing;
   }
 
+
+  // SVG artwork in the same coordinates and visual language as the original
+  // heat-source/puffer drawings. All geometry is our own, no ETA image assets.
+  function chipArt(x,y,width,height,node,on) {
+    const d=(v)=>Math.round(v*10)/10;
+    const frontX=d(x+width*.29),frontW=d(width*.65);
+    const frontY=d(y+height*.085),frontH=d(height*.78);
+    const feedY=d(y+height*.72);
+    const model={ehack:'eHACK',hack:'HACK',hack_vr:'HACK VR'}[node.options?.eta_model]||'eHACK';
+    const primary=width<160;
+    return '<g class="hpi-chip-art'+(on?' on':'')+'">'
+      +'<rect class="hpi-chip-body" x="'+x+'" y="'+y+'" width="'+width+'" height="'+height+'" rx="11"/>'
+      +'<rect class="hpi-chip-face" x="'+frontX+'" y="'+frontY+'" width="'+frontW+'" height="'+frontH+'" rx="5"/>'
+      +'<rect class="hpi-chip-plinth" x="'+(x+3)+'" y="'+d(y+height*.86)+'" width="'+(width-6)+'" height="'+d(height*.12)+'" rx="3"/>'
+      // Side-mounted fuel auger is the distinguishing sign of a chip boiler.
+      +'<path class="hpi-chip-feed" d="M'+(x-26)+' '+feedY+' L'+(x+15)+' '+d(feedY-7)+' L'+(x+21)+' '+d(feedY+4)+' L'+(x-23)+' '+d(feedY+12)+' Z"/>'
+      +'<path class="hpi-chip-screw" d="M'+(x-20)+' '+d(feedY+3)+' l9 -8 l9 7 l9 -8 l8 6"/>'
+      +'<circle class="hpi-chip-motor" cx="'+(x-26)+'" cy="'+d(feedY+6)+'" r="6"/>'
+      +'<rect class="hpi-chip-screen" x="'+(x+6)+'" y="'+d(y+height*.16)+'" width="'+d(width*.20)+'" height="'+d(height*.19)+'" rx="3"/>'
+      +'<path class="hpi-chip-divider" d="M'+frontX+' '+d(y+height*.18)+' v'+d(height*.56)+'"/>'
+      +'<text class="hpi-chip-brand" x="'+d(frontX+frontW*.5)+'" y="'+d(y+height*.37)+'" text-anchor="middle">ETA</text>'
+      +'<text class="hpi-chip-model'+(primary?' is-compact':'')+'" x="'+d(frontX+frontW*.5)+'" y="'+d(y+height*.62)+'" text-anchor="middle">'+HPC_FREE.esc(model)+'</text>'
+      +'<circle class="hpi-chip-light" cx="'+d(x+width*.15)+'" cy="'+d(y+height*.57)+'" r="4"/>'
+      +'</g>';
+  }
+
   // The existing heat pump, hot-water and buffer drawings remain in the upstream
   // SVG. These original-style outlines extend its vocabulary for further
   // heating sources instead of displaying a generic flame in an empty box.
-  function additionalSourceArt(type, box, on) {
+  function additionalSourceArt(type, box, on, node) {
     const x=box.x+35, y=box.y+43;
+    if(type==='wood_chip_boiler')return chipArt(x,y,170,89,node,on);
     const casing='<rect class="hpi-source-case" x="'+x+'" y="'+y+'" width="170" height="89" rx="12"/>';
     const panel='<rect class="hpi-source-panel" x="'+(x+126)+'" y="'+(y+12)+'" width="33" height="59" rx="5"/>'
       +'<rect class="hpi-source-display" x="'+(x+132)+'" y="'+(y+19)+'" width="21" height="13" rx="3"/>'
@@ -8287,7 +8320,7 @@ const HPC_INTEGRATED = (() => {
           +'<text class="hpi-oil-reading" x="'+cx+'" y="'+(b.y+184)+'" text-anchor="middle">'+label('Rücklauf','Return')+': '+val('return')+'</text>'
           +'</g>';
       }
-      const icon=isSource(node)?additionalSourceArt(type,b,on):
+      const icon=isSource(node)?additionalSourceArt(type,b,on,node):
         type==='pump'?'<circle class="pump" cx="'+cx+'" cy="'+cy+'" r="23"/><path class="imp" d="M'+(cx-7)+' '+(cy-12)+' L'+(cx+12)+' '+cy+' L'+(cx-7)+' '+(cy+12)+'Z"/>':
         type==='mixer'||type==='diverter'?'<circle class="valve" cx="'+cx+'" cy="'+cy+'" r="21"/><path class="valve-arrow" d="M'+(cx-13)+' '+(cy-9)+' L'+cx+' '+(cy+7)+' L'+(cx+13)+' '+(cy-9)+'"/>':
         type==='electric_heater'?'<path class="heater" d="M'+(cx-26)+' '+cy+' h12 l10 -15 l11 30 l10 -15 h12"/>':
@@ -8333,9 +8366,15 @@ const HPC_INTEGRATED = (() => {
           +'<text class="hpi-rla-label" x="'+(valveX+20)+'" y="'+(returnY-10)+'">'+HPC_FREE.esc(label+percentage)+'</text>'
           +'</g>';
       }).join('');
+    const firstSource=plan.components.find(isSource);
+    const sourceStatus=firstSource&&HPC_FREE.state(hass,firstSource.sensors.state);
+    const primaryChip=firstSource?.type==='wood_chip_boiler'
+      ?'<g class="tap hpi-chip-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
+        +chipArt(92,238,156,102,firstSource,HPC_FREE.active(sourceStatus))+'</g>'
+      :'';
     const firstBuffer=plan.components.find(c=>c.type==='buffer');
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank');
-    return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+'</g>',
+    return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+primaryChip+'</g>',
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
   return {layout,coreConfig,svg,tankPoints,flowStates,isSource};
@@ -8473,10 +8512,14 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const signature=JSON.stringify(p)+'|'+tick;
       if(!force&&signature===this._integratedSig&&svg.querySelector('#hpi-root'))return;
       const rendered=HPC_INTEGRATED.svg(model,this._hass);
+      // The native primary boiler still supplies the original pipes and labels.
+      // Replace only its generic furnace artwork with the matching ETA boiler.
+      const originalBoilerArt=svg.querySelector('#primary-boiler-art');
+      if(originalBoilerArt)originalBoilerArt.style.display=p.components.find(HPC_INTEGRATED.isSource)?.type==='wood_chip_boiler'?'none':'';
       // A storage-only plan is valid. Without a selected heat source the
       // original engine would otherwise paint a fictitious heat pump/boiler.
       if(!p.components.some(c=>HPC_INTEGRATED.isSource?.(c)||
-        ["wood_gasifier","oil_boiler","pellet_boiler","gas_boiler","heat_pump"].includes(c.type))){
+        ["wood_gasifier","oil_boiler","pellet_boiler","wood_chip_boiler","gas_boiler","heat_pump"].includes(c.type))){
         const source=svg.querySelector("#hp-box")?.closest("g.tap");
         if(source)source.style.display="none";
       }
@@ -8572,6 +8615,20 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-source-fan-ring{fill:none;stroke:var(--hfc-muted,#77838b);stroke-width:3;}'
           +'.hpi-source-fan-hub{fill:var(--hfc-muted,#77838b);stroke:none;}'
           +'.hpi-source-blades{fill:none;stroke:var(--hfc-muted,#77838b);stroke-width:4;stroke-linecap:round;}'
+          +'.hpi-chip-body{fill:var(--secondary-background-color,#343943);stroke:var(--divider-color,#67717d);stroke-width:2.2;}'
+          +'.hpi-chip-face{fill:#e9ad21;stroke:#ae8014;stroke-width:1.6;}'
+          +'.hpi-chip-plinth{fill:var(--card-background-color,#1f242d);stroke:var(--divider-color,#66717b);stroke-width:1;}'
+          +'.hpi-chip-feed{fill:var(--secondary-background-color,#515b66);stroke:var(--hfc-muted,#81909c);stroke-width:2;stroke-linejoin:round;}'
+          +'.hpi-chip-screw{fill:none;stroke:var(--hfc-muted,#84939c);stroke-width:2.6;stroke-linecap:round;}'
+          +'.hpi-chip-motor{fill:var(--card-background-color,#202124);stroke:var(--divider-color,#7a8793);stroke-width:2;}'
+          +'.hpi-chip-screen{fill:#344e58;stroke:var(--hfc-muted,#95a0a8);stroke-width:1.3;}'
+          +'.hpi-chip-divider{stroke:#9b7419;stroke-width:1.2;fill:none;}'
+          +'.hpi-chip-brand{font-size:19px;font-weight:800;letter-spacing:1px;fill:#222933;}'
+          +'.hpi-chip-model{font-size:14px;font-weight:700;fill:#26313b;}'
+          +'.hpi-chip-model.is-compact{font-size:11px;}'
+          +'.hpi-chip-light{fill:#6b7480;}'
+          +'.hpi-chip-art.on .hpi-chip-light{fill:var(--hfc-good,#25b45e);}'
+
           +'.hpi-oil-seam{fill:none;stroke:var(--hfc-muted,#77838b);stroke-width:2;}'
           +'.hpi-oil-burner{fill:var(--secondary-background-color,#343941);stroke:var(--hfc-muted,#77838b);stroke-width:2;}'
           +'.hpi-oil-fan{fill:var(--card-background-color,#202124);stroke:var(--hfc-muted,#77838b);stroke-width:2;}'
@@ -8648,7 +8705,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // new addition so the transition cannot silently lose them.
       const c=this._config||{},entities=c.entities||{};
       const mapped={wood_gasifier:'wood_gasifier',oil:'oil_boiler',
-        pellet:'pellet_boiler',gas:'gas_boiler',heat_pump:'heat_pump'};
+        pellet:'pellet_boiler',wood_chip_boiler:'wood_chip_boiler',gas:'gas_boiler',heat_pump:'heat_pump'};
       const result={components:[],connections:[]};
       const add=(type,name,map)=>{
         if(!type)return;
@@ -8733,7 +8790,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         heat_pump:['state','flow','return','power'],buffer:['top','middle','bottom'],
         dhw_tank:['top','middle','bottom'],heating_circuit:['flow','return','pump','mixer'],
         pump:['state','volume'],mixer:['position','state'],diverter:['position','state'],
-        electric_heater:['state','power'],manifold:[]};
+        electric_heater:['state','power'],wood_chip_boiler:['state','flow','return','pump'],manifold:[]};
       const coreFields=activeFields.filter(key=>(mainFields[selected.type]||[]).includes(key));
       const moreFields=activeFields.filter(key=>!coreFields.includes(key));
       const sensors=Object.keys(this._hass?.states||{}).filter(id=>/^(sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/.test(id));
@@ -8795,6 +8852,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <select data-boiler-kind="${esc(selected.id)}">
             ${[["standard",t("Standardkessel","Standard boiler")],["low_temp",t("Niedertemperaturkessel","Low-temperature boiler")],["condensing",t("Brennwertkessel","Condensing boiler")]]
              .map(([id,name])=>`<option value="${id}" ${(selected.options?.boiler_kind||"standard")===id?"selected":""}>${name}</option>`).join("")}
+          </select></label>`:""}
+        ${selected.type==="wood_chip_boiler"?`<label class="hpc-field">${t("ETA Kesselmodell","ETA boiler model")}
+          <select data-eta-model="${esc(selected.id)}">
+            ${[["ehack","ETA eHACK"],["hack","ETA HACK"],["hack_vr","ETA HACK VR"]]
+              .map(([id,name])=>`<option value="${id}" ${(selected.options?.eta_model||"ehack")===id?"selected":""}>${name}</option>`).join("")}
           </select></label>`:""}
         ${useNativeForm?'<div class="hpc-native-form"><ha-form id="hpc-native-sensors"></ha-form></div>':activeFields.map(key=>sensorField(selected.id,key,selected.sensors[key])).join("")}
         ${isTank?`<h3>${t("Zusätzliche Temperaturfühler","Additional temperature sensors")}</h3>
@@ -9024,6 +9086,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       fieldUpdate("[data-boiler-kind]",(plan,el)=>{
         const c=plan.components.find(x=>x.id===el.dataset.boilerKind);
         if(c)c.options={...c.options,boiler_kind:el.value};
+      });
+      fieldUpdate('[data-eta-model]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.etaModel);
+        if(node?.type==='wood_chip_boiler')node.options={...node.options,eta_model:el.value};
       });
       fieldUpdate("[data-name]",(plan,el)=>{const c=plan.components.find(x=>x.id===el.dataset.name);if(c)c.name=el.value.slice(0,75);});
       fieldUpdate("[data-sensor]",(plan,el)=>{const c=plan.components.find(x=>x.id===el.dataset.sensor);if(c){
