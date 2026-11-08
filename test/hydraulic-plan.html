@@ -169,8 +169,8 @@
     check(!free.shadowRoot.getElementById('hpc-free-svg'), 'No second standalone hydraulic view');
     check(freeSvg?.querySelectorAll('g.hpi-component').length===6,
       'Additional boilers, buffers, heater and mixer are appended as original-style units');
-    check(freeSvg?.querySelectorAll('g.hpi-link').length===1,
-      'Only additional pipes are appended, original circuit pipes remain');
+    check(freeSvg?.querySelectorAll('g.hpi-link').length===2,
+      'All configured pipes are drawn, including links between original components');
 
     const automaticBefore=freeSvg.querySelector('g[data-hpi-node="puffer2"] rect.tank')?.getAttribute('x');
     const movedInputs=sample.map((node)=>({...node,x:3210,y:4890}));
@@ -188,8 +188,8 @@
       'Existing first tank gets the five-point temperature gradient');
     check(freeSvg?.querySelector('rect.tank[x="520"][y="320"]')?.getAttribute('fill')==='url(#hpi-puffer1)',
       'Original tank fill adopts the configurable temperature gradient');
-    check(freeSvg?.querySelectorAll('g.hpi-link path.flow.on').length===1,
-      'Pipe animation requires an explicitly mapped active pump');
+    check(freeSvg?.querySelectorAll('g.hpi-link path.flow.on').length===2,
+      'Explicitly mapped active pump animates all connected pipes');
     free.hass=hassOf({
       [ids.pump]:state(ids.pump,'off'),
       'sensor.buffer_25':state('sensor.buffer_25',65,'°C'),
@@ -331,8 +331,14 @@
     unknownHass.entities=Object.fromEntries(Object.keys(unknownHass.states).filter(id=>id.includes('boiler_'))
       .map(id=>[id,{device_id:'gas1',platform:'mqtt',unique_id:'ems-esp_'+id}]));
     unknownHass.devices={gas1:{name:'EMS-ESP Boiler',manufacturer:'EMS-ESP'}};
-    const generic=HPC_EMS.detect(unknownHass);
-    check(generic[0]?.type==='unknown','EMS bus alone never implies oil as fuel');
+    const genericEditor=document.createElement('hydraulic-plan-card-editor');
+    genericEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[],connections:[]}});
+    document.body.append(genericEditor);genericEditor.hass=unknownHass;
+    check(!!genericEditor.querySelector('.hpc-ems')?.textContent.includes('Brennstoff prüfen') &&
+      !genericEditor.querySelector('.hpc-ems')?.textContent.includes('Ölkessel'),
+      'EMS bus alone never implies oil as fuel');
+    genericEditor.remove();
 
     const editor=document.createElement('hydraulic-plan-card-editor');
     editor.setConfig({type:'custom:hydraulic-plan-card',plan:{components:sample,connections:edges}});
