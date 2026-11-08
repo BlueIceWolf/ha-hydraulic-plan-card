@@ -179,6 +179,22 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-chip-model.is-compact{font-size:11px;}'
           +'.hpi-chip-light{fill:#6b7480;}'
           +'.hpi-chip-art.on .hpi-chip-light{fill:var(--hfc-good,#25b45e);}'
+          +'.hpi-chip-side{fill:#949a9e;stroke:#626b74;stroke-width:1.4;}'
+          +'.hpi-chip-window{fill:#2b3138;stroke:#5c656d;stroke-width:1.4;}'
+          +'.hpi-chip-window-rim{fill:#404750;stroke:#7e8891;stroke-width:1.1;}'
+          +'.hpi-chip-motor-ring{fill:none;stroke:#9a9fa5;stroke-width:2;}'
+          +'.hpi-chip-motor-grille{fill:none;stroke:#b5babf;stroke-width:1.7;}'
+          +'.hpi-chip-auger{fill:#3b4047;stroke:#929aa3;stroke-width:2;}'
+          +'.hpi-particle-duct{fill:#4b4e53;stroke:#a9aeb5;stroke-width:2.5;}'
+          +'.hpi-particle-chamber{fill:#2b2c30;stroke:#bfc3c8;stroke-width:3;}'
+          +'.hpi-particle-inner{fill:none;stroke:#5d636a;stroke-width:2;}'
+          +'.hpi-particle-electrodes{stroke:#ced2d7;stroke-width:3;stroke-linecap:round;}'
+          +'.hpi-particle-ash{fill:#656565;stroke:#858585;stroke-width:1;}'
+          +'.hpi-particle-arrow{fill:none;stroke:#d7d9dd;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;}'
+          +'.hpi-particle-badge{fill:#232529;stroke:#bfc1c5;stroke-width:4;}'
+          +'.hpi-particle-bolt{fill:#efb729;stroke:#e6bd42;stroke-width:1;}'
+          +'.hpi-particle-art.on .hpi-particle-bolt{fill:#ffda2c;filter:url(#glow);}'
+          +'.hpi-particle-reading{font-size:15px;font-weight:600;}'
 
           +'.hpi-oil-seam{fill:none;stroke:var(--divider-color,#596c7c);stroke-width:1.25;stroke-linecap:round;}'
           +'.hpi-oil-burner{fill:var(--secondary-background-color,#4d5966);stroke:var(--hfc-muted,#8795a0);stroke-width:1.7;}'
@@ -382,7 +398,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         heat_pump:['state','flow','return','power'],buffer:['top','middle','bottom'],
         dhw_tank:['top','middle','bottom'],heating_circuit:['flow','return','pump','mixer'],
         pump:['state','volume'],mixer:['position','state'],diverter:['position','state'],
-        electric_heater:['state','power'],wood_chip_boiler:['state','flow','return','pump'],manifold:[]};
+        electric_heater:['state','power'],wood_chip_boiler:['state','flow','return','pump'],
+        particle_separator:['state','voltage','current'],manifold:[]};
       const coreFields=activeFields.filter(key=>(mainFields[selected.type]||[]).includes(key));
       const moreFields=activeFields.filter(key=>!coreFields.includes(key));
       const sensors=Object.keys(this._hass?.states||{}).filter(id=>/^(sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/.test(id));

@@ -74,7 +74,13 @@ const HPC_INTEGRATED = (() => {
         y:40+Math.floor(index/2)*220,w:120,h:200,type:node.type});
     });
     const controlStart=Math.max(1190,storageStart+530);
-    const controlEnd=placeColumn(byGroup.control,controlStart,90,205,150);
+    const controlEnd=placeColumn(byGroup.control,controlStart,90,265,260);
+    // Tall standalone separator uses the same native-sized container as the
+    // other pieces of equipment without colliding with a following control.
+    for(const node of byGroup.control.filter(c=>c.type==='particle_separator')){
+      const box=points.get(node.id);
+      if(box){box.w=240;box.h=235;}
+    }
     placeColumn(byGroup.load,controlEnd+90,115,230,225,3);
     const maxX=Math.max(1000,...[...points.values()].map(n=>n.x+n.w+70));
     const maxY=Math.max(560+(hcCount-1)*250,...[...points.values()].map(n=>n.y+n.h+70));
@@ -304,25 +310,46 @@ const HPC_INTEGRATED = (() => {
   // SVG artwork in the same coordinates and visual language as the original
   // heat-source/puffer drawings. All geometry is our own, no ETA image assets.
   function chipArt(x,y,width,height,node,on) {
-    const d=(v)=>Math.round(v*10)/10;
-    const frontX=d(x+width*.29),frontW=d(width*.65);
-    const frontY=d(y+height*.085),frontH=d(height*.78);
-    const feedY=d(y+height*.72);
+    // Original SVG artwork inspired by the supplied ETA reference: a silver
+    // left service body, yellow door with recessed dark viewing chamber and
+    // an angled auger/feed assembly at lower left. No bitmap or remote asset.
     const model={ehack:'eHACK',hack:'HACK',hack_vr:'HACK VR'}[node.options?.eta_model]||'eHACK';
-    const primary=width<160;
-    return '<g class="hpi-chip-art'+(on?' on':'')+'">'
-      +'<rect class="hpi-chip-body" x="'+x+'" y="'+y+'" width="'+width+'" height="'+height+'" rx="11"/>'
-      +'<rect class="hpi-chip-face" x="'+frontX+'" y="'+frontY+'" width="'+frontW+'" height="'+frontH+'" rx="5"/>'
-      +'<rect class="hpi-chip-plinth" x="'+(x+3)+'" y="'+d(y+height*.86)+'" width="'+(width-6)+'" height="'+d(height*.12)+'" rx="3"/>'
-      // Side-mounted fuel auger is the distinguishing sign of a chip boiler.
-      +'<path class="hpi-chip-feed" d="M'+(x-26)+' '+feedY+' L'+(x+15)+' '+d(feedY-7)+' L'+(x+21)+' '+d(feedY+4)+' L'+(x-23)+' '+d(feedY+12)+' Z"/>'
-      +'<path class="hpi-chip-screw" d="M'+(x-20)+' '+d(feedY+3)+' l9 -8 l9 7 l9 -8 l8 6"/>'
-      +'<circle class="hpi-chip-motor" cx="'+(x-26)+'" cy="'+d(feedY+6)+'" r="6"/>'
-      +'<rect class="hpi-chip-screen" x="'+(x+6)+'" y="'+d(y+height*.16)+'" width="'+d(width*.20)+'" height="'+d(height*.19)+'" rx="3"/>'
-      +'<path class="hpi-chip-divider" d="M'+frontX+' '+d(y+height*.18)+' v'+d(height*.56)+'"/>'
-      +'<text class="hpi-chip-brand" x="'+d(frontX+frontW*.5)+'" y="'+d(y+height*.37)+'" text-anchor="middle">ETA</text>'
-      +'<text class="hpi-chip-model'+(primary?' is-compact':'')+'" x="'+d(frontX+frontW*.5)+'" y="'+d(y+height*.62)+'" text-anchor="middle">'+HPC_FREE.esc(model)+'</text>'
-      +'<circle class="hpi-chip-light" cx="'+d(x+width*.15)+'" cy="'+d(y+height*.57)+'" r="4"/>'
+    const sx=(width/180).toFixed(5),sy=(height/110).toFixed(5);
+    return '<g class="hpi-chip-art'+(on?' on':'')+'" transform="translate('+x+' '+y+') scale('+sx+' '+sy+')">'
+      +'<path class="hpi-chip-side" d="M43 14 L68 6 L68 91 L43 81Z"/>'
+      +'<rect class="hpi-chip-body" x="55" y="8" width="117" height="87" rx="3"/>'
+      +'<path class="hpi-chip-plinth" d="M55 90 H175 V106 H68 L55 96Z"/>'
+      +'<rect class="hpi-chip-face" x="77" y="10" width="92" height="80" rx="2"/>'
+      +'<path class="hpi-chip-window" d="M87 81 V49 Q88 27 113 24 H159 V78 Q145 77 132 80 Z"/>'
+      +'<path class="hpi-chip-window-rim" d="M94 75 V49 Q98 34 116 33 H151 V70 Q134 69 123 75Z"/>'
+      +'<path class="hpi-chip-divider" d="M114 33 V72 M130 33 V71 M151 33 V71"/>'
+      +'<path class="hpi-chip-feed" d="M56 65 L31 49 L17 62 L44 87Z"/>'
+      +'<path class="hpi-chip-screw" d="M22 64 l7 -7 l8 10 l7 -3 l7 10"/>'
+      +'<circle class="hpi-chip-motor" cx="26" cy="58" r="14"/>'
+      +'<circle class="hpi-chip-motor-ring" cx="26" cy="58" r="8"/>'
+      +'<path class="hpi-chip-motor-grille" d="M19 53l13 10M18 59h16M23 49l6 18"/>'
+      +'<path class="hpi-chip-auger" d="M34 47 L58 60 L62 72 L43 67 Z"/>'
+      +'<rect class="hpi-chip-screen" x="62" y="17" width="10" height="12" rx="2"/>'
+      +'<text class="hpi-chip-brand" x="146" y="22" text-anchor="middle">ETA</text>'
+      +'<text class="hpi-chip-model" x="126" y="94" text-anchor="middle">'+HPC_FREE.esc(model)+'</text>'
+      +'<circle class="hpi-chip-light" cx="67" cy="44" r="3"/>'
+      +'</g>';
+  }
+
+  function particleArt(x,y,width,height,on) {
+    // Dry electrostatic flue-gas separator: horizontal exhaust direction,
+    // collector chamber and electrodes, bottom ash, top HV symbol.
+    // It must never be mistaken for a hydronic circulation component.
+    const sx=(width/170).toFixed(5),sy=(height/115).toFixed(5);
+    return '<g class="hpi-particle-art'+(on?' on':'')+'" transform="translate('+x+' '+y+') scale('+sx+' '+sy+')">'
+      +'<path class="hpi-particle-duct" d="M2 48H25V38H145V48H168V66H145V90H25V66H2Z"/>'
+      +'<rect class="hpi-particle-chamber" x="27" y="35" width="116" height="62" rx="2"/>'
+      +'<path class="hpi-particle-inner" d="M35 39V88H135V39"/>'
+      +'<path class="hpi-particle-electrodes" d="M43 39V77M60 39V77M77 39V77M94 39V77M111 39V77M128 39V77"/>'
+      +'<path class="hpi-particle-ash" d="M40 90 Q48 79 56 89 Q68 79 77 90 Q88 80 97 89 Q113 80 129 90Z"/>'
+      +'<path class="hpi-particle-arrow" d="M5 51H20M13 44L20 51L13 58 M149 51H165M158 44L165 51L158 58"/>'
+      +'<circle class="hpi-particle-badge" cx="85" cy="28" r="24"/>'
+      +'<path class="hpi-particle-bolt" d="M90 6L75 30H86L81 48L101 22H89Z"/>'
       +'</g>';
   }
 
@@ -476,6 +503,28 @@ const HPC_INTEGRATED = (() => {
           +'<text class="tank-title" x="'+(b.x+b.w/2)+'" y="'+(b.y-12)+'" text-anchor="middle">'+title+'</text>'
           +'<rect class="tank" x="'+b.x+'" y="'+b.y+'" width="'+b.w+'" height="'+b.h+'" rx="25" fill="url(#hpi-'+node.id+')"/>'
           +row+'</g>';
+      }
+      if(node.type==='particle_separator'){
+        const status=node.sensors.state?HPC_FREE.state(hass,node.sensors.state):null;
+        const running=status?HPC_FREE.active(status):false;
+        const cx=b.x+b.w/2;
+        const unit=(key,u)=>{
+          const val=HPC_FREE.state(hass,node.sensors[key]);
+          if(!val)return '';
+          const formatted=HPC_FREE.format(val);
+          return HPC_FREE.esc(formatted+(val.unit?'':' '+u));
+        };
+        const voltage=unit('voltage','kV');
+        const current=unit('current','mA');
+        return '<g class="tap hpi-component hpi-particle-separator" data-hpi-node="'+HPC_FREE.esc(node.id)+'">'
+          +'<rect class="unit" x="'+b.x+'" y="'+b.y+'" width="'+b.w+'" height="'+b.h+'" rx="20"/>'
+          +'<text class="unit-title" x="'+cx+'" y="'+(b.y+25)+'" text-anchor="middle">'+title+'</text>'
+          +particleArt(b.x+36,b.y+39,b.w-72,125,running)
+          +(voltage?'<text class="unit-val hpi-particle-reading" x="'+(b.x+65)+'" y="'+(b.y+189)+'" text-anchor="middle">'+voltage+'</text>':'')
+          +(current?'<text class="unit-val hpi-particle-reading" x="'+(b.x+b.w-60)+'" y="'+(b.y+189)+'" text-anchor="middle">'+current+'</text>':'')
+          +(status?'<text class="unit-status" x="'+cx+'" y="'+(b.y+215)+'" text-anchor="middle">'
+            +(running?'Aktiv':'Aus')+'</text>':'')
+          +'</g>';
       }
       const cx=b.x+b.w/2,cy=b.y+b.h*.53;
       const type=node.type;

@@ -878,6 +878,41 @@
       'Additional ETA eHACK uses the original hydraulic diagram and its own pictogram');
     etaAdditional.remove();
 
+    // The supplied ETA photos are now represented as an angled auger,
+    // yellow access door and recessed dark service window, in the same SVG.
+    check(!!etaSvg.querySelector('.hpi-chip-primary .hpi-chip-window')&&
+      !!etaSvg.querySelector('.hpi-chip-primary .hpi-chip-auger')&&
+      !!etaSvg.querySelector('.hpi-chip-primary .hpi-chip-motor-ring'),
+      'ETA boiler renders yellow service door and recognizable angled feed assembly');
+    const filterConfig={type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[
+        {id:'filter',type:'particle_separator',name:'ETA Partikelabscheider',
+          sensors:{state:'binary_sensor.filter_on',voltage:'sensor.filter_kv',
+            current:'sensor.filter_ma'}}
+      ],connections:[]}};
+    const filterHass=hassOf({
+      'binary_sensor.filter_on':state('binary_sensor.filter_on','on'),
+      'sensor.filter_kv':state('sensor.filter_kv',14.5,'kV'),
+      'sensor.filter_ma':state('sensor.filter_ma',1.8,'mA')
+    });
+    const filterCard=await mount(filterConfig,filterHass);
+    const filterSvg=filterCard.shadowRoot.getElementById('svg');
+    check(!!filterSvg.querySelector('.hpi-particle-separator .hpi-particle-electrodes')&&
+      !!filterSvg.querySelector('.hpi-particle-bolt')&&
+      filterSvg.querySelector('.hpi-particle-separator')?.textContent.includes('14,5'),
+      'Electrostatic separator is drawn with collector electrodes, high voltage and live kV/mA');
+    check(!filterCard._failed&&
+      !filterCard._integratedPlan.components[0].type.includes('boiler'),
+      'Particle separator is an independent flue-gas device and no heating source');
+    const filterEditor=document.createElement('hydraulic-plan-card-editor');
+    filterEditor.setConfig(filterConfig);document.body.append(filterEditor);
+    filterEditor.hass=filterHass;
+    const filterForm=filterEditor.querySelector('#hpc-native-sensors');
+    check(filterForm?.schema?.[0]?.schema?.some(field=>field.name==='voltage')&&
+      filterForm.schema[0].schema.some(field=>field.name==='current'),
+      'Particle separator has separate voltage and current entity pickers');
+    filterEditor.remove();filterCard.remove();
+
     const etaEditor=document.createElement('hydraulic-plan-card-editor');
     etaEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
       plan:{components:[etaNode],connections:[]}});
