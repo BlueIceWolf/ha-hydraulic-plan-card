@@ -94,8 +94,10 @@ const HPC_FREE = (function makeFreeHelpers() {
           :n.type==="heat_pump"
           // Keep the full outdoor-unit gallery from the original card.
           ?{unit_style:HFC_UNIT_STYLES.includes(n.options?.unit_style)?n.options.unit_style:"auto",
-            unit_size:HFC_UNIT_SIZES.includes(n.options?.unit_size)?n.options.unit_size:"medium",
-            source_type:["air","brine","water"].includes(n.options?.source_type)?n.options.source_type:"air"}
+            // Empty defaults are deliberate: existing classic settings and
+            // model-dependent fan counts must remain usable after migration.
+            ...(HFC_UNIT_SIZES.includes(n.options?.unit_size)?{unit_size:n.options.unit_size}:{}),
+            ...(["air","brine","water"].includes(n.options?.source_type)?{source_type:n.options.source_type}:{})}
           :{};
       // Remember which HA device was imported. This is only a read-only
       // identity for duplicate detection, never a credential or gateway URL.
