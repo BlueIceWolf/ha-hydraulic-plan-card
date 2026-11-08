@@ -343,6 +343,56 @@
       'Unconfigured original fixed pipes are hidden');
     graph.remove();
 
+    // Detect an ETA HACK without treating all ETA pellet heaters as wood-chip.
+    const etaSensorIds={
+      state:'sensor.eta_ehack_kessel_betriebszustand',
+      flow:'sensor.eta_ehack_kessel_kesseltemperatur',
+      return:'sensor.eta_ehack_kessel_rucklauftemperatur',
+      exhaust:'sensor.eta_ehack_kessel_abgastemperatur',
+      oxygen:'sensor.eta_ehack_kessel_restsauerstoff',
+      pump:'binary_sensor.eta_ehack_kesselpumpe'
+    };
+    const autoEtaHass=hassOf(Object.fromEntries(Object.entries(etaSensorIds)
+      .map(([role,id])=>[id,state(id,role==='state'?'Heizen':role==='pump'?'on':73,
+        role==='state'||role==='pump'?undefined:'°C')])));
+    autoEtaHass.entities=Object.fromEntries(Object.values(etaSensorIds).map(id=>
+      [id,{device_id:'eta1',platform:'eta_webservices',unique_id:'eta_ehack_'+id}]));
+    autoEtaHass.devices={eta1:{name:'ETA eHACK 20',model:'eHACK 20',
+      manufacturer:'ETA Heiztechnik'}};
+    const discoveredEta=HPC_ETA.detect(autoEtaHass);
+    check(discoveredEta.length===1&&discoveredEta[0].type==='wood_chip_boiler'&&
+      discoveredEta[0].model==='ehack'&&discoveredEta[0].entities.flow===etaSensorIds.flow&&
+      discoveredEta[0].entities.return===etaSensorIds.return,
+      'ETA eHACK is automatically recognized with actual boiler temperatures');
+    const autoEtaEditor=document.createElement('hydraulic-plan-card-editor');
+    autoEtaEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[],connections:[]}});
+    document.body.append(autoEtaEditor);autoEtaEditor.hass=autoEtaHass;
+    check(!!autoEtaEditor.querySelector('[data-action="eta-apply"]')&&
+      autoEtaEditor._config.plan.components.length===0,
+      'Detected ETA boiler appears as a suggestion and never silently rewrites the plan');
+    let autoEtaResult;
+    autoEtaEditor.addEventListener('config-changed',event=>autoEtaResult=event.detail.config);
+    autoEtaEditor.querySelector('[data-action="eta-apply"]')?.click();
+    check(autoEtaResult?.plan.components.length===1&&
+      autoEtaResult.plan.components[0].type==='wood_chip_boiler'&&
+      autoEtaResult.plan.components[0].options.eta_model==='ehack'&&
+      autoEtaResult.plan.components[0].sensors.flow===etaSensorIds.flow&&
+      autoEtaResult.plan.components[0].sensors.exhaust===etaSensorIds.exhaust,
+      'Accepting ETA suggestion adds the correct model with detected sensor assignments');
+    autoEtaEditor.querySelector('[data-action="eta-apply"]')?.click();
+    check(autoEtaEditor._config.plan.components.length===1,
+      'Confirming the same ETA device again does not duplicate the boiler');
+    autoEtaEditor.remove();
+    const etaPelletHass=hassOf({'sensor.eta_epe_kessel_kesseltemperatur':
+      state('sensor.eta_epe_kessel_kesseltemperatur',67,'°C')});
+    etaPelletHass.entities={'sensor.eta_epe_kessel_kesseltemperatur':
+      {device_id:'pellet_eta',platform:'eta_webservices'}};
+    etaPelletHass.devices={pellet_eta:{name:'ETA ePE 12',model:'ePE 12',
+      manufacturer:'ETA Heiztechnik'}};
+    check(HPC_ETA.detect(etaPelletHass).length===0,
+      'ETA pellet boiler is not falsely classified as a HACK wood-chip boiler');
+
     // EMS-ESP MQTT Discovery: use manufacturer/device metadata and actual boiler
     // aliases; a generic EMS boiler alone must not be guessed as an oil boiler.
     const emsHass=hassOf({
