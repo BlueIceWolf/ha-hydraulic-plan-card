@@ -832,7 +832,9 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             const node=HPC_FREE.newNode('wood_chip_boiler',copy);
             if(!node)continue;
             node.name=c.name.slice(0,75);
-            node.options={...node.options,eta_model:c.model,particle_separator:c.particleSeparator===true};
+            node.options={...node.options,eta_model:c.model,
+              particle_separator:c.particleSeparator===true||
+                ['particle_state','particle_voltage','particle_current'].some(k=>!!c.entities[k])};
             node.discovery={provider:'eta',id:String(c.id)};
             for(const [key,id] of Object.entries(c.entities))
               if(HPC_FREE.byType[node.type].fields.includes(key))node.sensors[key]=id;
@@ -889,7 +891,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             copy.components.push(node);
           }
           node.options={...node.options,eta_model:target?.options?.eta_model||chosenEta.model,
-            particle_separator:node.options?.particle_separator===true||chosenEta.particleSeparator===true};
+            particle_separator:node.options?.particle_separator===true||chosenEta.particleSeparator===true||
+              ['particle_state','particle_voltage','particle_current'].some(k=>!!chosenEta.entities[k])};
           node.discovery={provider:'eta',id:String(chosenEta.id)};
           for(const [key,id] of Object.entries(chosenEta.entities)){
             if(HPC_FREE.byType[node.type].fields.includes(key)&&!node.sensors[key])

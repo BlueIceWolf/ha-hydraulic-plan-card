@@ -100,6 +100,11 @@ const HPC_ETA = (() => {
   const rolePatterns = [
     ['fuel_feed',/\b(?:austragung|foerderschnecke|forderschnecke|fuel feed|stoker|feeding auger)\b/],
     ['ash_removal',/\b(?:entaschung|aschenschnecke|ash removal|deashing)\b/],
+    // Particle separator controls are sourced from the same ETA device.
+    // Never treat these signals as water-side boiler temperatures.
+    ['particle_voltage',/\b(?:partikelabscheider|partikelfilter|elektrofilter|electrostatic separator)\b.*\b(?:hochspannung|spannung|voltage|kv)\b/],
+    ['particle_current',/\b(?:partikelabscheider|partikelfilter|elektrofilter|electrostatic separator)\b.*\b(?:strom|current|ma)\b/],
+    ['particle_state',/\b(?:partikelabscheider|partikelfilter|elektrofilter|electrostatic separator)\b.*\b(?:status|betrieb|ein|an|aktiv|state|on|running)\b/],
     ['fuel_level',/\b(?:brennstoffvorrat|fuellstand|fuel level|wood chip stock|lagerstand)\b/],
     ['exhaust',/\b(?:abgastemperatur|abgas temp|abgas|flue gas|exhaust temperature|flue temperature)\b/],
     ['oxygen',/\b(?:rest o2|rest o 2|restsauerstoff|o2 ist|oxygen|residual o2|lambda ist)\b/],

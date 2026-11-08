@@ -8980,6 +8980,11 @@ const HPC_ETA = (() => {
   const rolePatterns = [
     ['fuel_feed',/\b(?:austragung|foerderschnecke|forderschnecke|fuel feed|stoker|feeding auger)\b/],
     ['ash_removal',/\b(?:entaschung|aschenschnecke|ash removal|deashing)\b/],
+    // Particle separator controls are sourced from the same ETA device.
+    // Never treat these signals as water-side boiler temperatures.
+    ['particle_voltage',/\b(?:partikelabscheider|partikelfilter|elektrofilter|electrostatic separator)\b.*\b(?:hochspannung|spannung|voltage|kv)\b/],
+    ['particle_current',/\b(?:partikelabscheider|partikelfilter|elektrofilter|electrostatic separator)\b.*\b(?:strom|current|ma)\b/],
+    ['particle_state',/\b(?:partikelabscheider|partikelfilter|elektrofilter|electrostatic separator)\b.*\b(?:status|betrieb|ein|an|aktiv|state|on|running)\b/],
     ['fuel_level',/\b(?:brennstoffvorrat|fuellstand|fuel level|wood chip stock|lagerstand)\b/],
     ['exhaust',/\b(?:abgastemperatur|abgas temp|abgas|flue gas|exhaust temperature|flue temperature)\b/],
     ['oxygen',/\b(?:rest o2|rest o 2|restsauerstoff|o2 ist|oxygen|residual o2|lambda ist)\b/],
@@ -9986,7 +9991,9 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             const node=HPC_FREE.newNode('wood_chip_boiler',copy);
             if(!node)continue;
             node.name=c.name.slice(0,75);
-            node.options={...node.options,eta_model:c.model,particle_separator:c.particleSeparator===true};
+            node.options={...node.options,eta_model:c.model,
+              particle_separator:c.particleSeparator===true||
+                ['particle_state','particle_voltage','particle_current'].some(k=>!!c.entities[k])};
             node.discovery={provider:'eta',id:String(c.id)};
             for(const [key,id] of Object.entries(c.entities))
               if(HPC_FREE.byType[node.type].fields.includes(key))node.sensors[key]=id;
@@ -10043,7 +10050,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             copy.components.push(node);
           }
           node.options={...node.options,eta_model:target?.options?.eta_model||chosenEta.model,
-            particle_separator:node.options?.particle_separator===true||chosenEta.particleSeparator===true};
+            particle_separator:node.options?.particle_separator===true||chosenEta.particleSeparator===true||
+              ['particle_state','particle_voltage','particle_current'].some(k=>!!chosenEta.entities[k])};
           node.discovery={provider:'eta',id:String(chosenEta.id)};
           for(const [key,id] of Object.entries(chosenEta.entities)){
             if(HPC_FREE.byType[node.type].fields.includes(key)&&!node.sensors[key])
