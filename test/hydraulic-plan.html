@@ -741,10 +741,46 @@
     check(changedNative?.plan.components[0]?.sensors.state===ids.burning &&
       changedNative?.plan.components[0]?.sensors.flow===ids.flow,
       'Native entity picker changes persist without dropping assigned boiler fields');
+    check(nativeEditor.querySelector('#hpc-native-sensors')===nativeForm &&
+      nativeForm.schema?.[0]?.expanded===true,
+      'Choosing a measured value does not collapse or remount the sensor editor');
+    nativeForm.dispatchEvent(new CustomEvent('value-changed',{bubbles:true,detail:{
+      value:{sensors:{return:ids.ret}}
+    }}));
+    check(nativeEditor.querySelector('#hpc-native-sensors')===nativeForm &&
+      changedNative?.plan.components[0]?.sensors.state===ids.burning&&
+      changedNative?.plan.components[0]?.sensors.flow===ids.flow&&
+      changedNative?.plan.components[0]?.sensors.return===ids.ret,
+      'Subsequent partial native picker updates preserve all earlier mapped values');
     const settingsForm=nativeEditor.querySelector('#hpc-native-settings');
     check(!!settingsForm && settingsForm.schema?.[0]?.type==='expandable',
       'Original style display and fullscreen settings remain editable');
     nativeEditor.remove();
+
+    // The full original heat pump outdoor-unit gallery is restored for
+    // new-style component plans and is applied to the original SVG renderer.
+    const wpEditor=document.createElement('hydraulic-plan-card-editor');
+    wpEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[{id:'wp_style',type:'heat_pump',name:'Wärmepumpe',
+        sensors:{}}],connections:[]}});
+    document.body.append(wpEditor);wpEditor.hass=hassOf();
+    const stylePicker=wpEditor.querySelector('[data-wp-style="wp_style"]');
+    check(stylePicker?.options.length===HFC_UNIT_STYLES.length &&
+      Array.from(stylePicker.options).some(option=>option.value==='wolf')&&
+      Array.from(stylePicker.options).some(option=>option.value==='stiebel'),
+      'All original outdoor-unit manufacturer illustrations are selectable');
+    let wpUpdate;
+    wpEditor.addEventListener('config-changed',event=>wpUpdate=event.detail.config);
+    if(stylePicker){stylePicker.value='wolf';
+      stylePicker.dispatchEvent(new Event('change',{bubbles:true}));}
+    check(wpUpdate?.plan.components[0]?.options.unit_style==='wolf',
+      'Outdoor-unit manufacturer is persisted with the heat pump component');
+    const wpCard=await mount(wpUpdate||{type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[],connections:[]}},hassOf());
+    check(wpCard._unitKey()==='wolf' &&
+      !!wpCard.shadowRoot.querySelector('.wolf-body'),
+      'Selected original Wolf outdoor unit appears in the original SVG illustration');
+    wpCard.remove();wpEditor.remove();
 
     const etaNode={id:'eta1',type:'wood_chip_boiler',name:'ETA Hackgutheizung',
       sensors:{state:ids.burning,flow:ids.flow,pump:ids.pump},
