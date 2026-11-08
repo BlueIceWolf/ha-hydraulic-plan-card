@@ -622,6 +622,37 @@
       'Buffer-only plans never display a fictitious boiler or heat pump');
     storageOnly.remove();
 
+    // Multiple heating circuits must share the original pair of risers.
+    // Where the hot vertical riser crosses an earlier return, use a small
+    // insulated bridge rather than drawing a straight hot line through blue.
+    const bufferBridged=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[
+        {id:'buffer_test',type:'buffer',name:'Pufferspeicher',
+          sensors:{top:ids.bufTop,bottom:ids.bufBottom}},
+        {id:'h1',type:'heating_circuit',name:'Heizkreis 1',
+          sensors:{pump:ids.pump}},
+        {id:'h2',type:'heating_circuit',name:'Heizkreis 2',
+          sensors:{pump:ids.pump}}
+      ],connections:[
+        {id:'buf_hot',from:'buffer_test',from_port:'top_out',
+          to:'h1',to_port:'flow_in'},
+        {id:'buf_cold',from:'h1',from_port:'return_out',
+          to:'buffer_test',to_port:'bottom_in'}
+      ]}},hassOf());
+    const bufferSvg=bufferBridged.shadowRoot.getElementById('svg');
+    check(bufferSvg.querySelectorAll('#p-hc-up2').length===1 &&
+      bufferSvg.querySelectorAll('#f-hc-up2').length===1 &&
+      bufferSvg.querySelector('#p-hc-up2')?.getAttribute('d')?.includes('C644'),
+      'Shared supply riser uses a clean bridge rather than a duplicate hot pipe');
+    check(bufferSvg.querySelectorAll('#hpi-riser-bridge-2').length===1 &&
+      bufferSvg.querySelectorAll('#hpi-buffer-couplings').length===1 &&
+      bufferSvg.querySelectorAll('.hpi-buffer-port').length===2,
+      'Buffer flow/return couplings are visible without new parallel pipe routes');
+    bufferBridged.hass=hassOf({[ids.bufTop]:state(ids.bufTop,68,'°C')});
+    check(bufferBridged.shadowRoot.querySelectorAll('#hpi-riser-bridge-2').length===1,
+      'Live updates never duplicate riser bridges or tank connectors');
+    bufferBridged.remove();
+
     // A stopped domestic-hot-water loading pump closes the entire coil
     // circuit, not just its flow pipe. The parallel heating loop may still run.
     const wwPumpId='switch.ww_charging_pump';

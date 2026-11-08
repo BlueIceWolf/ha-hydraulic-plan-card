@@ -44,6 +44,60 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       super.hass=hass;
       this._syncAdditional();
     }
+    _polishBufferPipes(svg,plan,bufferId) {
+      if(!bufferId)return;
+      const heaterCount=plan.components.filter(c=>c.type==='heating_circuit').length;
+      // The original heating card draws a shared supply riser at x=660.
+      // Between heating circuits it crosses the previous circuit's return.
+      // Route that crossing as a short insulated bridge, not a red stripe
+      // through a blue return. Each native riser remains a single pipe with
+      // its existing per-heating-circuit animation and state handling.
+      for(let n=2;n<=Math.min(heaterCount,6);n++){
+        const top=360+(n-2)*250;
+        const bottom=top+250;
+        const cross=top+135;
+        const d='M660 '+top+' V'+(cross-13)
+          +' C644 '+(cross-13)+' 644 '+(cross+13)+' 660 '+(cross+13)
+          +' V'+bottom;
+        const pipe=svg.querySelector('#p-hc-up'+n);
+        const flow=svg.querySelector('#f-hc-up'+n);
+        if(!pipe||!flow)continue;
+        pipe.setAttribute('d',d);
+        flow.setAttribute('d',d);
+        // Mask only the narrow crossing; never draw an extra parallel pipe.
+        // The regular SVG pipe and animation paths stay authoritative.
+        const bridge=svg.querySelector('#hpi-riser-bridge-'+n)
+          ||document.createElementNS('http://www.w3.org/2000/svg','path');
+        bridge.id='hpi-riser-bridge-'+n;
+        bridge.setAttribute('class','hpi-riser-bridge');
+        bridge.setAttribute('d','M660 '+(cross-13)
+          +' C644 '+(cross-13)+' 644 '+(cross+13)+' 660 '+(cross+13));
+        bridge.setAttribute('fill','none');
+        bridge.setAttribute('stroke','var(--card-background-color,#1d1d1d)');
+        bridge.setAttribute('stroke-width','15');
+        bridge.setAttribute('stroke-linecap','round');
+        pipe.parentNode.insertBefore(bridge,pipe);
+      }
+      // Small coupling rings mark the hot and cold ports without introducing
+      // new hydraulic routes or covering the original temperature labels.
+      const tank=svg.querySelector('rect.tank[x="520"][y="320"]');
+      if(!tank)return;
+      tank.setAttribute('rx','23');
+      tank.setAttribute('stroke','var(--divider-color,#737b82)');
+      tank.setAttribute('stroke-width','1.25');
+      const group=svg.querySelector('#hpi-buffer-couplings')||
+        document.createElementNS('http://www.w3.org/2000/svg','g');
+      group.id='hpi-buffer-couplings';
+      // Only show actual connections; heating circuits alone do not imply
+      // that a buffer was plumbed into the system.
+      const hot=plan.connections.some(e=>e.from===bufferId&&
+        ['top_out','mid_out'].includes(e.from_port));
+      const cold=plan.connections.some(e=>e.to===bufferId&&
+        ['bottom_in','mid_in'].includes(e.to_port));
+      group.innerHTML=(hot?'<circle cx="640" cy="360" r="5" class="hpi-buffer-port hpi-buffer-hot"/>':'')
+        +(cold?'<circle cx="640" cy="495" r="5" class="hpi-buffer-port hpi-buffer-cold"/>':'');
+      tank.parentNode.appendChild(group);
+    }
     _syncAdditional(force=false) {
       const p=this._integratedPlan;
       if(!this._hass||!p?.components.length)return;
@@ -99,6 +153,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const title=svg.querySelector('text.tank-title[x="580"][y="310"]');
         if(title)title.textContent=p.components.find(c=>c.id===firstBuffer)?.name||title.textContent;
       }
+      this._polishBufferPipes(svg,p,firstBuffer);
       if(firstDhw){
         svg.querySelector('rect.tank[x="520"][y="40"]')?.setAttribute('fill','url(#hpi-'+firstDhw+')');
         const title=svg.querySelector('text.tank-title[x="580"][y="30"]');
@@ -210,6 +265,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-particle-bolt{fill:#efb729;stroke:#e6bd42;stroke-width:1;}'
           +'.hpi-particle-art.on .hpi-particle-bolt{fill:#ffda2c;filter:url(#glow);}'
           +'.hpi-particle-reading{font-size:15px;font-weight:600;}'
+          +'.hpi-buffer-port{fill:var(--card-background-color,#222);stroke-width:3;pointer-events:none;}'
+          +'.hpi-buffer-hot{stroke:var(--hfc-hot,#f37b4e);}'
+          +'.hpi-buffer-cold{stroke:var(--hfc-cold,#448cdd);}'
+          +'.hpi-riser-bridge{pointer-events:none;}'
 
           +'.hpi-oil-seam{fill:none;stroke:var(--divider-color,#596c7c);stroke-width:1.25;stroke-linecap:round;}'
           +'.hpi-oil-burner{fill:var(--secondary-background-color,#4d5966);stroke:var(--hfc-muted,#8795a0);stroke-width:1.7;}'
