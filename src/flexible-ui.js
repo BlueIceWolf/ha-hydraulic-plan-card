@@ -138,6 +138,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-component .rib{fill:none;stroke:var(--hfc-muted,#94a3b8);stroke-width:8;stroke-linecap:round}'
           +'.hpi-oil-casing{fill:var(--secondary-background-color,#29303a);stroke:var(--divider-color,#66717b);stroke-width:2.5;}'
           +'.hpi-oil-front{fill:var(--card-background-color,#202124);stroke:var(--divider-color,#66717b);stroke-width:1.5;}'
+          +'.hpi-oil-mark{fill:var(--hfc-cold,#729bbd);stroke:none;}'
           +'.hpi-oil-seam{fill:none;stroke:var(--hfc-muted,#77838b);stroke-width:2;}'
           +'.hpi-oil-burner{fill:var(--secondary-background-color,#343941);stroke:var(--hfc-muted,#77838b);stroke-width:2;}'
           +'.hpi-oil-fan{fill:var(--card-background-color,#202124);stroke:var(--hfc-muted,#77838b);stroke-width:2;}'
@@ -184,6 +185,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     set hass(hass){
       const first=!this._hass;
       this._hass=hass;
+      if(this._nativeSensorForm?.isConnected)this._nativeSensorForm.hass=hass;
       // Live HA data changes frequently. Never replace the whole configuration form;
       // this would interrupt typing, select popovers and drag operations.
       if(this._free()||this._unconfigured()){
@@ -289,6 +291,17 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       </section>`:"";
       const selected=p.components.find(c=>c.id===this._selectedId)||p.components[0];
       if(selected)this._selectedId=selected.id;
+      // Native Home Assistant ha-form matches the original card's entity setup.
+      const useNativeForm=!!globalThis.customElements?.get('ha-form');
+      const activeFields=selected ? HPC_FREE.byType[selected.type].fields.filter(key=>key!=='mixer'||selected.options?.return_lift) : [];
+      const mainFields={wood_gasifier:['state','flow','return','pump'],oil_boiler:['state','flow','return','pump'],
+        pellet_boiler:['state','flow','return','pump'],gas_boiler:['state','flow','return','pump'],
+        heat_pump:['state','flow','return','power'],buffer:['top','middle','bottom'],
+        dhw_tank:['top','middle','bottom'],heating_circuit:['flow','return','pump','mixer'],
+        pump:['state','volume'],mixer:['position','state'],diverter:['position','state'],
+        electric_heater:['state','power'],manifold:[]};
+      const coreFields=activeFields.filter(key=>(mainFields[selected.type]||[]).includes(key));
+      const moreFields=activeFields.filter(key=>!coreFields.includes(key));
       const sensors=Object.keys(this._hass?.states||{}).filter(id=>/^(sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/.test(id));
       const dataList=`<datalist id="hpc-free-entities">${sensors.slice(0,8000).map(id=>`<option value="${esc(id)}"></option>`).join("")}</datalist>`;
       const categories=[
@@ -335,7 +348,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const from=p.components.find(c=>c.id===e.from),to=p.components.find(c=>c.id===e.to);
         return from?.type==="buffer"&&to?.type==="buffer"&&e.from_port==="bottom_out"&&e.to_port==="top_in";
       });
-      const chosen=selected?`<h3>${t("Bauteil konfigurieren","Configure component")}</h3>
+      const chosen=selected?`<h3 class="hpc-config-title">${HPC_FREE.icon(selected.type)} ${t("Bauteil konfigurieren","Configure component")}</h3>
         <div class="hpc-row"><label>${t("Bezeichnung","Name")}<input data-name="${esc(selected.id)}"
           maxlength="75" value="${esc(selected.name)}"/></label>
           <button type="button" data-action="remove-component">${t("Entfernen","Remove")}</button></div>
@@ -349,7 +362,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             ${[["standard",t("Standardkessel","Standard boiler")],["low_temp",t("Niedertemperaturkessel","Low-temperature boiler")],["condensing",t("Brennwertkessel","Condensing boiler")]]
              .map(([id,name])=>`<option value="${id}" ${(selected.options?.boiler_kind||"standard")===id?"selected":""}>${name}</option>`).join("")}
           </select></label>`:""}
-        ${HPC_FREE.byType[selected.type].fields.filter(key=>key!=="mixer"||selected.options?.return_lift).map(key=>sensorField(selected.id,key,selected.sensors[key])).join("")}
+        ${useNativeForm?'<div class="hpc-native-form"><ha-form id="hpc-native-sensors"></ha-form></div>':activeFields.map(key=>sensorField(selected.id,key,selected.sensors[key])).join("")}
         ${isTank?`<h3>${t("Zusätzliche Temperaturfühler","Additional temperature sensors")}</h3>
           <p>${t("Ordne jeden Fühler seiner tatsächlichen Einbauhöhe zu. 0 % = oben, 100 % = unten.","Set each sensor to its real installation height. 0% = top, 100% = bottom.")}</p>
           ${extraRows}<button type="button" data-action="add-level">${t("Weiteren Fühler hinzufügen","Add temperature sensor")}</button>`:""}`:"";
@@ -371,10 +384,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <div class="hpc-actions"><button type="button" data-action="example">${t("Beispielanlage laden (ersetzt Plan)","Load example (replaces plan)")}</button></div>
           ${emsInfo}
           <h3>${t("Bauteil hinzufügen","Add component")}</h3>
-          <div class="hpc-row"><label>${t("Art","Type")}<select id="hpc-free-type">${typeOptions}</select></label>
+          <div class="hpc-row"><div class="hpc-add-preview" id="hpc-free-icon">${HPC_FREE.icon("wood_gasifier")}</div><label>${t("Art","Type")}<select id="hpc-free-type">${typeOptions}</select></label>
             <button type="button" class="hpc-primary" data-action="add-component">${t("Hinzufügen","Add")}</button></div>
           <div class="hpc-component-list">${p.components.map(c=>`<button type="button" data-select="${esc(c.id)}"
-            aria-pressed="${selected?.id===c.id}">${esc(c.name)}</button>`).join("")}</div>
+            aria-pressed="${selected?.id===c.id}">${HPC_FREE.icon(c.type)}<span>${esc(c.name)}<small>${esc(HPC_FREE.display(c.type,lang))}</small></span></button>`).join("")}</div>
           <h3>${t("Hydraulikschema","Hydraulic schematic")}</h3>
           <p>${t("Die Bauteile werden passend zu ihren Anschlüssen automatisch im ursprünglichen Hydraulikplan angeordnet. Du musst keine Positionen eingeben. Die Live-Vorschau siehst du im Dashboard.","Components are automatically arranged in the original hydraulic schematic. No manual coordinates are required. The dashboard shows the live preview.")}</p>
           ${chosen}
@@ -401,6 +414,38 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       this._freeUi.scrollTop=oldY;
       const root=this._freeUi;
       const changePlan=(fn)=>{const next=HPC_FREE.normalize(p);fn(next);this._applyPlan(next);};
+      const chosenForm=root.querySelector('#hpc-native-sensors');
+      this._nativeSensorForm=chosenForm||null;
+      if(chosenForm&&selected){
+        const entityField=key=>({name:key,selector:{entity:{}}});
+        chosenForm.hass=this._hass;
+        chosenForm.schema=[{type:'expandable',name:'sensors',title:t('Sensoren und Messwerte','Sensors and measurements'),
+          schema:[...coreFields.map(entityField),
+            ...(moreFields.length?[{type:'expandable',name:'more',flatten:true,
+              title:t('Weitere Felder','More fields'),expanded:moreFields.some(key=>!!selected.sensors[key]),
+              schema:moreFields.map(entityField)}]:[])]}];
+        chosenForm.computeLabel=entry=>HPC_FREE.fieldLabel(entry.name,lang);
+        chosenForm.computeHelper=()=>t('Wähle eine vorhandene Home-Assistant-Entität aus.','Choose an existing Home Assistant entity.');
+        chosenForm.data={sensors:{...selected.sensors}};
+        chosenForm.addEventListener('value-changed',event=>{
+          event.stopPropagation();
+          const values=event.detail?.value?.sensors;
+          if(!values||typeof values!=='object')return;
+          changePlan(next=>{
+            const node=next.components.find(c=>c.id===selected.id);
+            if(!node)return;
+            for(const key of activeFields){
+              if(values[key])node.sensors[key]=values[key];
+              else delete node.sensors[key];
+            }
+          });
+        });
+      }
+      const typePicker=root.querySelector('#hpc-free-type');
+      typePicker?.addEventListener('change',()=>{
+        const box=root.querySelector('#hpc-free-icon');
+        if(box)box.innerHTML=HPC_FREE.icon(typePicker.value);
+      });
       root.querySelectorAll("[data-action]").forEach(button=>button.addEventListener("click",()=>{
         const action=button.dataset.action;
         if(action==="ems-apply"&&chosenEms){
