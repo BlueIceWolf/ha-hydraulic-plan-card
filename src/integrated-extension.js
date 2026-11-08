@@ -135,6 +135,13 @@ const HPC_INTEGRATED = (() => {
       derived.series_buffer=false;
       derived.storage='separate';
       derived.hc_count=Math.max(1,circuits.length);
+      circuits.forEach((c,index)=>{
+        const key=index?'hc'+(index+1)+'_type':'hc_type';
+        // Use the original Heat Pump Hydraulic Card emitter artwork.
+        // Each heating circuit can independently display floor, panel or
+        // column radiators; existing choices remain unchanged if not set.
+        derived[key]=c.options?.emitter||config[key]||'radiator';
+      });
       derived.preset='none';
     }else derived.entities={...entities,...(config.entities||{})};
     derived.power_sources=derived.power_sources||'manual';
