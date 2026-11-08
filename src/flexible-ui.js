@@ -245,6 +245,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-particle-bolt{fill:#efb729;stroke:#e6bd42;stroke-width:1;}'
           +'.hpi-particle-art.on .hpi-particle-bolt{fill:#ffda2c;filter:url(#glow);}'
           +'.hpi-particle-reading{font-size:15px;font-weight:600;}'
+          +'.hpi-silo-feed{fill:none;stroke:var(--hfc-muted,#9ca4ac);stroke-width:5;stroke-linecap:round;}'
+          +'.hpi-silo-body,.hpi-silo-roof,.hpi-silo-hopper{fill:var(--secondary-background-color,#525963);stroke:var(--divider-color,#9da5ad);stroke-width:2;}'
+          +'.hpi-silo-grain{fill:none;stroke:var(--hfc-heat,#ba995f);stroke-width:2;}'
+          +'.hpi-silo-label,.hpi-silo-value,.hpi-flue-reading,.hpi-flue-status,.hpi-flue-values,.hpi-pipe-reading{fill:var(--primary-text-color,#eee);font-family:var(--ha-font-family-body,system-ui,sans-serif);paint-order:stroke;stroke:var(--card-background-color,#222);stroke-width:3;}'
+          +'.hpi-silo-label,.hpi-flue-reading,.hpi-pipe-reading{font-size:13px;font-weight:600;}'
+          +'.hpi-silo-value,.hpi-flue-status,.hpi-flue-values{font-size:11px;}'
+          +'.hpi-flue-duct{fill:none;stroke:var(--divider-color,#858b93);stroke-width:10;stroke-linecap:round;stroke-linejoin:round;}'
           +'.hpi-buffer-port{fill:var(--card-background-color,#222);stroke-width:3;pointer-events:none;}'
           +'.hpi-buffer-hot{stroke:var(--hfc-hot,#f37b4e);}'
           +'.hpi-buffer-cold{stroke:var(--hfc-cold,#448cdd);}'
@@ -454,15 +461,17 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // Mixer measurement is always available on a mixed heating circuit.
       // Only a wood-gasifier return-lift mixer belongs behind a separate toggle.
       const activeFields=selected?HPC_FREE.byType[selected.type].fields.filter(key=>
-        !['mixer','mixer_opening','mixer_closing'].includes(key)||
+        (!['particle_state','particle_voltage','particle_current'].includes(key)||
+         selected.options?.particle_separator===true)&&
+        (!['mixer','mixer_opening','mixer_closing'].includes(key)||
         selected.type==='heating_circuit'&&hcMixed||
-        key==='mixer'&&selected.type==='wood_gasifier'&&selected.options?.return_lift):[];
+        key==='mixer'&&selected.type==='wood_gasifier'&&selected.options?.return_lift)):[];
       const mainFields={wood_gasifier:['state','flow','return','pump'],oil_boiler:['state','flow','return','pump'],
         pellet_boiler:['state','flow','return','pump'],gas_boiler:['state','flow','return','pump'],
         heat_pump:['state','flow','return','power'],buffer:['top','middle','bottom'],
         dhw_tank:['top','middle','bottom'],heating_circuit:['flow','return','pump','mixer'],
         pump:['state','volume'],mixer:['position','state'],diverter:['position','state'],
-        electric_heater:['state','power'],wood_chip_boiler:['state','flow','return','pump'],
+        electric_heater:['state','power'],wood_chip_boiler:['state','flow','return','pump','particle_state'],
         particle_separator:['state','voltage','current'],manifold:[]};
       const coreFields=activeFields.filter(key=>(mainFields[selected.type]||[]).includes(key));
       const moreFields=activeFields.filter(key=>!coreFields.includes(key));
@@ -579,11 +588,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             <option value="branch" ${selected.options?.connection_style==='branch'?'selected':''}>${t("Abzweig vom gemeinsamen Vorlauf und Rücklauf (wie Heizkreis)","Branch from shared supply and return (like a heating circuit)")}</option>
             <option value="separate" ${selected.options?.connection_style!=='branch'?'selected':''}>${t("Eigener Ladevorlauf und Rücklauf","Separate charging supply and return")}</option>
           </select></label>`:""}
+        ${["wood_chip_boiler","pellet_boiler"].includes(selected.type)?`<label class="hpc-checkbox">
+          <input type="checkbox" data-fuel-silo="${esc(selected.id)}" ${selected.options?.silo?'checked':''}/>
+          <span>${t(selected.type==="pellet_boiler"?"Pelletsilo anzeigen":"Hackschnitzelsilo anzeigen",selected.type==="pellet_boiler"?"Show pellet silo":"Show wood-chip silo")}</span>
+        </label>
+        <p>${t("Silo wird mit der Brennstoffzuführung direkt am Kessel angezeigt. Füllstand unter Messwerte zuordnen.","The silo is shown with its fuel-feed connection at the boiler. Assign its level under measured values.")}</p>`:""}
         ${selected.type==="wood_chip_boiler"?`<label class="hpc-checkbox">
           <input type="checkbox" data-eta-particle="${esc(selected.id)}" ${selected.options?.particle_separator?'checked':''}/>
           <span>${t("Partikelabscheider am Hackgutautomaten","Particle separator on wood-chip boiler")}</span>
         </label>
-        <p>${t("Teil der Abgasführung, ohne eigene Vor- oder Rücklaufleitung.","Part of the flue-gas path, without hydraulic connections.")}</p>`:""}
+        <p>${t("Teil der Abgasführung, ohne eigene Vor- oder Rücklaufleitung. Betriebsstatus, Hochspannung und Strom können unter Messwerte zugeordnet werden. Die Abgastemperatur steht am Abgasrohr.","Part of the flue-gas path, with no hydraulic connections. Assign operating state, voltage and current under measured values. Flue temperature is shown on the exhaust duct.")}</p>`:""}
         ${heatPumpChoices}
         ${useNativeForm?'<div class="hpc-native-form"><ha-form id="hpc-native-sensors"></ha-form></div>':activeFields.map(key=>sensorField(selected.id,key,selected.sensors[key])).join("")}
         ${isTank?`<h3>${t("Zusätzliche Temperaturfühler","Additional temperature sensors")}</h3>
@@ -1032,6 +1046,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(node?.type==='heating_circuit'&&HFC_EMITTERS.includes(el.value))
           node.options={...node.options,emitter:el.value};
       });
+      root.querySelectorAll('[data-fuel-silo]').forEach(el=>el.addEventListener('change',()=>changePlan(plan=>{
+        const node=plan.components.find(c=>c.id===el.dataset.fuelSilo);
+        if(['wood_chip_boiler','pellet_boiler'].includes(node?.type))
+          node.options={...node.options,silo:el.checked};
+      })));
       root.querySelectorAll('[data-eta-particle]').forEach(el=>el.addEventListener('change',()=>changePlan(plan=>{
         const node=plan.components.find(c=>c.id===el.dataset.etaParticle);
         if(node?.type==='wood_chip_boiler')node.options={...node.options,particle_separator:el.checked};

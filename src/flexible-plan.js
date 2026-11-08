@@ -2,8 +2,8 @@ const HPC_FREE = (function makeFreeHelpers() {
   const types = [
     {type:"wood_gasifier",de:"Holzvergaser",en:"Wood gasifier",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","mixer"],ports:["flow:R:.25","return:L:.75"]},
     {type:"oil_boiler",de:"Ölkessel",en:"Oil boiler",group:"source",fields:["state","flow","return","power","pump","starts"],ports:["flow:R:.25","return:L:.75","dhw:R:.56"]},
-    {type:"pellet_boiler",de:"Pelletkessel",en:"Pellet boiler",group:"source",fields:["state","flow","return","exhaust","pump"],ports:["flow:R:.25","return:L:.75"]},
-    {type:"wood_chip_boiler",de:"ETA Hackschnitzelkessel",en:"ETA Wood-chip boiler",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","fuel_feed","ash_removal","fuel_level"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"pellet_boiler",de:"Pelletkessel",en:"Pellet boiler",group:"source",fields:["state","flow","return","exhaust","pump","fuel_level"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"wood_chip_boiler",de:"ETA Hackschnitzelkessel",en:"ETA Wood-chip boiler",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","fuel_feed","ash_removal","fuel_level","particle_state","particle_voltage","particle_current"],ports:["flow:R:.25","return:L:.75"]},
     {type:"gas_boiler",de:"Gaskessel",en:"Gas boiler",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
     {type:"heat_pump",de:"Wärmepumpe",en:"Heat pump",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
     {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:L:.8","return_in:R:.8","bottom_out:R:.8"]},
@@ -25,6 +25,9 @@ const HPC_FREE = (function makeFreeHelpers() {
     target:["Sollwert","Setpoint"],mixer:["Mischerstellung (%)","Mixing valve position (%)"],mixer_opening:["Mischer öffnet","Mixer opening"],mixer_closing:["Mischer schließt","Mixer closing"],position:["Stellung","Position"],volume:["Volumenstrom","Flow rate"],
     fuel_feed:["Austragung / Förderschnecke","Fuel feed / auger"],ash_removal:["Entaschung","Ash removal"],fuel_level:["Brennstoffvorrat","Fuel stock"],
     voltage:["Hochspannung (kV)","Voltage (kV)"],current:["Strom (mA)","Current (mA)"],
+    particle_state:["Partikelabscheider Betrieb","Particle separator state"],
+    particle_voltage:["Partikelabscheider Hochspannung","Particle separator voltage"],
+    particle_current:["Partikelabscheider Strom","Particle separator current"],
   };
   const byType = Object.fromEntries(types.map(t=>[t.type,t]));
   const entityRx = /^(?:sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/;
@@ -95,12 +98,16 @@ const HPC_FREE = (function makeFreeHelpers() {
         ?{return_lift:n.options?.return_lift===true}
         :n.type==="wood_chip_boiler"
           ?{eta_model:["ehack","hack","hack_vr"].includes(n.options?.eta_model)?n.options.eta_model:"ehack",
-            particle_separator:n.options?.particle_separator===true}
+            particle_separator:n.options?.particle_separator===true,
+            silo:n.options?.silo===true}
         :n.type==="heating_circuit"
           ?{emitter:HFC_EMITTERS.includes(n.options?.emitter)?n.options.emitter:"radiator",
             mixed:typeof n.options?.mixed==="boolean"?n.options.mixed:
               !!(n.sensors?.mixer||n.sensors?.mixer_opening||n.sensors?.mixer_closing)}
-        :["oil_boiler","gas_boiler","pellet_boiler"].includes(n.type)
+        :n.type==="pellet_boiler"
+          ?{boiler_kind:["standard","low_temp","condensing"].includes(n.options?.boiler_kind)?n.options.boiler_kind:"standard",
+            silo:n.options?.silo===true}
+        :["oil_boiler","gas_boiler"].includes(n.type)
           ?{boiler_kind:["standard","low_temp","condensing"].includes(n.options?.boiler_kind)?n.options.boiler_kind:"standard"}
           :n.type==="heat_pump"
           // Keep the full outdoor-unit gallery from the original card.

@@ -7541,8 +7541,8 @@ const HPC_FREE = (function makeFreeHelpers() {
   const types = [
     {type:"wood_gasifier",de:"Holzvergaser",en:"Wood gasifier",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","mixer"],ports:["flow:R:.25","return:L:.75"]},
     {type:"oil_boiler",de:"Ölkessel",en:"Oil boiler",group:"source",fields:["state","flow","return","power","pump","starts"],ports:["flow:R:.25","return:L:.75","dhw:R:.56"]},
-    {type:"pellet_boiler",de:"Pelletkessel",en:"Pellet boiler",group:"source",fields:["state","flow","return","exhaust","pump"],ports:["flow:R:.25","return:L:.75"]},
-    {type:"wood_chip_boiler",de:"ETA Hackschnitzelkessel",en:"ETA Wood-chip boiler",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","fuel_feed","ash_removal","fuel_level"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"pellet_boiler",de:"Pelletkessel",en:"Pellet boiler",group:"source",fields:["state","flow","return","exhaust","pump","fuel_level"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"wood_chip_boiler",de:"ETA Hackschnitzelkessel",en:"ETA Wood-chip boiler",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","fuel_feed","ash_removal","fuel_level","particle_state","particle_voltage","particle_current"],ports:["flow:R:.25","return:L:.75"]},
     {type:"gas_boiler",de:"Gaskessel",en:"Gas boiler",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
     {type:"heat_pump",de:"Wärmepumpe",en:"Heat pump",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
     {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:L:.8","return_in:R:.8","bottom_out:R:.8"]},
@@ -7564,6 +7564,9 @@ const HPC_FREE = (function makeFreeHelpers() {
     target:["Sollwert","Setpoint"],mixer:["Mischerstellung (%)","Mixing valve position (%)"],mixer_opening:["Mischer öffnet","Mixer opening"],mixer_closing:["Mischer schließt","Mixer closing"],position:["Stellung","Position"],volume:["Volumenstrom","Flow rate"],
     fuel_feed:["Austragung / Förderschnecke","Fuel feed / auger"],ash_removal:["Entaschung","Ash removal"],fuel_level:["Brennstoffvorrat","Fuel stock"],
     voltage:["Hochspannung (kV)","Voltage (kV)"],current:["Strom (mA)","Current (mA)"],
+    particle_state:["Partikelabscheider Betrieb","Particle separator state"],
+    particle_voltage:["Partikelabscheider Hochspannung","Particle separator voltage"],
+    particle_current:["Partikelabscheider Strom","Particle separator current"],
   };
   const byType = Object.fromEntries(types.map(t=>[t.type,t]));
   const entityRx = /^(?:sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/;
@@ -7634,12 +7637,16 @@ const HPC_FREE = (function makeFreeHelpers() {
         ?{return_lift:n.options?.return_lift===true}
         :n.type==="wood_chip_boiler"
           ?{eta_model:["ehack","hack","hack_vr"].includes(n.options?.eta_model)?n.options.eta_model:"ehack",
-            particle_separator:n.options?.particle_separator===true}
+            particle_separator:n.options?.particle_separator===true,
+            silo:n.options?.silo===true}
         :n.type==="heating_circuit"
           ?{emitter:HFC_EMITTERS.includes(n.options?.emitter)?n.options.emitter:"radiator",
             mixed:typeof n.options?.mixed==="boolean"?n.options.mixed:
               !!(n.sensors?.mixer||n.sensors?.mixer_opening||n.sensors?.mixer_closing)}
-        :["oil_boiler","gas_boiler","pellet_boiler"].includes(n.type)
+        :n.type==="pellet_boiler"
+          ?{boiler_kind:["standard","low_temp","condensing"].includes(n.options?.boiler_kind)?n.options.boiler_kind:"standard",
+            silo:n.options?.silo===true}
+        :["oil_boiler","gas_boiler"].includes(n.type)
           ?{boiler_kind:["standard","low_temp","condensing"].includes(n.options?.boiler_kind)?n.options.boiler_kind:"standard"}
           :n.type==="heat_pump"
           // Keep the full outdoor-unit gallery from the original card.
@@ -8407,9 +8414,8 @@ const HPC_INTEGRATED = (() => {
       +'<text class="hpi-chip-brand" x="146" y="22" text-anchor="middle">ETA</text>'
       +'<text class="hpi-chip-model" x="126" y="94" text-anchor="middle">'+HPC_FREE.esc(model)+'</text>'
       +'<circle class="hpi-chip-light" cx="67" cy="44" r="3"/>'
-      +(node.options?.particle_separator?
-        '<path class="hpi-particle-duct" d="M161 36H173V28"/>'
-        +particleArt(151,0,29,39,false):'')
+      // Flue-gas cleaning is drawn at its real exhaust duct, outside
+      // the boiler body, so its readings have their own space.
       +'</g>';
   }
 
@@ -8714,9 +8720,9 @@ const HPC_INTEGRATED = (() => {
         const reading=(key,short)=>node.sensors[key]
           ?short+' '+HPC_FREE.esc(HPC_FREE.format(HPC_FREE.state(hass,node.sensors[key])))
           :'';
-        const flow=reading('flow',label('VL','Flow'));
-        const ret=reading('return',label('RL','Return'));
-        const temps=[flow,ret].filter(Boolean).join(' · ');
+        // Hydraulic temperatures are labelled at their respective pipes,
+        // rather than repeated inside the boiler graphic.
+        const temps='';
         const status=burner?(running?label('Brenner läuft','Burner running')
           :label('Brenner aus','Burner off')):'';
         return '<g class="tap hpi-component hpi-oil'+(running?' on':'')+'" data-hpi-node="'+node.id+'" data-entity="'+HPC_FREE.esc(node.sensors.state||node.sensors.flow||'')+'">'
@@ -8735,7 +8741,8 @@ const HPC_INTEGRATED = (() => {
         type==='electric_heater'?'<path class="heater" d="M'+(cx-26)+' '+cy+' h12 l10 -15 l11 30 l10 -15 h12"/>':
         type==='heating_circuit'?'<path class="rib" d="M'+(cx-30)+' '+(cy-18)+' v36 M'+(cx-17)+' '+(cy-18)+' v36 M'+(cx-4)+' '+(cy-18)+' v36 M'+(cx+9)+' '+(cy-18)+' v36 M'+(cx+22)+' '+(cy-18)+' v36"/>':
         '<path class="boiler-flame" d="M'+cx+' '+(cy+17)+' C'+(cx-23)+' '+(cy-2)+' '+(cx-9)+' '+(cy-17)+' '+(cx-2)+' '+(cy-28)+' C'+(cx-3)+' '+(cy-11)+' '+(cx+23)+' '+(cy-13)+' '+(cx+13)+' '+(cy+10)+' Z"/>';
-      const sensorEntries=Object.entries(node.sensors||{}).filter(([k,v])=>v && k!=='state').slice(0,2);
+      const sensorEntries=Object.entries(node.sensors||{}).filter(([k,v])=>
+        v&&!['state','flow','return','exhaust','fuel_level','particle_state','particle_voltage','particle_current'].includes(k)).slice(0,2);
       const labels=sensorEntries.map(([key,id],i)=>'<text class="unit-val hpi-source-value" text-anchor="middle" x="'+cx+'" y="'+(b.y+202+i*19)+'">'+
         HPC_FREE.esc(HPC_FREE.fieldLabel(key))+' '+HPC_FREE.esc(HPC_FREE.format(HPC_FREE.state(hass,id)))+'</text>').join('');
       const sourceState=isSource(node)&&node.sensors.state?HPC_FREE.state(hass,node.sensors.state):null;
@@ -8746,6 +8753,73 @@ const HPC_INTEGRATED = (() => {
         +'<rect class="unit'+(on?' on':'')+'" x="'+b.x+'" y="'+b.y+'" width="'+b.w+'" height="'+b.h+'" rx="20"/>'
         +'<text class="unit-title" x="'+cx+'" y="'+(b.y+27)+'" text-anchor="middle">'+title+'</text>'
         +icon+(stateLabel?'<text class="unit-status hpi-source-status" x="'+cx+'" y="'+(b.y+176)+'" text-anchor="middle">'+HPC_FREE.esc(stateLabel)+'</text>':'')+labels+'</g>';
+    }).join('');
+
+    // A real fuel silo is an accessory of a pellet/wood-chip generator,
+    // connected by an auger/fuel pipe. It is NOT a water-side component.
+    const biomass=plan.components.filter(node=>
+      ['pellet_boiler','wood_chip_boiler'].includes(node.type));
+    const accessories=biomass.map(node=>{
+      const b=loc(node.id);
+      if(!b)return '';
+      const cx=b.x+b.w/2;
+      const parts=[];
+      if(node.options?.silo){
+        const sx=b.x+20,sy=Math.max(10,b.y-115),w=68,h=66;
+        const level=HPC_FREE.state(hass,node.sensors.fuel_level);
+        const levelText=level?HPC_FREE.format(level):'';
+        parts.push('<g class="tap hpi-fuel-silo" data-hpi-node="'+HPC_FREE.esc(node.id)+'">'
+          +'<title>'+HPC_FREE.esc(node.type==='pellet_boiler'?'Pelletsilo':'Hackschnitzelsilo')+'</title>'
+          +'<path class="hpi-silo-feed" d="M'+(sx+w/2)+' '+(sy+h+13)+
+            ' L'+(b.x+68)+' '+(b.y+32)+'"/>'
+          +'<rect class="hpi-silo-body" x="'+sx+'" y="'+sy+'" width="'+w+'" height="'+h+'" rx="5"/>'
+          +'<path class="hpi-silo-roof" d="M'+(sx-4)+' '+sy+' L'+(sx+w/2)+' '+(sy-17)+' L'+(sx+w+4)+' '+sy+'Z"/>'
+          +'<path class="hpi-silo-hopper" d="M'+sx+' '+(sy+h)+' L'+(sx+w/2)+' '+(sy+h+14)+' L'+(sx+w)+' '+(sy+h)+'Z"/>'
+          +'<path class="hpi-silo-grain" d="M'+(sx+9)+' '+(sy+28)+' l11 -7 l10 10 l11 -9 l12 8"/>'
+          +'<text class="hpi-silo-label" x="'+(sx+w/2)+'" y="'+(sy-23)+'" text-anchor="middle">'+
+            HPC_FREE.esc(node.type==='pellet_boiler'?'Pelletsilo':'Hackschnitzelsilo')+'</text>'
+          +(levelText?'<text class="hpi-silo-value" x="'+(sx+w/2)+'" y="'+(sy+51)+'" text-anchor="middle">'+
+            HPC_FREE.esc(levelText)+'</text>':'')
+          +'</g>');
+      }
+      if(node.sensors.exhaust||node.options?.particle_separator){
+        const baseX=b.x+b.w-35, baseY=b.y+25;
+        const flueY=Math.max(17,b.y-52), flueEnd=baseX+104;
+        const ex=HPC_FREE.state(hass,node.sensors.exhaust);
+        const exText=ex?HPC_FREE.format(ex):'';
+        const separator=node.options?.particle_separator===true;
+        const ps=HPC_FREE.state(hass,node.sensors.particle_state);
+        const pv=HPC_FREE.state(hass,node.sensors.particle_voltage);
+        const pi=HPC_FREE.state(hass,node.sensors.particle_current);
+        const active=ps!==null&&HPC_FREE.active(ps);
+        parts.push('<g class="hpi-flue" data-hpi-flue="'+HPC_FREE.esc(node.id)+'">'
+          +'<path class="hpi-flue-duct" d="M'+baseX+' '+baseY+' V'+flueY+' H'+flueEnd+'"/>'
+          +(separator?particleArt(baseX+35,flueY-25,50,46,active):'')
+          +(exText?'<text class="hpi-flue-reading" x="'+(baseX+6)+'" y="'+(flueY-13)+'">Abgas '+HPC_FREE.esc(exText)+'</text>':'')
+          +(separator?'<text class="hpi-flue-status" x="'+(baseX+44)+'" y="'+(flueY+41)+'" text-anchor="middle">'+
+            HPC_FREE.esc(ps?(active?'Aktiv':'Aus'):'Partikelabscheider')+'</text>':'')
+          +(pv||pi?'<text class="hpi-flue-values" x="'+(baseX+44)+'" y="'+(flueY+55)+'" text-anchor="middle">'+
+            HPC_FREE.esc([pv?'HV '+HPC_FREE.format(pv):'',pi?'I '+HPC_FREE.format(pi):''].filter(Boolean).join(' · '))+'</text>':'')
+          +'</g>');
+      }
+      return parts.join('');
+    }).join('');
+    // Once a hydraulic reading is present on its pipe, never print it a
+    // second time inside the generator. One label per role and generator.
+    const pipeLabels=plan.components.filter(isSource).map(node=>{
+      const b=loc(node.id);if(!b)return '';
+      const readings=[];
+      for(const [key,name] of [['flow','VL'],['return','RL']]){
+        const connected=plan.connections.some(e=>
+          (e.from===node.id&&e.from_port===key)||
+          (e.to===node.id&&e.to_port===key));
+        const state=connected?HPC_FREE.state(hass,node.sensors[key]):null;
+        if(!state)continue;
+        const p=port(node,b,key);
+        readings.push('<text class="hpi-pipe-reading" x="'+(p.x+16)+'" y="'+(p.y+(key==='flow'?-12:22))+'">'+
+          name+' '+HPC_FREE.esc(HPC_FREE.format(state))+'</text>');
+      }
+      return readings.join('');
     }).join('');
     const lift=plan.components.filter(node=>node.type==='wood_gasifier'&&node.options?.return_lift)
       .map(node=>{
@@ -8798,7 +8872,7 @@ const HPC_INTEGRATED = (() => {
       :'';
     const firstBuffer=plan.components.find(c=>c.type==='buffer');
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank');
-    return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+primaryChip+primaryOil+primaryGas+'</g>',
+    return {defs,body:'<g id="hpc-integrated">'+links+nodes+accessories+pipeLabels+lift+primaryChip+primaryOil+primaryGas+'</g>',
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
   return {layout,coreConfig,svg,tankPoints,flowStates,isSource};
@@ -9325,6 +9399,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-particle-bolt{fill:#efb729;stroke:#e6bd42;stroke-width:1;}'
           +'.hpi-particle-art.on .hpi-particle-bolt{fill:#ffda2c;filter:url(#glow);}'
           +'.hpi-particle-reading{font-size:15px;font-weight:600;}'
+          +'.hpi-silo-feed{fill:none;stroke:var(--hfc-muted,#9ca4ac);stroke-width:5;stroke-linecap:round;}'
+          +'.hpi-silo-body,.hpi-silo-roof,.hpi-silo-hopper{fill:var(--secondary-background-color,#525963);stroke:var(--divider-color,#9da5ad);stroke-width:2;}'
+          +'.hpi-silo-grain{fill:none;stroke:var(--hfc-heat,#ba995f);stroke-width:2;}'
+          +'.hpi-silo-label,.hpi-silo-value,.hpi-flue-reading,.hpi-flue-status,.hpi-flue-values,.hpi-pipe-reading{fill:var(--primary-text-color,#eee);font-family:var(--ha-font-family-body,system-ui,sans-serif);paint-order:stroke;stroke:var(--card-background-color,#222);stroke-width:3;}'
+          +'.hpi-silo-label,.hpi-flue-reading,.hpi-pipe-reading{font-size:13px;font-weight:600;}'
+          +'.hpi-silo-value,.hpi-flue-status,.hpi-flue-values{font-size:11px;}'
+          +'.hpi-flue-duct{fill:none;stroke:var(--divider-color,#858b93);stroke-width:10;stroke-linecap:round;stroke-linejoin:round;}'
           +'.hpi-buffer-port{fill:var(--card-background-color,#222);stroke-width:3;pointer-events:none;}'
           +'.hpi-buffer-hot{stroke:var(--hfc-hot,#f37b4e);}'
           +'.hpi-buffer-cold{stroke:var(--hfc-cold,#448cdd);}'
@@ -9534,15 +9615,17 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // Mixer measurement is always available on a mixed heating circuit.
       // Only a wood-gasifier return-lift mixer belongs behind a separate toggle.
       const activeFields=selected?HPC_FREE.byType[selected.type].fields.filter(key=>
-        !['mixer','mixer_opening','mixer_closing'].includes(key)||
+        (!['particle_state','particle_voltage','particle_current'].includes(key)||
+         selected.options?.particle_separator===true)&&
+        (!['mixer','mixer_opening','mixer_closing'].includes(key)||
         selected.type==='heating_circuit'&&hcMixed||
-        key==='mixer'&&selected.type==='wood_gasifier'&&selected.options?.return_lift):[];
+        key==='mixer'&&selected.type==='wood_gasifier'&&selected.options?.return_lift)):[];
       const mainFields={wood_gasifier:['state','flow','return','pump'],oil_boiler:['state','flow','return','pump'],
         pellet_boiler:['state','flow','return','pump'],gas_boiler:['state','flow','return','pump'],
         heat_pump:['state','flow','return','power'],buffer:['top','middle','bottom'],
         dhw_tank:['top','middle','bottom'],heating_circuit:['flow','return','pump','mixer'],
         pump:['state','volume'],mixer:['position','state'],diverter:['position','state'],
-        electric_heater:['state','power'],wood_chip_boiler:['state','flow','return','pump'],
+        electric_heater:['state','power'],wood_chip_boiler:['state','flow','return','pump','particle_state'],
         particle_separator:['state','voltage','current'],manifold:[]};
       const coreFields=activeFields.filter(key=>(mainFields[selected.type]||[]).includes(key));
       const moreFields=activeFields.filter(key=>!coreFields.includes(key));
@@ -9659,11 +9742,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             <option value="branch" ${selected.options?.connection_style==='branch'?'selected':''}>${t("Abzweig vom gemeinsamen Vorlauf und Rücklauf (wie Heizkreis)","Branch from shared supply and return (like a heating circuit)")}</option>
             <option value="separate" ${selected.options?.connection_style!=='branch'?'selected':''}>${t("Eigener Ladevorlauf und Rücklauf","Separate charging supply and return")}</option>
           </select></label>`:""}
+        ${["wood_chip_boiler","pellet_boiler"].includes(selected.type)?`<label class="hpc-checkbox">
+          <input type="checkbox" data-fuel-silo="${esc(selected.id)}" ${selected.options?.silo?'checked':''}/>
+          <span>${t(selected.type==="pellet_boiler"?"Pelletsilo anzeigen":"Hackschnitzelsilo anzeigen",selected.type==="pellet_boiler"?"Show pellet silo":"Show wood-chip silo")}</span>
+        </label>
+        <p>${t("Silo wird mit der Brennstoffzuführung direkt am Kessel angezeigt. Füllstand unter Messwerte zuordnen.","The silo is shown with its fuel-feed connection at the boiler. Assign its level under measured values.")}</p>`:""}
         ${selected.type==="wood_chip_boiler"?`<label class="hpc-checkbox">
           <input type="checkbox" data-eta-particle="${esc(selected.id)}" ${selected.options?.particle_separator?'checked':''}/>
           <span>${t("Partikelabscheider am Hackgutautomaten","Particle separator on wood-chip boiler")}</span>
         </label>
-        <p>${t("Teil der Abgasführung, ohne eigene Vor- oder Rücklaufleitung.","Part of the flue-gas path, without hydraulic connections.")}</p>`:""}
+        <p>${t("Teil der Abgasführung, ohne eigene Vor- oder Rücklaufleitung. Betriebsstatus, Hochspannung und Strom können unter Messwerte zugeordnet werden. Die Abgastemperatur steht am Abgasrohr.","Part of the flue-gas path, with no hydraulic connections. Assign operating state, voltage and current under measured values. Flue temperature is shown on the exhaust duct.")}</p>`:""}
         ${heatPumpChoices}
         ${useNativeForm?'<div class="hpc-native-form"><ha-form id="hpc-native-sensors"></ha-form></div>':activeFields.map(key=>sensorField(selected.id,key,selected.sensors[key])).join("")}
         ${isTank?`<h3>${t("Zusätzliche Temperaturfühler","Additional temperature sensors")}</h3>
@@ -10112,6 +10200,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(node?.type==='heating_circuit'&&HFC_EMITTERS.includes(el.value))
           node.options={...node.options,emitter:el.value};
       });
+      root.querySelectorAll('[data-fuel-silo]').forEach(el=>el.addEventListener('change',()=>changePlan(plan=>{
+        const node=plan.components.find(c=>c.id===el.dataset.fuelSilo);
+        if(['wood_chip_boiler','pellet_boiler'].includes(node?.type))
+          node.options={...node.options,silo:el.checked};
+      })));
       root.querySelectorAll('[data-eta-particle]').forEach(el=>el.addEventListener('change',()=>changePlan(plan=>{
         const node=plan.components.find(c=>c.id===el.dataset.etaParticle);
         if(node?.type==='wood_chip_boiler')node.options={...node.options,particle_separator:el.checked};
