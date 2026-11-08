@@ -804,6 +804,34 @@
     check(emitCard._hcTypes[0]==='column'&&emitCard._hcTypes[1]==='radiator',
       'Original renderer receives individual heating emitter styles');
     emitCard.remove();emitterEditor.remove();
+    // A real heating circuit can have a mixing valve without an entity
+    // reporting its position. Its sensor picker must be present when enabled.
+    const mixEditor=document.createElement('hydraulic-plan-card-editor');
+    mixEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[{id:'hk_mixed',type:'heating_circuit',
+        name:'Gemischter Heizkreis',sensors:{}}],connections:[]}});
+    document.body.append(mixEditor);mixEditor.hass=hassOf();
+    check(!!mixEditor.querySelector('[data-hc-mixer="hk_mixed"]'),
+      'Heating circuit editor offers an explicit mixing-valve toggle');
+    let mixResult;
+    mixEditor.addEventListener('config-changed',ev=>mixResult=ev.detail.config);
+    const mixToggle=mixEditor.querySelector('[data-hc-mixer="hk_mixed"]');
+    mixToggle.checked=true;mixToggle.dispatchEvent(new Event('change',{bubbles:true}));
+    check(mixResult?.plan.components[0].options.mixed===true&&
+      mixEditor.querySelector('#hpc-native-sensors')?.schema?.[0]?.schema?.some(x=>x.name==='mixer'),
+      'Switching the mixer on reveals its native HA entity selector');
+    const noSensorMixer=await mount(mixResult,hassOf());
+    check(!!noSensorMixer.shadowRoot.querySelector('.hpi-manual-mixer[data-hpi-mixer="hk_mixed"]'),
+      'A sensorless heating circuit still shows its mixing valve on the original diagram');
+    noSensorMixer.remove();
+    const mixForm=mixEditor.querySelector('#hpc-native-sensors');
+    mixForm?.dispatchEvent(new CustomEvent('value-changed',{bubbles:true,detail:{
+      value:{sensors:{mixer:'sensor.hc_mixer_position'}}
+    }}));
+    check(mixResult?.plan.components[0].sensors.mixer==='sensor.hc_mixer_position',
+      'Mixer position can be assigned without losing the circuit configuration');
+    mixEditor.remove();
+
     // One quick-connect action must create a visible hot supply and separate
     // return to a wood gasifier, rather than a dangling one-way pipe.
     const pairEditor=document.createElement('hydraulic-plan-card-editor');
