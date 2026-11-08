@@ -301,6 +301,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           pump:prefix+'pump',mixer:prefix+'mixer'};
         if(i<=count||Object.values(roles).some(role=>entities[role])){
           add('heating_circuit','Heizkreis '+i,roles);
+          const circuit=result.components.at(-1);
+          if(circuit?.type==='heating_circuit'){
+            const oldKey=i===1?'hc_type':'hc'+i+'_type';
+            circuit.options={emitter:HFC_EMITTERS.includes(c[oldKey])?c[oldKey]:'radiator'};
+          }
         }
       }
       // Legacy fixed SVG piping has no reliable per-port graph representation.
@@ -459,6 +464,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <select data-boiler-kind="${esc(selected.id)}">
             ${[["standard",t("Standardkessel","Standard boiler")],["low_temp",t("Niedertemperaturkessel","Low-temperature boiler")],["condensing",t("Brennwertkessel","Condensing boiler")]]
              .map(([id,name])=>`<option value="${id}" ${(selected.options?.boiler_kind||"standard")===id?"selected":""}>${name}</option>`).join("")}
+          </select></label>`:""}
+        ${selected.type==="heating_circuit"?`<label class="hpc-field">${t("Heizflächenart","Heat emitter")}
+          <select data-heating-emitter="${esc(selected.id)}">
+            ${[['underfloor',t('Fußboden- / Flächenheizung','Underfloor heating')],
+              ['radiator',t('Plattenheizkörper','Panel radiators')],
+              ['column',t('Gliederheizkörper','Column radiators')]]
+              .map(([id,label])=>`<option value="${id}" ${(selected.options?.emitter||'radiator')===id?'selected':''}>${label}</option>`).join('')}
           </select></label>`:""}
         ${selected.type==="wood_chip_boiler"?`<label class="hpc-field">${t("ETA Kesselmodell","ETA boiler model")}
           <select data-eta-model="${esc(selected.id)}">
@@ -809,6 +821,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       fieldUpdate("[data-boiler-kind]",(plan,el)=>{
         const c=plan.components.find(x=>x.id===el.dataset.boilerKind);
         if(c)c.options={...c.options,boiler_kind:el.value};
+      });
+      fieldUpdate('[data-heating-emitter]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.heatingEmitter);
+        if(node?.type==='heating_circuit'&&HFC_EMITTERS.includes(el.value))
+          node.options={...node.options,emitter:el.value};
       });
       fieldUpdate('[data-eta-model]',(plan,el)=>{
         const node=plan.components.find(c=>c.id===el.dataset.etaModel);
