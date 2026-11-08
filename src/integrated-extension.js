@@ -59,21 +59,22 @@ const HPC_INTEGRATED = (() => {
     }
     orderedBuffers.sort((a,b)=>(distances.get(a.id)??Infinity)-(distances.get(b.id)??Infinity));
     const extraDhw=byGroup.storage.filter(c=>c.type==='dhw_tank');
-    const storageStart=1110;
+    const storageStart=520;
     // A second DHW row must not overlap the buffer row.
-    const bufferStartY=330+Math.max(0,Math.ceil(extraDhw.length/4)-1)*225;
+    // Put the next buffers below the last standard heating circuit.
+    // This retains the original buffer graphic and avoids all radiator rows.
+    const bufferStartY=Math.max(585,560+Math.min(hcCount,6)*250);
     orderedBuffers.forEach((node,index)=>{
       const [w,h]=HPC_FREE.dimension(node.type);
-      points.set(node.id,{x:storageStart+(index%4)*177,
-        y:bufferStartY+Math.floor(index/4)*225,w,h,type:node.type});
+      points.set(node.id,{x:520+(index%3)*170,
+        y:bufferStartY+Math.floor(index/3)*230,w,h,type:node.type});
     });
     extraDhw.forEach((node,index)=>{
       const [w,h]=HPC_FREE.dimension(node.type);
-      points.set(node.id,{x:storageStart+(index%4)*177,
-        y:75+Math.floor(index/4)*225,w,h,type:node.type});
+      points.set(node.id,{x:680+(index%2)*170,
+        y:40+Math.floor(index/2)*215,w,h,type:node.type});
     });
-    const storageCols=Math.max(1,Math.min(4,orderedBuffers.length),Math.min(4,extraDhw.length));
-    const controlStart=storageStart+storageCols*177+80;
+    const controlStart=Math.max(1190,storageStart+530);
     const controlEnd=placeColumn(byGroup.control,controlStart,90,205,150);
     placeColumn(byGroup.load,controlEnd+90,115,230,225,3);
     const maxX=Math.max(1000,...[...points.values()].map(n=>n.x+n.w+70));
@@ -107,13 +108,22 @@ const HPC_INTEGRATED = (() => {
     // Legacy entities intentionally win over auto-mappings; existing heat pump
     // users retain precisely their previous presets/overrides.
     const derived={...config};
-    if(src&&!config.generator_type)derived.generator_type=types[src.type];
+    if(src)derived.generator_type=types[src.type];
     if(src&&src.type!=='heat_pump'&&!config.boiler_name)derived.boiler_name=src.name;
-    if(buffer&&!config.series_buffer)derived.buffer=true;
-    if(dhw&&!config.storage)derived.storage='separate';
-    if(circuits.length&&!config.hc_count)derived.hc_count=Math.min(6,circuits.length);
-    if((src||buffer||dhw)&&!config.preset)derived.preset='none';
-    derived.entities={...entities,...(config.entities||{})};
+    if(p.components.length){
+      // Free plan is authoritative: old dashboard role keys must not draw
+      // tanks, hot-water branches or a different heat source.
+      const clean={...(config.entities||{})};
+      for(const key of Object.keys(clean)){
+        if(/^(boiler_|buffer_|dhw_|hc(?:[1-6])?_|mode$|flow$|return$|power$|compressor$)/.test(key))delete clean[key];
+      }
+      derived.entities={...clean,...entities};
+      derived.buffer=!!buffer;
+      derived.series_buffer=false;
+      derived.storage='separate';
+      derived.hc_count=Math.max(1,circuits.length);
+      derived.preset='none';
+    }else derived.entities={...entities,...(config.entities||{})};
     derived.power_sources=derived.power_sources||'manual';
     return derived;
   }
@@ -164,7 +174,8 @@ const HPC_INTEGRATED = (() => {
     const mappedFlow=(edge)=>{
       if(!edge.flow_entity)return null;
       // Explicit pipe-level state always overrides topology inference.
-      return HPC_FREE.active(HPC_FREE.state(hass,edge.flow_entity));
+      const status=HPC_FREE.state(hass,edge.flow_entity);
+      return status?HPC_FREE.active(status):null;
     };
     for(const edge of plan.connections){
       adjacent.get(edge.from)?.push({edge,neighbor:edge.to});
@@ -178,7 +189,8 @@ const HPC_INTEGRATED = (() => {
     };
     const pumpState=(node)=>{
       const id=pumpEntity(node);
-      return id ? HPC_FREE.active(HPC_FREE.state(hass,id)) : null;
+      const status=id&&HPC_FREE.state(hass,id);
+      return status?HPC_FREE.active(status):null;
     };
     const blocked=(node)=>pumpState(node)===false;
     const sources=plan.components.filter(n=>pumpState(n)===true);
@@ -213,7 +225,7 @@ const HPC_INTEGRATED = (() => {
     const links=plan.connections.map(edge=>{
       // The core pipe path already connects legacy core units. Only draw extra
       // paths for links crossing into or between added components.
-      if(anchored.has(edge.from)&&anchored.has(edge.to))return '';
+      // Every user-defined link is drawn, even between primary SVG parts.
       const p=port(all[edge.from],loc(edge.from),edge.from_port);
       const q=port(all[edge.to],loc(edge.to),edge.to_port);
       const mid=(p.x+q.x)/2;
