@@ -8568,9 +8568,10 @@ const HPC_INTEGRATED = (() => {
       const cold=port(source,sourceShape,coilReturn.to_port);
       const hx=loc(heatFeed.to);
       if(!hx)continue;
-      const teeX=Math.min(hx.x-55,Math.max(sourceShape.x+sourceShape.w+55,735));
+      const teeX=Math.min(hx.x-55,Math.max(sourceShape.x+sourceShape.w+20,660));
       supplyTees.set(supply.id,{x:teeX,y:hot.y});
-      returnTees.set(coilReturn.id,{x:teeX,y:cold.y});
+      // A return enters on the LEFT of the buffer, so do not place a fake
+      // tee on the right-hand heating collector. Draw its real return route.
     }
     const links=plan.connections.map(edge=>{
       // Original heating circuits own their valve, emitter and shared risers.
@@ -8601,6 +8602,15 @@ const HPC_INTEGRATED = (() => {
         const mid=(p.x+q.x)/2;
         d='M'+p.x+' '+p.y+' H'+mid+' V'+q.y+' H'+q.x;
       }
+      // The coil is always entered from its left side, using an overhead
+      // routing lane. Do not cross through the tank or a pump symbol.
+      if(all[edge.to]?.type==='dhw_tank'&&edge.to_port==='coil_in'){
+        const outsideX=Math.max(p.x+36,toShape.x+toShape.w+42);
+        const aboveY=Math.max(10,Math.min(toShape.y-24,fromShape.y-25,16));
+        const entryX=q.x-34;
+        d='M'+p.x+' '+p.y+' H'+outsideX+' V'+aboveY+
+          ' H'+entryX+' V'+q.y+' H'+q.x;
+      }
       // Take the WW branch off the common header at a T fitting, just
       // like another heating circuit. The coil inlet/outlet remain on the
       // left; no pipe may cross the tank or create a second parallel header.
@@ -8630,10 +8640,11 @@ const HPC_INTEGRATED = (() => {
         d='M'+p.x+' '+p.y+' H'+laneX+' V'+q.y+' H'+q.x;
       }
       if(supplyTee){
-        const entryX=q.x-34;
-        const above=Math.min(20,q.y-42);
-        d='M'+supplyTee.x+' '+supplyTee.y+' V'+above+
-          ' H'+entryX+' V'+q.y+' H'+q.x;
+        // The tee only joins an actual header. Keep the horizontal segment
+        // from the buffer outlet and run the complete pipe through its pump.
+        const viaX=Math.max(supplyTee.x,p.x+20);
+        const entryX=q.x-30;
+        d='M'+p.x+' '+p.y+' H'+viaX+' V'+q.y+' H'+entryX+' H'+q.x;
       }else if(returnTee){
         // Join the actual left-hand return inlet, without a right-side
         // collector pretending to be a buffer entry.
