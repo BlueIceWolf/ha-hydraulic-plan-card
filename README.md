@@ -40,6 +40,12 @@ Bei aktivem Home Assistant verwendet der Komponenten-Editor die **originalen Hom
 
 **Ein gemeinsames Hydraulikbild:** Die erste Wärmepumpe beziehungsweise der erste Kessel, der erste Pufferspeicher, der erste Warmwasserspeicher und die Heizkreise nutzen weiterhin die ursprüngliche SVG-Zeichnung. Holzvergaser, Öl-, Pellet- und Gaskessel sowie weitere Wärmepumpen werden als zusätzliche, zur bestehenden Darstellung passende Geräte im **selben** SVG ergänzt. Es entstehen keine separaten Karten oder manuell zu positionierenden Bauteile. Die Auswahl enthält dazu eigens gezeichnete Piktogramme; der Ölkessel hat Brenner und Öltropfen als Merkmal, ohne Markenlogos oder fremde Bilddateien.
 
+### ETA Hackschnitzelkessel (eHACK, HACK und HACK VR)
+
+Im Komponenten-Editor unter **Wärmeerzeuger und Kessel** gibt es den eigenen Gerätetyp **ETA Hackschnitzelkessel**. Wählbare Modelle: ETA eHACK, ETA HACK und ETA HACK VR. Der Kessel erhält eine im Stil der Originalkarte selbst gezeichnete SVG-Ansicht mit gelber Front, Display und seitlicher Brennstoff-Förderschnecke. Der Typ kann alleine als primärer Wärmeerzeuger oder zusätzlich zu einer Wärmepumpe, einem Ölkessel oder einem Holzvergaser eingesetzt werden.
+
+Entitäten für Brenner-/Betriebsstatus, Vorlauf, Rücklauf, Abgas, Restsauerstoff, Gebläse, Leistung, Kesselladepumpe, Förderschnecke, Entaschung und Brennstoffvorrat werden **manuell** zugeordnet. Es wird keine spezifische ETA-Netzwerkschnittstelle vorausgesetzt und keine ETA-Steuerung geschaltet. Für das vorhandene Grundschema wird bei diesem zusätzlichen Kesseltyp intern der Kessel-Renderer wiederverwendet, dessen bisherige Pellet-Grafik jedoch durch die passende ETA-Zeichnung ersetzt wird. Rohre und Speicher behalten die Optik der Originalkarte.
+
 ## What is supported
 
 - Original heat-pump visualisation, EMS-ESP and other upstream presets, storage gradients, heating circuits, tank heating rods, diagnostics and statistics.
