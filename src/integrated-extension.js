@@ -498,6 +498,28 @@ const HPC_INTEGRATED = (() => {
           +'<rect class="tank" x="'+b.x+'" y="'+b.y+'" width="'+b.w+'" height="'+b.h+'" rx="25" fill="url(#hpi-'+node.id+')"/>'
           +row+'</g>';
       }
+      if(node.type==='particle_separator'){
+        const status=node.sensors.state?HPC_FREE.state(hass,node.sensors.state):null;
+        const running=status?HPC_FREE.active(status):false;
+        const cx=b.x+b.w/2;
+        const unit=(key,u)=>{
+          const val=HPC_FREE.state(hass,node.sensors[key]);
+          if(!val)return '';
+          const formatted=HPC_FREE.format(val);
+          return HPC_FREE.esc(formatted+(val.unit?'':' '+u));
+        };
+        const voltage=unit('voltage','kV');
+        const current=unit('current','mA');
+        return '<g class="tap hpi-component hpi-particle-separator" data-hpi-node="'+HPC_FREE.esc(node.id)+'">'
+          +'<rect class="unit" x="'+b.x+'" y="'+b.y+'" width="'+b.w+'" height="'+b.h+'" rx="20"/>'
+          +'<text class="unit-title" x="'+cx+'" y="'+(b.y+25)+'" text-anchor="middle">'+title+'</text>'
+          +particleArt(b.x+36,b.y+39,b.w-72,125,running)
+          +(voltage?'<text class="unit-val hpi-particle-reading" x="'+(b.x+65)+'" y="'+(b.y+189)+'" text-anchor="middle">'+voltage+'</text>':'')
+          +(current?'<text class="unit-val hpi-particle-reading" x="'+(b.x+b.w-60)+'" y="'+(b.y+189)+'" text-anchor="middle">'+current+'</text>':'')
+          +(status?'<text class="unit-status" x="'+cx+'" y="'+(b.y+215)+'" text-anchor="middle">'
+            +(running?'Aktiv':'Aus')+'</text>':'')
+          +'</g>';
+      }
       const cx=b.x+b.w/2,cy=b.y+b.h*.53;
       const type=node.type;
       if(type==='oil_boiler'){
