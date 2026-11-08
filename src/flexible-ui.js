@@ -473,6 +473,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const connectionField=(edge,field,label)=>useNativePicker
         ? `<ha-entity-picker data-edge="${esc(edge.id)}" data-edge-field="${field}" data-label="${esc(label)}"></ha-entity-picker>`
         : `<label>${esc(label)}<input list="hpc-free-entities" data-edge="${esc(edge.id)}" data-edge-field="${field}" value="${esc(edge[field])}"/></label>`;
+      // Selecting two components is easier than choosing four separate ports.
+      // A heat-source/tank pair creates its hot supply and matching return.
+      const suggestedPairs=HPC_FREE.connectionPairs(p);
+      const pairOptions=suggestedPairs.map(c=>
+        '<option value="'+esc(c.from+'|'+c.to)+'">'+esc(c.label)+' · '+
+        (c.count>1?t('Vorlauf + Rücklauf','Flow + return'):
+          t('Fehlende Leitung ergänzen','Add missing pipe'))+'</option>').join('');
       const connectionRows=p.connections.map(edge=>`<div class="hpc-row">
         <span style="flex:1 1 250px;font-size:.85em">${esc((p.components.find(c=>c.id===edge.from)?.name||edge.from)+" – "+(portNames[edge.from_port]||edge.from_port)+" → "+(p.components.find(c=>c.id===edge.to)?.name||edge.to)+" – "+(portNames[edge.to_port]||edge.to_port))}</span>
         <button type="button" data-action="remove-edge" data-edge-id="${esc(edge.id)}">${t("Entfernen","Remove")}</button>
