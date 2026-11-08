@@ -633,7 +633,12 @@
           sensors:{pump:ids.pump}},
         {id:'h2',type:'heating_circuit',name:'Heizkreis 2',
           sensors:{pump:ids.pump}}
-      ],connections:[]}},hassOf());
+      ],connections:[
+        {id:'buf_hot',from:'buffer_test',from_port:'top_out',
+          to:'h1',to_port:'flow_in'},
+        {id:'buf_cold',from:'h1',from_port:'return_out',
+          to:'buffer_test',to_port:'bottom_in'}
+      ]}},hassOf());
     const bufferSvg=bufferBridged.shadowRoot.getElementById('svg');
     check(bufferSvg.querySelectorAll('#p-hc-up2').length===1 &&
       bufferSvg.querySelectorAll('#f-hc-up2').length===1 &&
