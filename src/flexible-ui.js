@@ -141,6 +141,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-oil-led{fill:var(--disabled-text-color,#737373);}'
           +'.hpi-oil.on .hpi-oil-led{fill:var(--hfc-good,#29a85e);}'
           +'.hpi-oil-status{font-size:13px;font-weight:600;fill:var(--secondary-text-color,#8a949c);}'
+          +'.hpi-oil-kind{font-size:11px;font-weight:600;fill:var(--secondary-text-color,#8a949c);}'
           +'.hpi-oil.on .hpi-oil-status{fill:var(--hfc-good,#32b46b);}'
           +'.hpi-oil-reading{font-size:13px;fill:var(--primary-text-color);}'
           +'.hpi-rla-bypass{fill:none;stroke:var(--hfc-heat,#d4783b);stroke-width:5;stroke-linecap:round;stroke-linejoin:round;}'
@@ -179,7 +180,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // Live HA data changes frequently. Never replace the whole configuration form;
       // this would interrupt typing, select popovers and drag operations.
       if(this._free()||this._unconfigured()){
-        if(first||!this._freeUi?.isConnected)this._renderFlex();
+        const candidateSignature=JSON.stringify(HPC_EMS.detect(hass).map(x=>[x.id,x.type,x.count,Object.values(x.entities)]));
+        if(first||!this._freeUi?.isConnected||candidateSignature!==this._emsSignature){
+          this._emsSignature=candidateSignature;
+          this._renderFlex();
+        }
         return;
       }
       super.hass=hass;this._showFreeButton();

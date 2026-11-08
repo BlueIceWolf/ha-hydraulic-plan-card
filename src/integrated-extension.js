@@ -109,7 +109,7 @@ const HPC_INTEGRATED = (() => {
     // users retain precisely their previous presets/overrides.
     const derived={...config};
     if(src)derived.generator_type=types[src.type];
-    if(src&&src.type!=='heat_pump'&&!config.boiler_name)derived.boiler_name=src.name;
+    if(src&&src.type!=='heat_pump')derived.boiler_name=src.name;
     if(p.components.length){
       // Free plan is authoritative: old dashboard role keys must not draw
       // tanks, hot-water branches or a different heat source.
@@ -284,6 +284,10 @@ const HPC_INTEGRATED = (() => {
         const label=(de,en)=>String(hass?.locale?.language||'de').startsWith('de')?de:en;
         const status=burner?(running?label('Brenner läuft','Burner running'):label('Brenner aus','Burner off'))
           :label('Status unbekannt','Status unknown');
+        const kind=node.options?.boiler_kind;
+        const variant=kind==='condensing'?label('Brennwert','Condensing'):
+          kind==='low_temp'?label('Niedertemperatur','Low temperature'):
+          label('Standardkessel','Standard boiler');
         const val=key=>HPC_FREE.esc(HPC_FREE.format(HPC_FREE.state(hass,node.sensors[key])));
         const bx=b.x+35,by=b.y+43;
         const top=b.y+23;
@@ -301,6 +305,7 @@ const HPC_INTEGRATED = (() => {
           +'<rect class="hpi-oil-display" x="'+(bx+130)+'" y="'+(by+23)+'" width="23" height="15" rx="3"/>'
           +'<circle class="hpi-oil-led" cx="'+(bx+141.5)+'" cy="'+(by+51)+'" r="4"/>'
           +'<text class="hpi-oil-status" x="'+cx+'" y="'+(b.y+148)+'" text-anchor="middle">'+HPC_FREE.esc(status)+'</text>'
+          +'<text class="hpi-oil-kind" x="'+cx+'" y="'+(b.y+38)+'" text-anchor="middle">'+HPC_FREE.esc(variant)+'</text>'
           +'<text class="hpi-oil-reading" x="'+cx+'" y="'+(b.y+168)+'" text-anchor="middle">'+label('Vorlauf','Flow')+': '+val('flow')+'</text>'
           +'<text class="hpi-oil-reading" x="'+cx+'" y="'+(b.y+184)+'" text-anchor="middle">'+label('Rücklauf','Return')+': '+val('return')+'</text>'
           +'</g>';
