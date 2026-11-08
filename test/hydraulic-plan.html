@@ -355,8 +355,10 @@
       !graph._config.entities.dhw_top,'Explicit source overrides legacy fuel and hot-water mapping');
     check(graph.shadowRoot.querySelectorAll('g.hpi-link').length===1,
       'Explicit connection between original source and original buffer is visible');
-    check([...graph.shadowRoot.querySelectorAll('path[id^="p-"]')].every(el=>el.style.display==='none'),
-      'Unconfigured original fixed pipes are hidden');
+    check([...graph.shadowRoot.querySelectorAll('path[id^="p-"]')]
+      .filter(el=>!/^p-hc(?:-|vl|rl|body|mix)/.test(el.id))
+      .every(el=>el.style.display==='none'),
+      'Unused original generator pipes are hidden while native heater pipes may remain');
     graph.remove();
 
     // Detect an ETA HACK without treating all ETA pellet heaters as wood-chip.
@@ -650,8 +652,10 @@
     const wwById=id=>!!wwCard.shadowRoot.querySelector(
       'g.hpi-link[data-hpi-edge="'+id+'"] path.flow.on');
     check(!wwById('ww_pre')&&!wwById('ww_flow')&&!wwById('ww_return')&&
-      wwById('heat_flow')&&wwById('heat_return'),
-      'WW charging pump off: both coil flow and return stop while heating remains active');
+      !wwById('heat_flow')&&!wwById('heat_return')&&
+      !!wwCard.shadowRoot.querySelector('#p-hc-vl')&&
+      !!wwCard.shadowRoot.querySelector('#p-hc-rl'),
+      'WW charging pump off: coil pipes stop and the independent native heating loop is kept');
     wwCard.hass=hassOf({[wwPumpId]:state(wwPumpId,'on'),
       [heatPumpId]:state(heatPumpId,'on')});
     check(wwById('ww_flow')&&wwById('ww_return'),
@@ -809,7 +813,7 @@
     const mixEditor=document.createElement('hydraulic-plan-card-editor');
     mixEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
       plan:{components:[{id:'hk_mixed',type:'heating_circuit',
-        name:'Gemischter Heizkreis',sensors:{}}],connections:[]}});
+        name:'Gemischter Heizkreis',sensors:{flow:ids.flow,pump:ids.pump}}],connections:[]}});
     document.body.append(mixEditor);mixEditor.hass=hassOf();
     check(!!mixEditor.querySelector('[data-hc-mixer="hk_mixed"]'),
       'Heating circuit editor offers an explicit mixing-valve toggle');
@@ -821,8 +825,18 @@
       mixEditor.querySelector('#hpc-native-sensors')?.schema?.[0]?.schema?.some(x=>x.name==='mixer'),
       'Switching the mixer on reveals its native HA entity selector');
     const noSensorMixer=await mount(mixResult,hassOf());
-    check(!!noSensorMixer.shadowRoot.querySelector('.hpi-manual-mixer[data-hpi-mixer="hk_mixed"]'),
-      'A sensorless heating circuit still shows its mixing valve on the original diagram');
+    check(!!noSensorMixer.shadowRoot.querySelector('#mixer') &&
+      !!noSensorMixer.shadowRoot.querySelector('#p-hc-mix') &&
+      !noSensorMixer.shadowRoot.querySelector('.hpi-manual-mixer'),
+      'Sensorless circuit uses the ORIGINAL built-in mixer symbol and bypass, never a duplicate');
+    const nativeSvg=noSensorMixer.shadowRoot.getElementById('svg');
+    const nativeFlow=nativeSvg.querySelector('#p-hc-vl');
+    const nativeReturn=nativeSvg.querySelector('#p-hc-rl');
+    check(nativeFlow?.style.display!== 'none'&&nativeReturn?.style.display!=='none',
+      'Original radiator supply and return paths stay visible and reusable');
+    check(!!nativeSvg.querySelector('rect.radiator')&&
+      !!nativeSvg.querySelector('.rib'),
+      'Original panel radiator illustration is preserved');
     noSensorMixer.remove();
     const mixForm=mixEditor.querySelector('#hpc-native-sensors');
     mixForm?.dispatchEvent(new CustomEvent('value-changed',{bubbles:true,detail:{

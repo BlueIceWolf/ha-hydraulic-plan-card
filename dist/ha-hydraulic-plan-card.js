@@ -8439,9 +8439,13 @@ const HPC_INTEGRATED = (() => {
     const defs=plan.components.filter(isTank).map(c=>'<linearGradient id="hpi-'+c.id+'" x1="0" y1="0" x2="0" y2="1">'+stops(c,hass)+'</linearGradient>').join('');
     const flowing=flowStates(plan,hass);
     const links=plan.connections.map(edge=>{
-      // The core pipe path already connects legacy core units. Only draw extra
-      // paths for links crossing into or between added components.
-      // Every user-defined link is drawn, even between primary SVG parts.
+      // Original heating circuits own their valve, emitter and shared risers.
+      // Do not draw duplicate pipes over those native routes. Connections to
+      // additional (non-native) components still have to be drawn normally.
+      if((all[edge.from]?.type==='heating_circuit'||
+          all[edge.to]?.type==='heating_circuit')&&
+          anchored.has(edge.from)&&anchored.has(edge.to))return '';
+      // Draw only routes not already owned by the original heating circuits.
       const fromShape=loc(edge.from),toShape=loc(edge.to);
       const p=port(all[edge.from],fromShape,edge.from_port);
       const q=port(all[edge.to],toShape,edge.to_port);
@@ -8564,20 +8568,6 @@ const HPC_INTEGRATED = (() => {
         +'<text class="unit-title" x="'+cx+'" y="'+(b.y+27)+'" text-anchor="middle">'+title+'</text>'
         +icon+(stateLabel?'<text class="unit-status hpi-source-status" x="'+cx+'" y="'+(b.y+176)+'" text-anchor="middle">'+HPC_FREE.esc(stateLabel)+'</text>':'')+labels+'</g>';
     }).join('');
-    // A mixing circuit is a real physical configuration even if no position
-    // sensor is available. The native card already draws the mixer whenever
-    // hc_mixer is configured. With no entity, show the same schematic valve
-    // (without a fictitious position or animated flow).
-    const manualMixers=plan.components.filter(c=>c.type==='heating_circuit'&&
-      c.options?.mixed&&!c.sensors.mixer&&!c.sensors.mixer_opening&&!c.sensors.mixer_closing).slice(0,6).map(c=>{
-      const index=plan.components.filter(p=>p.type==='heating_circuit').indexOf(c);
-      const dy=index*250;
-      const x=760,y=360+dy;
-      return '<g class="hpi-manual-mixer" data-hpi-mixer="'+HPC_FREE.esc(c.id)+'">'
-        +'<path class="pipe mix-bypass" d="M'+x+' '+(y+135)+' V'+(y+14)+'"/>'
-        +'<path class="valve mix-body" d="M748 '+(y-8)+' L760 '+y+' L748 '+(y+8)+' Z M772 '+(y-8)+' L760 '+y+' L772 '+(y+8)+' Z M752 '+(y+14)+' L760 '+y+' L768 '+(y+14)+' Z"/>'
-        +'</g>';
-    }).join('');
     const lift=plan.components.filter(node=>node.type==='wood_gasifier'&&node.options?.return_lift)
       .map(node=>{
         const b=loc(node.id);
@@ -8629,7 +8619,7 @@ const HPC_INTEGRATED = (() => {
       :'';
     const firstBuffer=plan.components.find(c=>c.type==='buffer');
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank');
-    return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+manualMixers+primaryChip+primaryOil+primaryGas+'</g>',
+    return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+primaryChip+primaryOil+primaryGas+'</g>',
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
   return {layout,coreConfig,svg,tankPoints,flowStates,isSource};
@@ -8844,6 +8834,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       if(this._integratedPlan?.components.length)return false;
       return super._startState();
     }
+    // Render the heater mixing valve with the ORIGINAL card's own
+    // _circuitSvg/_mixerSvg, including its correct integrated bypass.
+    // Physical mixers must be visible even without a position sensor.
+    _hasMixer(n) {
+      const circuit=this._integratedPlan?.components
+        .filter(c=>c.type==='heating_circuit')[n-1];
+      if(circuit)return circuit.options?.mixed===true ||
+        (circuit.options?.mixed!==false&&super._hasMixer(n));
+      return super._hasMixer(n);
+    }
     _render() {
       if(!this._integratedPlan?.components.length&&this._hass&&this._config&&this._startState()){
         const lang=String(this._hass?.locale?.language||navigator.language||'de').startsWith('de')?'de':'en';
@@ -8896,10 +8896,15 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const source=svg.querySelector("#hp-box")?.closest("g.tap");
         if(source)source.style.display="none";
       }
-      // The original heat-pump SVG has prewired pipes. In component mode
-      // those would show fictitious connections and overlapping lines.
+      // Reuse the ORIGINAL card's complete heating-circuit artwork and
+      // prewired common supply/return trunks. In particular its mixer bypass
+      // is integrated into the actual radiators and is not a separate overlay.
+      // Only upstream generator/storage routes are replaced by custom pipes.
       for(const legacy of svg.querySelectorAll('path[id^="p-"],path[id^="f-"]')){
-        if(!legacy.closest('#hpi-root'))legacy.style.display='none';
+        if(legacy.closest('#hpi-root'))continue;
+        const id=legacy.id;
+        legacy.style.display=/^[pf]-hc(?:-?vl|-?rl|-?body|-?trunk|-?up|-?down|-?mix)/.test(id)
+          ?'':'none';
       }
       svg.querySelector('#hpi-root')?.remove();
       svg.insertAdjacentHTML('beforeend','<g id="hpi-root"><defs>'+rendered.defs+'</defs>'+rendered.body+'</g>');
