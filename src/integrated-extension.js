@@ -103,7 +103,10 @@ const HPC_INTEGRATED = (() => {
       for(const key of ['top','middle','bottom'])set(prefix+'_'+key,node,key);
     circuits.forEach((node,index)=>{
       const prefix=index?'hc'+(index+1)+'_':'hc_';
-      for(const key of ['flow','return','target','pump','mixer'])set(prefix+ (key==='target'?'setpoint':key),node,key);
+      for(const key of ['flow','return','target','pump','mixer']){
+        if(key==='mixer'&&node.options?.mixed===false)continue;
+        set(prefix+(key==='target'?'setpoint':key),node,key);
+      }
     });
     // Legacy entities intentionally win over auto-mappings; existing heat pump
     // users retain precisely their previous presets/overrides.
@@ -520,6 +523,20 @@ const HPC_INTEGRATED = (() => {
         +'<rect class="unit'+(on?' on':'')+'" x="'+b.x+'" y="'+b.y+'" width="'+b.w+'" height="'+b.h+'" rx="20"/>'
         +'<text class="unit-title" x="'+cx+'" y="'+(b.y+27)+'" text-anchor="middle">'+title+'</text>'
         +icon+(stateLabel?'<text class="unit-status hpi-source-status" x="'+cx+'" y="'+(b.y+176)+'" text-anchor="middle">'+HPC_FREE.esc(stateLabel)+'</text>':'')+labels+'</g>';
+    }).join('');
+    // A mixing circuit is a real physical configuration even if no position
+    // sensor is available. The native card already draws the mixer whenever
+    // hc_mixer is configured. With no entity, show the same schematic valve
+    // (without a fictitious position or animated flow).
+    const manualMixers=plan.components.filter(c=>c.type==='heating_circuit'&&
+      c.options?.mixed&&!c.sensors.mixer).slice(0,6).map(c=>{
+      const index=plan.components.filter(p=>p.type==='heating_circuit').indexOf(c);
+      const dy=index*250;
+      const x=760,y=360+dy;
+      return '<g class="hpi-manual-mixer" data-hpi-mixer="'+HPC_FREE.esc(c.id)+'">'
+        +'<path class="pipe mix-bypass" d="M'+x+' '+(y+135)+' V'+(y+14)+'"/>'
+        +'<path class="valve mix-body" d="M748 '+(y-8)+' L760 '+y+' L748 '+(y+8)+' Z M772 '+(y-8)+' L760 '+y+' L772 '+(y+8)+' Z M752 '+(y+14)+' L760 '+y+' L768 '+(y+14)+' Z"/>'
+        +'</g>';
     }).join('');
     const lift=plan.components.filter(node=>node.type==='wood_gasifier'&&node.options?.return_lift)
       .map(node=>{
