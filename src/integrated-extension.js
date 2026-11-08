@@ -259,6 +259,47 @@ const HPC_INTEGRATED = (() => {
       +'</g>';
   }
 
+  // One shared, scale-independent drawing for a floor-standing oil boiler.
+  // A front-mounted pressure-jet burner is deliberately separate from the
+  // boiler casing: no generic flame inside the cabinet or misleading pipework.
+  function oilArt(x,y,width,height,on,kind='standard') {
+    const sx=Math.round(width/170*10000)/10000;
+    const sy=Math.round(height/100*10000)/10000;
+    const variant=['standard','low_temp','condensing'].includes(kind)?kind:'standard';
+    return '<g class="hpi-oil-art hpi-oil-'+variant+(on?' on':'')+'" aria-hidden="true" transform="translate('+x+' '+y+') scale('+sx+' '+sy+')">'
+      // Slight three-quarter view: side and hood make it recognizable as a
+      // freestanding boiler, not another flat control box.
+      +'<path class="hpi-oil-side" d="M34 14 L49 7 V87 L34 82 Z"/>'
+      +'<rect class="hpi-oil-casing" x="48" y="7" width="112" height="82" rx="6"/>'
+      +'<path class="hpi-oil-top" d="M34 14 L49 7 H158 L143 14 Z"/>'
+      +'<rect class="hpi-oil-plinth" x="43" y="89" width="122" height="7" rx="2"/>'
+      // Insulated cleaning door, hinges and a genuine burner flange.
+      +'<rect class="hpi-oil-door" x="56" y="34" width="96" height="47" rx="5"/>'
+      +'<path class="hpi-oil-seam" d="M62 38 H146 M62 77 H146"/>'
+      +'<circle class="hpi-oil-hinge" cx="61" cy="45" r="2.2"/>'
+      +'<circle class="hpi-oil-hinge" cx="61" cy="72" r="2.2"/>'
+      +'<circle class="hpi-oil-flange" cx="100" cy="63" r="18"/>'
+      +'<circle class="hpi-oil-flange-inner" cx="100" cy="63" r="12"/>'
+      +'<circle class="hpi-oil-bolt" cx="100" cy="48" r="1.8"/>'
+      +'<circle class="hpi-oil-bolt" cx="100" cy="78" r="1.8"/>'
+      // Externally mounted oil burner: motor, blower housing, combustion tube
+      // and the flexible oil line remain visible, even in the compact view.
+      +'<rect class="hpi-oil-burner-neck" x="78" y="57" width="21" height="13" rx="4"/>'
+      +'<rect class="hpi-oil-burner" x="17" y="51" width="67" height="28" rx="12"/>'
+      +'<rect class="hpi-oil-motor" x="29" y="46" width="38" height="7" rx="3"/>'
+      +'<circle class="hpi-oil-fan" cx="32" cy="65" r="13"/>'
+      +'<circle class="hpi-oil-fan-hub" cx="32" cy="65" r="3"/>'
+      +'<path class="hpi-oil-fan-blades" d="M32 62 C24 50 39 52 35 64 M35 65 C46 59 43 72 33 68 M31 68 C22 77 21 62 31 62"/>'
+      +'<path class="hpi-oil-hose" d="M54 79 C53 87 73 88 78 77"/>'
+      // Small, practical control strip and oil-drop identifier.
+      +'<rect class="hpi-oil-control" x="56" y="14" width="96" height="16" rx="3"/>'
+      +'<path class="hpi-oil-mark" d="M68 16 C66 20 63 23 63 25 A5 5 0 0 0 73 25 C73 22 70 19 68 16Z"/>'
+      +'<rect class="hpi-oil-display" x="122" y="17" width="24" height="11" rx="2"/>'
+      +'<path class="hpi-oil-display-line" d="M126 21 H142 M126 24 H136"/>'
+      +'<circle class="hpi-oil-led" cx="113" cy="22" r="3.2"/>'
+      +'</g>';
+  }
+
   // The existing heat pump, hot-water and buffer drawings remain in the upstream
   // SVG. These original-style outlines extend its vocabulary for further
   // heating sources instead of displaying a generic flame in an empty box.
@@ -373,36 +414,29 @@ const HPC_INTEGRATED = (() => {
       const type=node.type;
       if(type==='oil_boiler'){
         const burner=HPC_FREE.state(hass,node.sensors.state);
-        const running=HPC_FREE.active(burner);
-        const label=(de,en)=>String(hass?.locale?.language||'de').startsWith('de')?de:en;
-        const status=burner?(running?label('Brenner läuft','Burner running'):label('Brenner aus','Burner off'))
-          :label('Status unbekannt','Status unknown');
-        const kind=node.options?.boiler_kind;
-        const variant=kind==='condensing'?label('Brennwert','Condensing'):
-          kind==='low_temp'?label('Niedertemperatur','Low temperature'):
-          label('Standardkessel','Standard boiler');
-        const val=key=>HPC_FREE.esc(HPC_FREE.format(HPC_FREE.state(hass,node.sensors[key])));
-        const bx=b.x+35,by=b.y+43;
-        const top=b.y+23;
+        const running=!!burner&&HPC_FREE.active(burner);
+        const de=String(hass?.locale?.language||'de').startsWith('de');
+        const label=(german,english)=>de?german:english;
+        const kind=node.options?.boiler_kind||'standard';
+        const variant=kind==='condensing'?label('Brennwert','Condensing')
+          :kind==='low_temp'?label('Niedertemperatur','Low temperature')
+          :label('Standardkessel','Standard boiler');
+        const reading=(key,short)=>node.sensors[key]
+          ?short+' '+HPC_FREE.esc(HPC_FREE.format(HPC_FREE.state(hass,node.sensors[key])))
+          :'';
+        const flow=reading('flow',label('VL','Flow'));
+        const ret=reading('return',label('RL','Return'));
+        const temps=[flow,ret].filter(Boolean).join(' · ');
+        const status=burner?(running?label('Brenner läuft','Burner running')
+          :label('Brenner aus','Burner off')):'';
         return '<g class="tap hpi-component hpi-oil'+(running?' on':'')+'" data-hpi-node="'+node.id+'" data-entity="'+HPC_FREE.esc(node.sensors.state||node.sensors.flow||'')+'">'
           +'<title>'+title+'</title>'
           +'<rect class="unit'+(running?' on':'')+'" x="'+b.x+'" y="'+b.y+'" width="'+b.w+'" height="'+b.h+'" rx="20"/>'
-          +'<text class="unit-title" x="'+cx+'" y="'+top+'" text-anchor="middle">'+title+'</text>'
-          +'<rect class="hpi-oil-casing" x="'+bx+'" y="'+by+'" width="170" height="89" rx="13"/>'
-          +'<rect class="hpi-oil-front" x="'+(bx+10)+'" y="'+(by+11)+'" width="102" height="67" rx="9"/>'
-          // Oil-drop emblem: a boiler unmistakable from a wood firebox.
-          +'<path class="hpi-oil-mark" d="M'+(bx+24)+' '+(by+29)+' C'+(bx+20)+' '+(by+35)+' '+(bx+17)+' '+(by+38)+' '+(bx+20)+' '+(by+43)+' C'+(bx+24)+' '+(by+49)+' '+(bx+32)+' '+(by+43)+' '+(bx+28)+' '+(by+38)+' Z"/>'
-          +'<path class="hpi-oil-seam" d="M'+(bx+18)+' '+(by+61)+' h86"/>'
-          +'<rect class="hpi-oil-burner" x="'+(bx+32)+'" y="'+(by+23)+'" width="62" height="30" rx="10"/>'
-          +'<circle class="hpi-oil-fan" cx="'+(bx+42)+'" cy="'+(by+38)+'" r="8"/>'
-          +'<path class="hpi-oil-flame" d="M'+(bx+76)+' '+(by+47)+' c-14 -12 -5 -22 1 -28 c-2 12 16 13 8 25 q-3 5 -9 3Z"/>'
-          +'<rect class="hpi-oil-control" x="'+(bx+124)+'" y="'+(by+15)+'" width="35" height="49" rx="5"/>'
-          +'<rect class="hpi-oil-display" x="'+(bx+130)+'" y="'+(by+23)+'" width="23" height="15" rx="3"/>'
-          +'<circle class="hpi-oil-led" cx="'+(bx+141.5)+'" cy="'+(by+51)+'" r="4"/>'
-          +'<text class="hpi-oil-status" x="'+cx+'" y="'+(b.y+148)+'" text-anchor="middle">'+HPC_FREE.esc(status)+'</text>'
-          +'<text class="hpi-oil-kind" x="'+cx+'" y="'+(b.y+38)+'" text-anchor="middle">'+HPC_FREE.esc(variant)+'</text>'
-          +'<text class="hpi-oil-reading" x="'+cx+'" y="'+(b.y+168)+'" text-anchor="middle">'+label('Vorlauf','Flow')+': '+val('flow')+'</text>'
-          +'<text class="hpi-oil-reading" x="'+cx+'" y="'+(b.y+184)+'" text-anchor="middle">'+label('Rücklauf','Return')+': '+val('return')+'</text>'
+          +'<text class="unit-title" x="'+cx+'" y="'+(b.y+23)+'" text-anchor="middle">'+title+'</text>'
+          +'<text class="hpi-oil-kind" x="'+cx+'" y="'+(b.y+39)+'" text-anchor="middle">'+HPC_FREE.esc(variant)+'</text>'
+          +oilArt(b.x+35,b.y+44,170,96,running,kind)
+          +(status?'<text class="hpi-oil-status" x="'+cx+'" y="'+(b.y+156)+'" text-anchor="middle">'+HPC_FREE.esc(status)+'</text>':'')
+          +(temps?'<text class="hpi-oil-reading" x="'+cx+'" y="'+(b.y+178)+'" text-anchor="middle">'+temps+'</text>':'')
           +'</g>';
       }
       const icon=isSource(node)?additionalSourceArt(type,b,on,node):
@@ -457,9 +491,16 @@ const HPC_INTEGRATED = (() => {
       ?'<g class="tap hpi-chip-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
         +chipArt(92,238,156,102,firstSource,HPC_FREE.active(sourceStatus))+'</g>'
       :'';
+    // Keep the upstream source labels, sensor drawer and hydraulic ports,
+    // but replace its schematic artwork with the same oil-boiler illustration
+    // used for every additional oil boiler.
+    const primaryOil=firstSource?.type==='oil_boiler'
+      ?'<g class="tap hpi-oil-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
+        +oilArt(92,238,156,102,!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource.options?.boiler_kind)+'</g>'
+      :'';
     const firstBuffer=plan.components.find(c=>c.type==='buffer');
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank');
-    return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+primaryChip+'</g>',
+    return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+primaryChip+primaryOil+'</g>',
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
   return {layout,coreConfig,svg,tankPoints,flowStates,isSource};
