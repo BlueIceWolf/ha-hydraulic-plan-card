@@ -234,7 +234,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // Live HA data changes frequently. Never replace the whole configuration form;
       // this would interrupt typing, select popovers and drag operations.
       if(this._free()||this._unconfigured()){
-        const candidateSignature=JSON.stringify(HPC_EMS.detect(hass).map(x=>[x.id,x.type,x.count,Object.values(x.entities)]));
+        const candidateSignature=JSON.stringify({ems:HPC_EMS.detect(hass).map(x=>[x.id,x.type,x.count,Object.values(x.entities)]),eta:HPC_ETA.detect(hass).map(x=>[x.id,x.model,x.count,Object.values(x.entities)])});
         if(first||!this._freeUi?.isConnected||candidateSignature!==this._emsSignature){
           this._emsSignature=candidateSignature;
           this._renderFlex();
@@ -324,6 +324,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const configured=true;
       const emsCandidates=HPC_EMS.detect(this._hass);
       const chosenEms=emsCandidates[0];
+      const etaCandidates=HPC_ETA.detect(this._hass);
+      const chosenEta=etaCandidates[0];
       const emsTypeLabel=(type)=>type==="oil_boiler"?t("Ölkessel","Oil boiler"):
         type==="gas_boiler"?t("Gaskessel","Gas boiler"):t("Kessel (Brennstoff prüfen)","Boiler (verify fuel)");
       const emsInfo=chosenEms?`<section class="hpc-ems">
@@ -334,6 +336,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         ${chosenEms.type==="unknown"?`<p>${t("Der Brennstoff lässt sich aus den verfügbaren Geräten nicht sicher erkennen. Bitte den richtigen Kesseltyp auswählen.","Fuel type cannot be reliably inferred. Select the proper boiler type first.")}</p>`:""}
         <button type="button" data-action="ems-apply">${chosenEms.count?t("Kessel übernehmen und Messwerte zuordnen","Add boiler and assign values"):t("Erkannten Kessel hinzufügen","Add detected boiler")}</button>
       </section>`:"";
+      const etaLabel=chosenEta?({ehack:'ETA eHACK',hack:'ETA HACK',hack_vr:'ETA HACK VR'}[chosenEta.model]||'ETA Hackschnitzelkessel'):'';
+      const etaInfo=chosenEta?`<section class="hpc-ems">
+        <h3>${t("ETA Hackschnitzelkessel automatisch erkannt","ETA wood-chip boiler detected")}</h3>
+        <p><strong>${esc(chosenEta.name)}</strong> · ${esc(etaLabel)} · ${esc(chosenEta.source)}</p>
+        <p>${chosenEta.count} ${t("Messwerte aus Home Assistant erkannt. Du kannst die Zuordnung vor dem Speichern prüfen. Es werden keine Kesselbefehle gesendet.","Home Assistant values detected. Review assignments after adding. No boiler commands are sent.")}</p>
+        <button type="button" data-action="eta-apply">${t("ETA-Kessel und Sensoren übernehmen","Add ETA boiler and sensors")}</button>
+      </section>`:'';
       const selected=p.components.find(c=>c.id===this._selectedId)||p.components[0];
       if(selected)this._selectedId=selected.id;
       // Native Home Assistant ha-form matches the original card's entity setup.
@@ -436,6 +445,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
              value="${esc(this._config.title||"")}" placeholder="Hydraulic Plan Card"/></label></div>`}
           <div class="hpc-actions"><button type="button" data-action="example">${t("Beispielanlage laden (ersetzt Plan)","Load example (replaces plan)")}</button></div>
           ${emsInfo}
+          ${etaInfo}
           <h3>${t("Bauteil hinzufügen","Add component")}</h3>
           <div class="hpc-row"><div class="hpc-add-preview" id="hpc-free-icon">${HPC_FREE.icon("wood_gasifier")}</div><label>${t("Art","Type")}<select id="hpc-free-type">${typeOptions}</select></label>
             <button type="button" class="hpc-primary" data-action="add-component">${t("Hinzufügen","Add")}</button></div>
@@ -556,6 +566,29 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       });
       root.querySelectorAll("[data-action]").forEach(button=>button.addEventListener("click",()=>{
         const action=button.dataset.action;
+        if(action==="eta-apply"&&chosenEta){
+          // Reuse the exact detected device. Never merge an ETA installation
+          // into an unrelated wood-chip boiler or overwrite manual choices.
+          const detectedIds=new Set(Object.values(chosenEta.entities));
+          const existing=p.components.filter(c=>c.type==='wood_chip_boiler');
+          const target=existing.find(c=>Object.values(c.sensors||{}).some(id=>detectedIds.has(id)))||
+            existing.find(c=>c.name===chosenEta.name&&c.options?.eta_model===chosenEta.model);
+          const copy=HPC_FREE.normalize(p);
+          const node=target?copy.components.find(c=>c.id===target.id):
+            HPC_FREE.newNode('wood_chip_boiler',copy);
+          if(!node)return;
+          if(!target){
+            node.name=chosenEta.name.slice(0,75);
+            copy.components.push(node);
+          }
+          node.options={...node.options,eta_model:target?.options?.eta_model||chosenEta.model};
+          for(const [key,id] of Object.entries(chosenEta.entities)){
+            if(HPC_FREE.byType[node.type].fields.includes(key)&&!node.sensors[key])
+              node.sensors[key]=id;
+          }
+          this._selectedId=node.id;
+          return this._applyPlan(copy,{hpc_legacy_imported:true});
+        }
         if(action==="ems-apply"&&chosenEms){
           const matches=p.components.filter(c=>c.type===chosenEms.type&&
             HPC_FREE.byType[c.type]?.group==="source");
