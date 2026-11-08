@@ -247,13 +247,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       if(this._free()||this._unconfigured())this._renderFlex();
       else {this._freeUi?.remove();this._freeUi=null;super._render();this._showFreeButton();}
     }
-    _save(config){
+    _save(config,{repaint=true}={}){
       this._config=config;
       this.dispatchEvent(new CustomEvent("config-changed",{detail:{config},bubbles:true,composed:true}));
-      // User action (not a HA data refresh) is the only reason to redraw the form.
-      this._render();
+      // A changed sensor value must not destroy the expanded native ha-form.
+      // Repaint only for changes that affect which controls exist.
+      if(repaint)this._render();
     }
-    _applyPlan(plan,extra={}){this._save({...this._config,...extra,plan:HPC_FREE.normalize(plan)});}
+    _applyPlan(plan,extra={},options={}){
+      this._save({...this._config,...extra,plan:HPC_FREE.normalize(plan)},options);
+    }
     _legacyPlan(){
       // Classic setups often already contain buffers, DHW and heat circuits.
       // Import ALL configured roles into editable components before the first
@@ -295,9 +298,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       for(let i=1;i<=6;i++){
         const prefix=i===1?'hc_':'hc'+i+'_';
         const roles={flow:prefix+'flow',return:prefix+'return',target:prefix+'setpoint',
-          pump:prefix+'pump',mixer:prefix+'mixer'};
+          pump:prefix+'pump',mixer:prefix+'mixer',
+          mixer_opening:prefix+'mixer_opening',mixer_closing:prefix+'mixer_closing'};
         if(i<=count||Object.values(roles).some(role=>entities[role])){
           add('heating_circuit','Heizkreis '+i,roles);
+          const circuit=result.components.at(-1);
+          if(circuit?.type==='heating_circuit'){
+            const oldKey=i===1?'hc_type':'hc'+i+'_type';
+            circuit.options={emitter:HFC_EMITTERS.includes(c[oldKey])?c[oldKey]:'radiator',
+              mixed:!!(circuit.sensors.mixer||circuit.sensors.mixer_opening||circuit.sensors.mixer_closing)};
+          }
         }
       }
       // Legacy fixed SVG piping has no reliable per-port graph representation.
@@ -357,7 +367,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // Native Home Assistant ha-form matches the original card's entity setup.
       const useNativeForm=!!globalThis.customElements?.get('ha-form');
       const useNativePicker=!!globalThis.customElements?.get('ha-entity-picker');
-      const activeFields=selected ? HPC_FREE.byType[selected.type].fields.filter(key=>key!=='mixer'||selected.options?.return_lift) : [];
+      const hcMixed=selected?.type==='heating_circuit'
+        ?(typeof selected.options?.mixed==='boolean'?selected.options.mixed:
+          !!(selected.sensors.mixer||selected.sensors.mixer_opening||selected.sensors.mixer_closing))
+        :false;
+      // Mixer measurement is always available on a mixed heating circuit.
+      // Only a wood-gasifier return-lift mixer belongs behind a separate toggle.
+      const activeFields=selected?HPC_FREE.byType[selected.type].fields.filter(key=>
+        !['mixer','mixer_opening','mixer_closing'].includes(key)||
+        selected.type==='heating_circuit'&&hcMixed||
+        key==='mixer'&&selected.type==='wood_gasifier'&&selected.options?.return_lift):[];
       const mainFields={wood_gasifier:['state','flow','return','pump'],oil_boiler:['state','flow','return','pump'],
         pellet_boiler:['state','flow','return','pump'],gas_boiler:['state','flow','return','pump'],
         heat_pump:['state','flow','return','power'],buffer:['top','middle','bottom'],
@@ -412,6 +431,32 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const from=p.components.find(c=>c.id===e.from),to=p.components.find(c=>c.id===e.to);
         return from?.type==="buffer"&&to?.type==="buffer"&&e.from_port==="bottom_out"&&e.to_port==="top_in";
       });
+      // Keep the complete original outdoor-unit illustration selector.
+      // The same familiar manufacturer and cabinet choices are available
+      // directly on each heat pump instead of buried in classic YAML fields.
+      const unitLabels={
+        auto:t('Automatisch','Automatic'),generic:t('Standardgerät','Generic unit'),
+        lambda:'Lambda',vaillant:'Vaillant',panasonic:'Panasonic Aquarea',
+        viessmann:'Viessmann',bosch:'Bosch / Buderus',saunier:'Saunier Duval',
+        samsung:'Samsung',wolf:'Wolf',kronoterm:'Kronoterm',
+        alpha_innotec:'alpha innotec',stiebel:'Stiebel Eltron'
+      };
+      const heatPumpChoices=selected?.type==='heat_pump'
+        ?`<h3>${t("Außengerät wie in der Originalkarte","Original outdoor-unit style")}</h3>
+          <div class="hpc-row">
+            <label class="hpc-field">${t("Darstellung des Außengeräts","Outdoor-unit appearance")}
+              <select data-wp-style="${esc(selected.id)}">
+                ${HFC_UNIT_STYLES.map(style=>`<option value="${style}" ${(selected.options?.unit_style||'auto')===style?'selected':''}>${esc(unitLabels[style]||style)}</option>`).join('')}
+              </select>
+            </label>
+            <label class="hpc-field">${t("Gerätegröße / Lüfter","Unit size / fans")}
+              <select data-wp-size="${esc(selected.id)}">
+                <option value="" ${!selected.options?.unit_size?'selected':''}>${t("Automatisch","Automatic")}</option>
+                ${[['small',t('Klein','Small')],['medium',t('Mittel','Medium')],['large',t('Groß / zwei Lüfter','Large / two fans')]]
+                  .map(([value,label])=>`<option value="${value}" ${selected.options?.unit_size===value?'selected':''}>${label}</option>`).join('')}
+              </select>
+            </label>
+          </div>`:'';
       const chosen=selected?`<h3 class="hpc-config-title">${HPC_FREE.icon(selected.type)} ${t("Bauteil konfigurieren","Configure component")}</h3>
         <div class="hpc-row"><label>${t("Bezeichnung","Name")}<input data-name="${esc(selected.id)}"
           maxlength="75" value="${esc(selected.name)}"/></label>
@@ -431,11 +476,24 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             ${[["standard",t("Standardkessel","Standard boiler")],["low_temp",t("Niedertemperaturkessel","Low-temperature boiler")],["condensing",t("Brennwertkessel","Condensing boiler")]]
              .map(([id,name])=>`<option value="${id}" ${(selected.options?.boiler_kind||"standard")===id?"selected":""}>${name}</option>`).join("")}
           </select></label>`:""}
+        ${selected.type==="heating_circuit"?`<label class="hpc-checkbox">
+          <input type="checkbox" data-hc-mixer="${esc(selected.id)}" ${hcMixed?'checked':''}/>
+          <span>${t("Heizkreis mit Mischer","Heating circuit with mixing valve")}</span>
+        </label>
+        ${hcMixed?`<p>${t("Mischerstellung als Entität unter Messwerte zuordnen. Ohne Messwert wird der Mischer nur als Bauteil angezeigt.","Assign the mixer position under measured values. Without a value, only the mixing valve symbol is shown.")}</p>`:''}`:""}
+        ${selected.type==="heating_circuit"?`<label class="hpc-field">${t("Heizflächenart","Heat emitter")}
+          <select data-heating-emitter="${esc(selected.id)}">
+            ${[['underfloor',t('Fußboden- / Flächenheizung','Underfloor heating')],
+              ['radiator',t('Plattenheizkörper','Panel radiators')],
+              ['column',t('Gliederheizkörper','Column radiators')]]
+              .map(([id,label])=>`<option value="${id}" ${(selected.options?.emitter||'radiator')===id?'selected':''}>${label}</option>`).join('')}
+          </select></label>`:""}
         ${selected.type==="wood_chip_boiler"?`<label class="hpc-field">${t("ETA Kesselmodell","ETA boiler model")}
           <select data-eta-model="${esc(selected.id)}">
             ${[["ehack","ETA eHACK"],["hack","ETA HACK"],["hack_vr","ETA HACK VR"]]
               .map(([id,name])=>`<option value="${id}" ${(selected.options?.eta_model||"ehack")===id?"selected":""}>${name}</option>`).join("")}
           </select></label>`:""}
+        ${heatPumpChoices}
         ${useNativeForm?'<div class="hpc-native-form"><ha-form id="hpc-native-sensors"></ha-form></div>':activeFields.map(key=>sensorField(selected.id,key,selected.sensors[key])).join("")}
         ${isTank?`<h3>${t("Zusätzliche Temperaturfühler","Additional temperature sensors")}</h3>
           <p>${t("Ordne jeden Fühler seiner tatsächlichen Einbauhöhe zu. 0 % = oben, 100 % = unten.","Set each sensor to its real installation height. 0% = top, 100% = bottom.")}</p>
@@ -443,12 +501,31 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const connectionField=(edge,field,label)=>useNativePicker
         ? `<ha-entity-picker data-edge="${esc(edge.id)}" data-edge-field="${field}" data-label="${esc(label)}"></ha-entity-picker>`
         : `<label>${esc(label)}<input list="hpc-free-entities" data-edge="${esc(edge.id)}" data-edge-field="${field}" value="${esc(edge[field])}"/></label>`;
-      const connectionRows=p.connections.map(edge=>`<div class="hpc-row">
-        <span style="flex:1 1 250px;font-size:.85em">${esc((p.components.find(c=>c.id===edge.from)?.name||edge.from)+" – "+(portNames[edge.from_port]||edge.from_port)+" → "+(p.components.find(c=>c.id===edge.to)?.name||edge.to)+" – "+(portNames[edge.to_port]||edge.to_port))}</span>
-        <button type="button" data-action="remove-edge" data-edge-id="${esc(edge.id)}">${t("Entfernen","Remove")}</button>
-        ${connectionField(edge,'flow_entity',t('Pumpen-/Flussstatus (optional)','Pump/flow status (optional)'))}
-        ${connectionField(edge,'temperature_entity',t('Rohrtemperatur (optional)','Pipe temperature (optional)'))}
-        </div>`).join("");
+      // Selecting two components is easier than choosing four separate ports.
+      // A heat-source/tank pair creates its hot supply and matching return.
+      const suggestedPairs=HPC_FREE.connectionPairs(p);
+      const pairOptions=suggestedPairs.map(c=>
+        '<option value="'+esc(c.from+'|'+c.to)+'">'+esc(c.label)+' · '+
+        (c.count>1?t('Vorlauf + Rücklauf','Flow + return'):
+          t('Fehlende Leitung ergänzen','Add missing pipe'))+'</option>').join('');
+      const connectionRows=p.connections.map(edge=>{
+        const from=p.components.find(c=>c.id===edge.from);
+        const to=p.components.find(c=>c.id===edge.to);
+        const supply=['flow','dhw','top_out','mid_out','coil_in','flow_in','top_in'].includes(edge.from_port)||
+          ['coil_in','flow_in','top_in'].includes(edge.to_port);
+        const direction=supply?t('Vorlauf','Supply'):t('Rücklauf','Return');
+        return '<div class="hpc-pipe-row">'
+          +'<span>'+esc((from?.name||edge.from)+' → '+(to?.name||edge.to))
+          +'<small>'+direction+' · '+esc(portNames[edge.from_port]||edge.from_port)
+            +' → '+esc(portNames[edge.to_port]||edge.to_port)+'</small></span>'
+          +'<button type="button" data-action="remove-edge" data-edge-id="'+esc(edge.id)+'">'
+            +t('Entfernen','Remove')+'</button>'
+          +'<details><summary>'+t('Messwerte für diese Leitung (optional)','Values for this pipe (optional)')
+            +'</summary><div class="hpc-row">'
+            +connectionField(edge,'flow_entity',t('Pumpen-/Flussstatus','Pump or flow state'))
+            +connectionField(edge,'temperature_entity',t('Rohrtemperatur','Pipe temperature'))
+            +'</div></details></div>';
+      }).join("");
       const html=`<style>${HPC_FREE.css}</style><div class="hpc-editor">
         ${!configured?`<h3>${t("Deine Heizungsanlage","Your heating system")}</h3>
           <p>${t("Wähle selbst, welche Wärmeerzeuger, Speicher und Heizkreise du hast und wie sie verbunden sind. Eine Wärmepumpe ist nicht erforderlich.","Choose your own heat generators, tanks, heating circuits and connections. No heat-pump integration required.")}</p>
@@ -468,17 +545,29 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <h3>${t("Hydraulikschema","Hydraulic schematic")}</h3>
           <p>${t("Die Bauteile werden passend zu ihren Anschlüssen automatisch im ursprünglichen Hydraulikplan angeordnet. Du musst keine Positionen eingeben. Die Live-Vorschau siehst du im Dashboard.","Components are automatically arranged in the original hydraulic schematic. No manual coordinates are required. The dashboard shows the live preview.")}</p>
           ${chosen}
-          <h3>${t("Rohrverbindungen","Pipe connections")}</h3>
+          <h3>${t("Bauteile verbinden","Connect components")}</h3>
+          <div class="hpc-row hpc-quick-connect">
+            <label class="hpc-field">${t("Was soll verbunden werden?","What should be connected?")}
+              <select id="hpc-pair"><option value="">${t("Verbindung wählen","Choose connection")}</option>${pairOptions}</select>
+            </label>
+            <button type="button" data-action="connect-pair" class="hpc-primary" ${suggestedPairs.length?"":"disabled"}>${t("Verbinden","Connect")}</button>
+          </div>
+          <p class="hpc-connection-hint">${t("Vorlauf und Rücklauf werden gemeinsam angeschlossen. Beim Holzvergaser führt der Rücklauf vom Speicher zurück zum Kessel.","Supply and return are connected together. For wood gasifiers the return leads from the tank back to the boiler.")}</p>
           ${bufferList.length>=2?`<div class="hpc-ems">
             <strong>${t("Pufferspeicher verbinden","Connect buffer tanks")}</strong>
             <p>${t("Reihenschaltung: Vorlauf jeweils oben zum nächsten Puffer, Rücklauf unten zurück zum vorherigen. Bereits vorhandene Verbindungen bleiben erhalten; prüfe die tatsächliche Verrohrung.","Series layout: hot flow at the top to the next buffer, cooler return at the bottom to the previous. Existing connections are retained; check your actual pipework.")}</p>
             <button type="button" data-action="buffer-series">${t("Puffer in Reihe verbinden","Connect buffers in series")}</button>
           </div>`:""}
           ${misplacedBufferEdges.length?`<p class="hpc-connection-warning">${t("Achtung: Eine Pufferleitung ist von unten nach oben verbunden. Bitte prüfen, ob das der tatsächlichen Verrohrung entspricht.","Warning: a buffer pipe links bottom to top. Verify this corresponds to the actual installation.")}</p>`:""}
-          <div class="hpc-row"><label>${t("Von Anschluss","From port")}<select id="hpc-from">
-            <option value="">–</option>${portOptions("from")}</select></label>
-            <label>${t("Zu Anschluss","To port")}<select id="hpc-to"><option value="">–</option></select></label>
-            <button type="button" data-action="connect" class="hpc-primary">${t("Verbinden","Connect")}</button></div>
+          <details class="hpc-advanced-pipes">
+            <summary>${t("Spezielle Anschlüsse einzeln verbinden","Connect individual ports (advanced)")}</summary>
+            <div class="hpc-row"><label>${t("Ausgang","From port")}<select id="hpc-from">
+              <option value="">–</option>${portOptions("from")}</select></label>
+              <label>${t("Eingang","To port")}<select id="hpc-to"><option value="">–</option></select></label>
+              <button type="button" data-action="connect">${t("Einzelne Leitung hinzufügen","Add individual pipe")}</button>
+            </div>
+          </details>
+          <h3>${t("Vorhandene Leitungen","Configured pipes")}</h3>
           ${connectionRows||`<p>${t("Noch keine Rohrverbindungen eingerichtet. Das Schema nimmt keine echte Verrohrung an.","No pipe connections configured. The diagram does not infer pipework.")}</p>`}
           <p>${t("Die Leitungen werden bei aktivem Pumpen- oder Flusssignal animiert. 0 % und 100 % Mischerstellung verhindern die Animation nicht. Ohne zugeordneten Pumpenstatus ist der Durchfluss unbekannt. Bitte die tatsächliche Hydraulik prüfen.","Pipes animate when an assigned pump or flow signal is active. Mixer positions of 0% or 100% do not disable circulation. Without a pump signal, flow is unknown. Verify actual pipework.")}</p>`}
         ${dataList}
@@ -490,7 +579,14 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       this._freeUi.innerHTML=html;
       this._freeUi.scrollTop=oldY;
       const root=this._freeUi;
-      const changePlan=(fn)=>{const next=HPC_FREE.normalize(p);fn(next);this._applyPlan(next);};
+      // Always edit the latest plan, not the snapshot used to render this form.
+      // Multiple sensor selections can otherwise overwrite each other when
+      // the form intentionally stays mounted between changes.
+      const changePlan=(fn,options={})=>{
+        const next=HPC_FREE.normalize(this._config.plan);
+        fn(next);
+        this._applyPlan(next,{},options);
+      };
       const settingsForm=root.querySelector('#hpc-native-settings');
       if(settingsForm){
         const choice=(name,options)=>({name,selector:{select:{mode:'dropdown',
@@ -529,7 +625,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           for(const key of ['title','layout','theme','animations','fullscreen','diagnostic','controls']){
             if(Object.hasOwn(values,key))changed[key]=values[key];
           }
-          if(Object.keys(changed).length)this._save({...this._config,...changed});
+          // Keep the appearance section and its current focus open, too.
+          if(Object.keys(changed).length)this._save({...this._config,...changed},{repaint:false});
         });
       }
       const chosenForm=root.querySelector('#hpc-native-sensors');
@@ -538,6 +635,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const entityField=key=>({name:key,selector:{entity:{}}});
         chosenForm.hass=this._hass;
         chosenForm.schema=[{type:'expandable',name:'sensors',title:t('Sensoren und Messwerte','Sensors and measurements'),
+          expanded:true,
           schema:[...coreFields.map(entityField),
             ...(moreFields.length?[{type:'expandable',name:'more',flatten:true,
               title:t('Weitere Felder','More fields'),expanded:moreFields.some(key=>!!selected.sensors[key]),
@@ -553,10 +651,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             const node=next.components.find(c=>c.id===selected.id);
             if(!node)return;
             for(const key of activeFields){
+              // ha-form may emit partial values. Missing keys are not a
+              // request to clear another already assigned sensor.
+              if(!Object.hasOwn(values,key))continue;
               if(values[key])node.sensors[key]=values[key];
               else delete node.sensors[key];
             }
-          });
+          },{repaint:false});
         });
       }
       const typePicker=root.querySelector('#hpc-free-type');
@@ -575,7 +676,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           changePlan(next=>{
             const row=next.connections.find(c=>c.id===picker.dataset.edge);
             if(row)row[picker.dataset.edgeField]=event.detail?.value||'';
-          });
+          },{repaint:false});
         });
       });
       // Allow an uncertain boiler model to be selected before importing.
@@ -664,6 +765,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           return this._applyPlan({components:p.components.filter(c=>c.id!==selected.id),
             connections:p.connections.filter(c=>c.from!==selected.id&&c.to!==selected.id)});
         }
+        if(action==="connect-pair"){
+          const [from,to]=(root.querySelector('#hpc-pair')?.value||'').split('|');
+          if(!from||!to)return;
+          const next=HPC_FREE.connectPair(this._config.plan,from,to);
+          if(next.connections.length===this._config.plan.connections.length)return;
+          return this._applyPlan(next);
+        }
         if(action==="connect"){
           const [from,from_port]=(root.querySelector("#hpc-from")?.value||"").split("|");
           const [to,to_port]=(root.querySelector("#hpc-to")?.value||"").split("|");
@@ -715,9 +823,32 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         node.options={boiler_kind:node.options?.boiler_kind||'standard'};
         // Shared flow/return ports and existing sensor assignments survive.
       });
+      fieldUpdate('[data-wp-style]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.wpStyle);
+        if(node?.type==='heat_pump')node.options={...node.options,unit_style:el.value};
+      });
+      fieldUpdate('[data-wp-size]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.wpSize);
+        if(node?.type!=='heat_pump')return;
+        node.options={...node.options};
+        if(el.value)node.options.unit_size=el.value;
+        else delete node.options.unit_size;
+      });
       fieldUpdate("[data-boiler-kind]",(plan,el)=>{
         const c=plan.components.find(x=>x.id===el.dataset.boilerKind);
         if(c)c.options={...c.options,boiler_kind:el.value};
+      });
+      root.querySelectorAll('[data-hc-mixer]').forEach(el=>el.addEventListener('change',()=>changePlan(plan=>{
+        const node=plan.components.find(c=>c.id===el.dataset.hcMixer);
+        if(node?.type!=='heating_circuit')return;
+        node.options={...node.options,mixed:el.checked};
+        // Keep an existing sensor for a future re-enable. The renderer and
+        // sensor form both honor mixed:false without deleting it.
+      })));
+      fieldUpdate('[data-heating-emitter]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.heatingEmitter);
+        if(node?.type==='heating_circuit'&&HFC_EMITTERS.includes(el.value))
+          node.options={...node.options,emitter:el.value};
       });
       fieldUpdate('[data-eta-model]',(plan,el)=>{
         const node=plan.components.find(c=>c.id===el.dataset.etaModel);

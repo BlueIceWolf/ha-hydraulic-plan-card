@@ -620,6 +620,48 @@
       'Buffer-only plans never display a fictitious boiler or heat pump');
     storageOnly.remove();
 
+    // A stopped domestic-hot-water loading pump closes the entire coil
+    // circuit, not just its flow pipe. The parallel heating loop may still run.
+    const wwPumpId='switch.ww_charging_pump';
+    const heatPumpId='switch.heating_circuit_pump';
+    const wwSystem=[
+      {id:'wwsrc',type:'oil_boiler',name:'Ölkessel',
+        sensors:{pump:ids.pump,state:ids.burning}},
+      {id:'wwpump',type:'pump',name:'WW-Ladepumpe',
+        sensors:{state:wwPumpId}},
+      {id:'wwtank',type:'dhw_tank',name:'Warmwasserspeicher',sensors:{}},
+      {id:'wwhc',type:'heating_circuit',name:'Heizkreis',
+        sensors:{pump:heatPumpId}}
+    ];
+    const wwLinks=[
+      {id:'ww_pre',from:'wwsrc',from_port:'dhw',to:'wwpump',to_port:'in'},
+      {id:'ww_flow',from:'wwpump',from_port:'out',to:'wwtank',to_port:'coil_in'},
+      {id:'ww_return',from:'wwtank',from_port:'coil_out',to:'wwsrc',to_port:'return'},
+      {id:'heat_flow',from:'wwsrc',from_port:'flow',to:'wwhc',to_port:'flow_in'},
+      {id:'heat_return',from:'wwhc',from_port:'return_out',to:'wwsrc',to_port:'return'}
+    ];
+    const wwCard=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:wwSystem,connections:wwLinks}},
+      hassOf({[wwPumpId]:state(wwPumpId,'off'),
+        [heatPumpId]:state(heatPumpId,'on')}));
+    const wwActive=()=>[...wwCard.shadowRoot.querySelectorAll('g.hpi-link path.flow.on')]
+      .map(path=>path.closest('g.hpi-link')?.getAttribute('data-hpi-edge'))
+      .filter(Boolean);
+    const wwById=id=>!!wwCard.shadowRoot.querySelector(
+      'g.hpi-link[data-hpi-edge="'+id+'"] path.flow.on');
+    check(!wwById('ww_pre')&&!wwById('ww_flow')&&!wwById('ww_return')&&
+      wwById('heat_flow')&&wwById('heat_return'),
+      'WW charging pump off: both coil flow and return stop while heating remains active');
+    wwCard.hass=hassOf({[wwPumpId]:state(wwPumpId,'on'),
+      [heatPumpId]:state(heatPumpId,'on')});
+    check(wwById('ww_flow')&&wwById('ww_return'),
+      'WW charging pump on: both coil flow and return animate together');
+    wwCard.hass=hassOf({[wwPumpId]:state(wwPumpId,'off'),
+      [heatPumpId]:state(heatPumpId,'on')});
+    check(!wwById('ww_flow')&&!wwById('ww_return'),
+      'WW charging pump switching off stops return animation immediately');
+    wwCard.remove();
+
     // Mixer percentage is a valve position; it must NOT suppress a pump-driven
     // animation at either end of its 0–100% travel.
     const flowNodes=[
@@ -699,10 +741,119 @@
     check(changedNative?.plan.components[0]?.sensors.state===ids.burning &&
       changedNative?.plan.components[0]?.sensors.flow===ids.flow,
       'Native entity picker changes persist without dropping assigned boiler fields');
+    check(nativeEditor.querySelector('#hpc-native-sensors')===nativeForm &&
+      nativeForm.schema?.[0]?.expanded===true,
+      'Choosing a measured value does not collapse or remount the sensor editor');
+    nativeForm.dispatchEvent(new CustomEvent('value-changed',{bubbles:true,detail:{
+      value:{sensors:{return:ids.ret}}
+    }}));
+    check(nativeEditor.querySelector('#hpc-native-sensors')===nativeForm &&
+      changedNative?.plan.components[0]?.sensors.state===ids.burning&&
+      changedNative?.plan.components[0]?.sensors.flow===ids.flow&&
+      changedNative?.plan.components[0]?.sensors.return===ids.ret,
+      'Subsequent partial native picker updates preserve all earlier mapped values');
     const settingsForm=nativeEditor.querySelector('#hpc-native-settings');
     check(!!settingsForm && settingsForm.schema?.[0]?.type==='expandable',
       'Original style display and fullscreen settings remain editable');
     nativeEditor.remove();
+
+    // The full original heat pump outdoor-unit gallery is restored for
+    // new-style component plans and is applied to the original SVG renderer.
+    const wpEditor=document.createElement('hydraulic-plan-card-editor');
+    wpEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[{id:'wp_style',type:'heat_pump',name:'Wärmepumpe',
+        sensors:{}}],connections:[]}});
+    document.body.append(wpEditor);wpEditor.hass=hassOf();
+    const stylePicker=wpEditor.querySelector('[data-wp-style="wp_style"]');
+    check(stylePicker?.options.length===13 &&
+      Array.from(stylePicker.options).some(option=>option.value==='wolf')&&
+      Array.from(stylePicker.options).some(option=>option.value==='stiebel'),
+      'All original outdoor-unit manufacturer illustrations are selectable');
+    let wpUpdate;
+    wpEditor.addEventListener('config-changed',event=>wpUpdate=event.detail.config);
+    if(stylePicker){stylePicker.value='wolf';
+      stylePicker.dispatchEvent(new Event('change',{bubbles:true}));}
+    check(wpUpdate?.plan.components[0]?.options.unit_style==='wolf',
+      'Outdoor-unit manufacturer is persisted with the heat pump component');
+    const wpCard=await mount(wpUpdate||{type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[],connections:[]}},hassOf());
+    check(wpCard._unitKey()==='wolf' &&
+      !!wpCard.shadowRoot.querySelector('.wolf-body'),
+      'Selected original Wolf outdoor unit appears in the original SVG illustration');
+    wpCard.remove();wpEditor.remove();
+
+    // Restore the original heat-emitter options for each heating circuit.
+    const emitterEditor=document.createElement('hydraulic-plan-card-editor');
+    emitterEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[
+        {id:'hk_radiator',type:'heating_circuit',name:'Heizkreis 1',sensors:{}},
+        {id:'hk_floor',type:'heating_circuit',name:'Heizkreis 2',sensors:{}}
+      ],connections:[]}});
+    document.body.append(emitterEditor);emitterEditor.hass=hassOf();
+    const emitter=emitterEditor.querySelector('[data-heating-emitter="hk_radiator"]');
+    check(emitter?.options.length===3&&
+      Array.from(emitter.options).map(o=>o.value).join(',')==='underfloor,radiator,column',
+      'Original floor, panel radiator and column radiator heating types are selectable');
+    let emitterConfig;
+    emitterEditor.addEventListener('config-changed',ev=>emitterConfig=ev.detail.config);
+    if(emitter){emitter.value='column';emitter.dispatchEvent(new Event('change',{bubbles:true}));}
+    check(emitterConfig?.plan.components[0].options.emitter==='column',
+      'Selected emitter type is retained on its specific heating circuit');
+    const emitCard=await mount(emitterConfig||{type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[],connections:[]}},hassOf());
+    check(emitCard._hcTypes[0]==='column'&&emitCard._hcTypes[1]==='radiator',
+      'Original renderer receives individual heating emitter styles');
+    emitCard.remove();emitterEditor.remove();
+    // A real heating circuit can have a mixing valve without an entity
+    // reporting its position. Its sensor picker must be present when enabled.
+    const mixEditor=document.createElement('hydraulic-plan-card-editor');
+    mixEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[{id:'hk_mixed',type:'heating_circuit',
+        name:'Gemischter Heizkreis',sensors:{}}],connections:[]}});
+    document.body.append(mixEditor);mixEditor.hass=hassOf();
+    check(!!mixEditor.querySelector('[data-hc-mixer="hk_mixed"]'),
+      'Heating circuit editor offers an explicit mixing-valve toggle');
+    let mixResult;
+    mixEditor.addEventListener('config-changed',ev=>mixResult=ev.detail.config);
+    const mixToggle=mixEditor.querySelector('[data-hc-mixer="hk_mixed"]');
+    mixToggle.checked=true;mixToggle.dispatchEvent(new Event('change',{bubbles:true}));
+    check(mixResult?.plan.components[0].options.mixed===true&&
+      mixEditor.querySelector('#hpc-native-sensors')?.schema?.[0]?.schema?.some(x=>x.name==='mixer'),
+      'Switching the mixer on reveals its native HA entity selector');
+    const noSensorMixer=await mount(mixResult,hassOf());
+    check(!!noSensorMixer.shadowRoot.querySelector('.hpi-manual-mixer[data-hpi-mixer="hk_mixed"]'),
+      'A sensorless heating circuit still shows its mixing valve on the original diagram');
+    noSensorMixer.remove();
+    const mixForm=mixEditor.querySelector('#hpc-native-sensors');
+    mixForm?.dispatchEvent(new CustomEvent('value-changed',{bubbles:true,detail:{
+      value:{sensors:{mixer:'sensor.hc_mixer_position'}}
+    }}));
+    check(mixResult?.plan.components[0].sensors.mixer==='sensor.hc_mixer_position',
+      'Mixer position can be assigned without losing the circuit configuration');
+    mixEditor.remove();
+
+    // One quick-connect action must create a visible hot supply and separate
+    // return to a wood gasifier, rather than a dangling one-way pipe.
+    const pairEditor=document.createElement('hydraulic-plan-card-editor');
+    pairEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[
+        {id:'wood_return',type:'wood_gasifier',name:'Holzvergaser',sensors:{}},
+        {id:'tank_return',type:'buffer',name:'Pufferspeicher',sensors:{}}
+      ],connections:[]}});
+    document.body.append(pairEditor);pairEditor.hass=hassOf();
+    const pair=pairEditor.querySelector('#hpc-pair');
+    check(Array.from(pair?.options||[]).some(o=>o.value==='wood_return|tank_return'),
+      'The editor offers component-to-component connections instead of port jargon');
+    let pairResult;
+    pairEditor.addEventListener('config-changed',ev=>pairResult=ev.detail.config);
+    if(pair){pair.value='wood_return|tank_return';
+      pairEditor.querySelector('[data-action="connect-pair"]')?.click();}
+    check(pairResult?.plan.connections.some(e=>e.from==='wood_return'&&
+      e.from_port==='flow'&&e.to==='tank_return'&&e.to_port==='top_in')&&
+      pairResult?.plan.connections.some(e=>e.from==='tank_return'&&
+      e.from_port==='bottom_out'&&e.to==='wood_return'&&e.to_port==='return'),
+      'Wood gasifier quick-connect creates correct flow and return together');
+    pairEditor.remove();
 
     const etaNode={id:'eta1',type:'wood_chip_boiler',name:'ETA Hackgutheizung',
       sensors:{state:ids.burning,flow:ids.flow,pump:ids.pump},
