@@ -31,8 +31,35 @@ const HPC_MIGRATION = (() => {
       for(const [key,value] of Object.entries(n.sensors||{}))
         if(!HPC_FREE.byType[n.type].fields.includes(key)||!validEntity(value))
           warnings.push('Sensorzuordnung an '+n.id+' benötigt eine manuelle Prüfung.');
-      if(n.level_sensors?.some(p=>p.entity&&!validEntity(p.entity)))
-        warnings.push('Speicherfühler an '+n.id+' benötigt eine manuelle Prüfung.');
+      if(n.level_sensors!==undefined&&!Array.isArray(n.level_sensors))
+        warnings.push('Fühlerliste an '+n.id+' muss geprüft werden.');
+      if(Array.isArray(n.level_sensors)){
+        if(n.level_sensors.length>24)
+          warnings.push('Mehr als 24 Zusatzfühler an '+n.id+'; manuelle Prüfung erforderlich.');
+        const positions=new Set();
+        for(const point of n.level_sensors){
+          const pos=Number(point?.position);
+          if(!point||typeof point.entity!=='string'&&! (point.entity===undefined)||
+            point.entity&&!validEntity(point.entity)||
+            !Number.isFinite(pos)||pos<0||pos>100||
+            positions.has(Math.round(pos*10)/10)){
+            warnings.push('Zusatzfühler an '+n.id+' sind nicht eindeutig übernehmbar.');
+            break;
+          }
+          positions.add(Math.round(pos*10)/10);
+        }
+      }
+      if(n.name&&String(n.name).length>75)
+        warnings.push('Bauteilname an '+n.id+' ist länger als unterstützt.');
+      if(n.options&&typeof n.options==='object'){
+        const supported={dhw_tank:['connection_style'],
+          wood_gasifier:['return_lift'],wood_chip_boiler:['eta_model','particle_separator','silo'],
+          heating_circuit:['emitter','mixed'],pellet_boiler:['boiler_kind','silo'],
+          oil_boiler:['boiler_kind'],gas_boiler:['boiler_kind'],
+          heat_pump:['unit_style','unit_size','source_type']}[n.type]||[];
+        if(Object.keys(n.options).some(key=>!supported.includes(key)))
+          warnings.push('Unbekannte Einstellungen an '+n.id+'; keine automatische Änderung.');
+      }
     }
     for(const e of connections){
       const from=components.find(n=>n?.id===e?.from);
@@ -103,6 +130,8 @@ const HPC_MIGRATION = (() => {
     if(!config||typeof config!=='object')return {changed:false,config,warnings:['Ungültige Konfiguration.']};
     if(!classic&&!Array.isArray(config.plan?.components))
       return {changed:false,config,warnings:[]};
+    if(!classic&&config.hpc_migration_skip_auto===true)
+      return {changed:false,config,warnings:[]};
     if(!classic&&Number(config.hpc_schema_version)>VERSION)
       return {changed:false,config,warnings:['Diese Konfiguration stammt aus einer neueren Version.']};
     if(!classic&&config.hpc_schema_version===VERSION)
@@ -127,7 +156,9 @@ const HPC_MIGRATION = (() => {
   }
   function restore(config){
     if(!config?.hpc_migration_backup)return null;
-    return clone(config.hpc_migration_backup);
+    // Prevent the editor from immediately re-upgrading a restored v1 plan
+    // on its next setConfig() callback. The user may edit and save it later.
+    return {...clone(config.hpc_migration_backup),hpc_migration_skip_auto:true};
   }
   return {VERSION,check,legacyPlan,upgrade,restore};
 })();
