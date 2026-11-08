@@ -7547,7 +7547,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     {type:"heat_pump",de:"Wärmepumpe",en:"Heat pump",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
     {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:L:.8","bottom_out:R:.8"]},
     {type:"dhw_tank",de:"Warmwasserspeicher",en:"Hot-water tank",group:"storage",fields:["top","middle","bottom"],ports:["coil_in:L:.28","coil_out:L:.74","hot_out:R:.24","cold_in:R:.78"]},
-    {type:"heating_circuit",de:"Heizkreis (gemischt/ungemischt)",en:"Heating circuit",group:"load",fields:["flow","return","target","pump","mixer"],ports:["flow_in:L:.25","return_out:L:.75"]},
+    {type:"heating_circuit",de:"Heizkreis (gemischt/ungemischt)",en:"Heating circuit",group:"load",fields:["flow","return","target","pump","mixer","mixer_opening","mixer_closing"],ports:["flow_in:L:.25","return_out:L:.75"]},
     {type:"pump",de:"Umwälzpumpe",en:"Circulation pump",group:"control",fields:["state","power","volume"],ports:["in:L:.5","out:R:.5"]},
     {type:"mixer",de:"3-Wege-Mischer / Rücklaufanhebung",en:"3-way mixing valve",group:"control",fields:["position","state"],ports:["a:L:.25","b:L:.75","ab:R:.5"]},
     {type:"diverter",de:"3-Wege-Umschaltventil",en:"3-way diverter valve",group:"control",fields:["position","state"],ports:["a:L:.25","b:L:.75","ab:R:.5"]},
@@ -7559,7 +7559,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     exhaust:["Abgas","Flue gas"],oxygen:["Restsauerstoff","Residual oxygen"],
     fan:["Gebläse","Fan"],power:["Leistung","Power"],pump:["Pumpe","Pump"],starts:["Starts","Starts"],
     top:["Oben","Top"],middle:["Mitte","Middle"],bottom:["Unten","Bottom"],heater:["Heizstab","Immersion heater"],
-    target:["Sollwert","Setpoint"],mixer:["Mischer","Mixer"],position:["Stellung","Position"],volume:["Volumenstrom","Flow rate"],
+    target:["Sollwert","Setpoint"],mixer:["Mischerstellung (%)","Mixing valve position (%)"],mixer_opening:["Mischer öffnet","Mixer opening"],mixer_closing:["Mischer schließt","Mixer closing"],position:["Stellung","Position"],volume:["Volumenstrom","Flow rate"],
     fuel_feed:["Austragung / Förderschnecke","Fuel feed / auger"],ash_removal:["Entaschung","Ash removal"],fuel_level:["Brennstoffvorrat","Fuel stock"],
   };
   const byType = Object.fromEntries(types.map(t=>[t.type,t]));
@@ -7630,7 +7630,8 @@ const HPC_FREE = (function makeFreeHelpers() {
           ?{eta_model:["ehack","hack","hack_vr"].includes(n.options?.eta_model)?n.options.eta_model:"ehack"}
         :n.type==="heating_circuit"
           ?{emitter:HFC_EMITTERS.includes(n.options?.emitter)?n.options.emitter:"radiator",
-            mixed:typeof n.options?.mixed==="boolean"?n.options.mixed:!!n.sensors?.mixer}
+            mixed:typeof n.options?.mixed==="boolean"?n.options.mixed:
+              !!(n.sensors?.mixer||n.sensors?.mixer_opening||n.sensors?.mixer_closing)}
         :["oil_boiler","gas_boiler","pellet_boiler"].includes(n.type)
           ?{boiler_kind:["standard","low_temp","condensing"].includes(n.options?.boiler_kind)?n.options.boiler_kind:"standard"}
           :n.type==="heat_pump"
@@ -8089,8 +8090,8 @@ const HPC_INTEGRATED = (() => {
       for(const key of ['top','middle','bottom'])set(prefix+'_'+key,node,key);
     circuits.forEach((node,index)=>{
       const prefix=index?'hc'+(index+1)+'_':'hc_';
-      for(const key of ['flow','return','target','pump','mixer']){
-        if(key==='mixer'&&node.options?.mixed===false)continue;
+      for(const key of ['flow','return','target','pump','mixer','mixer_opening','mixer_closing']){
+        if(key.startsWith('mixer')&&node.options?.mixed===false)continue;
         set(prefix+(key==='target'?'setpoint':key),node,key);
       }
     });
@@ -8515,7 +8516,7 @@ const HPC_INTEGRATED = (() => {
     // hc_mixer is configured. With no entity, show the same schematic valve
     // (without a fictitious position or animated flow).
     const manualMixers=plan.components.filter(c=>c.type==='heating_circuit'&&
-      c.options?.mixed&&!c.sensors.mixer).slice(0,6).map(c=>{
+      c.options?.mixed&&!c.sensors.mixer&&!c.sensors.mixer_opening&&!c.sensors.mixer_closing).slice(0,6).map(c=>{
       const index=plan.components.filter(p=>p.type==='heating_circuit').indexOf(c);
       const dy=index*250;
       const x=760,y=360+dy;
@@ -9072,13 +9073,15 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       for(let i=1;i<=6;i++){
         const prefix=i===1?'hc_':'hc'+i+'_';
         const roles={flow:prefix+'flow',return:prefix+'return',target:prefix+'setpoint',
-          pump:prefix+'pump',mixer:prefix+'mixer'};
+          pump:prefix+'pump',mixer:prefix+'mixer',
+          mixer_opening:prefix+'mixer_opening',mixer_closing:prefix+'mixer_closing'};
         if(i<=count||Object.values(roles).some(role=>entities[role])){
           add('heating_circuit','Heizkreis '+i,roles);
           const circuit=result.components.at(-1);
           if(circuit?.type==='heating_circuit'){
             const oldKey=i===1?'hc_type':'hc'+i+'_type';
-            circuit.options={emitter:HFC_EMITTERS.includes(c[oldKey])?c[oldKey]:'radiator'};
+            circuit.options={emitter:HFC_EMITTERS.includes(c[oldKey])?c[oldKey]:'radiator',
+              mixed:!!(circuit.sensors.mixer||circuit.sensors.mixer_opening||circuit.sensors.mixer_closing)};
           }
         }
       }
@@ -9140,13 +9143,15 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const useNativeForm=!!globalThis.customElements?.get('ha-form');
       const useNativePicker=!!globalThis.customElements?.get('ha-entity-picker');
       const hcMixed=selected?.type==='heating_circuit'
-        ?(typeof selected.options?.mixed==='boolean'?selected.options.mixed:!!selected.sensors.mixer)
+        ?(typeof selected.options?.mixed==='boolean'?selected.options.mixed:
+          !!(selected.sensors.mixer||selected.sensors.mixer_opening||selected.sensors.mixer_closing))
         :false;
       // Mixer measurement is always available on a mixed heating circuit.
       // Only a wood-gasifier return-lift mixer belongs behind a separate toggle.
       const activeFields=selected?HPC_FREE.byType[selected.type].fields.filter(key=>
-        key!=='mixer'||selected.type==='heating_circuit'&&hcMixed||
-        selected.type==='wood_gasifier'&&selected.options?.return_lift):[];
+        !['mixer','mixer_opening','mixer_closing'].includes(key)||
+        selected.type==='heating_circuit'&&hcMixed||
+        key==='mixer'&&selected.type==='wood_gasifier'&&selected.options?.return_lift):[];
       const mainFields={wood_gasifier:['state','flow','return','pump'],oil_boiler:['state','flow','return','pump'],
         pellet_boiler:['state','flow','return','pump'],gas_boiler:['state','flow','return','pump'],
         heat_pump:['state','flow','return','power'],buffer:['top','middle','bottom'],
