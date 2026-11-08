@@ -480,12 +480,24 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         '<option value="'+esc(c.from+'|'+c.to)+'">'+esc(c.label)+' · '+
         (c.count>1?t('Vorlauf + Rücklauf','Flow + return'):
           t('Fehlende Leitung ergänzen','Add missing pipe'))+'</option>').join('');
-      const connectionRows=p.connections.map(edge=>`<div class="hpc-row">
-        <span style="flex:1 1 250px;font-size:.85em">${esc((p.components.find(c=>c.id===edge.from)?.name||edge.from)+" – "+(portNames[edge.from_port]||edge.from_port)+" → "+(p.components.find(c=>c.id===edge.to)?.name||edge.to)+" – "+(portNames[edge.to_port]||edge.to_port))}</span>
-        <button type="button" data-action="remove-edge" data-edge-id="${esc(edge.id)}">${t("Entfernen","Remove")}</button>
-        ${connectionField(edge,'flow_entity',t('Pumpen-/Flussstatus (optional)','Pump/flow status (optional)'))}
-        ${connectionField(edge,'temperature_entity',t('Rohrtemperatur (optional)','Pipe temperature (optional)'))}
-        </div>`).join("");
+      const connectionRows=p.connections.map(edge=>{
+        const from=p.components.find(c=>c.id===edge.from);
+        const to=p.components.find(c=>c.id===edge.to);
+        const supply=['flow','dhw','top_out','mid_out','coil_in','flow_in','top_in'].includes(edge.from_port)||
+          ['coil_in','flow_in','top_in'].includes(edge.to_port);
+        const direction=supply?t('Vorlauf','Supply'):t('Rücklauf','Return');
+        return '<div class="hpc-pipe-row">'
+          +'<span>'+esc((from?.name||edge.from)+' → '+(to?.name||edge.to))
+          +'<small>'+direction+' · '+esc(portNames[edge.from_port]||edge.from_port)
+            +' → '+esc(portNames[edge.to_port]||edge.to_port)+'</small></span>'
+          +'<button type="button" data-action="remove-edge" data-edge-id="'+esc(edge.id)+'">'
+            +t('Entfernen','Remove')+'</button>'
+          +'<details><summary>'+t('Messwerte für diese Leitung (optional)','Values for this pipe (optional)')
+            +'</summary><div class="hpc-row">'
+            +connectionField(edge,'flow_entity',t('Pumpen-/Flussstatus','Pump or flow state'))
+            +connectionField(edge,'temperature_entity',t('Rohrtemperatur','Pipe temperature'))
+            +'</div></details></div>';
+      }).join("");
       const html=`<style>${HPC_FREE.css}</style><div class="hpc-editor">
         ${!configured?`<h3>${t("Deine Heizungsanlage","Your heating system")}</h3>
           <p>${t("Wähle selbst, welche Wärmeerzeuger, Speicher und Heizkreise du hast und wie sie verbunden sind. Eine Wärmepumpe ist nicht erforderlich.","Choose your own heat generators, tanks, heating circuits and connections. No heat-pump integration required.")}</p>
