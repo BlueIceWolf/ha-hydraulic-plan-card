@@ -32,12 +32,12 @@ const HPC_INTEGRATED = (() => {
       }
       return startX+Math.max(1,Math.ceil(items.length/wCount))*stepX;
     };
-    // Additional heat sources stay below the original generator, not far outside
-    // the visible diagram. The first extra boiler is visible immediately.
+    // All generators have the exact 240 x 235 footprint of the original
+    // primary source. The diagram grows by rows, without custom-sized tiles
+    // that looked like unrelated cards.
     for(const [index,node] of byGroup.source.entries()){
-      const [width,height]=['oil_boiler','wood_chip_boiler'].includes(node.type)?[240,195]:[240,165];
       points.set(node.id,{x:50+Math.floor(index/4)*265,
-        y:475+(index%4)*218,w:width,h:height,type:node.type});
+        y:475+(index%4)*260,w:240,h:235,type:node.type});
     }
     // Discover the buffer sequence from the user's directed pipe connections.
     // This works regardless of the order in which buffers were added.
@@ -60,19 +60,18 @@ const HPC_INTEGRATED = (() => {
     orderedBuffers.sort((a,b)=>(distances.get(a.id)??Infinity)-(distances.get(b.id)??Infinity));
     const extraDhw=byGroup.storage.filter(c=>c.type==='dhw_tank');
     const storageStart=520;
-    // A second DHW row must not overlap the buffer row.
-    // Put the next buffers below the last standard heating circuit.
-    // This retains the original buffer graphic and avoids all radiator rows.
-    const bufferStartY=Math.max(585,560+Math.min(hcCount,6)*250);
+    // Continue the original storage bank directly underneath the native
+    // 120 x 200 buffer. Two more tanks fit between the source and radiator
+    // columns, avoiding both overlap and a 300 px empty gap.
+    const bufferStartY=555;
     orderedBuffers.forEach((node,index)=>{
-      const [w,h]=HPC_FREE.dimension(node.type);
-      points.set(node.id,{x:520+(index%3)*170,
-        y:bufferStartY+Math.floor(index/3)*230,w,h,type:node.type});
+      points.set(node.id,{x:520+(index%2)*160,
+        y:bufferStartY+Math.floor(index/2)*225,w:120,h:200,type:node.type});
     });
+    // Preserve the original DHW proportions as well.
     extraDhw.forEach((node,index)=>{
-      const [w,h]=HPC_FREE.dimension(node.type);
-      points.set(node.id,{x:680+(index%2)*170,
-        y:40+Math.floor(index/2)*215,w,h,type:node.type});
+      points.set(node.id,{x:680+(index%2)*160,
+        y:40+Math.floor(index/2)*220,w:120,h:200,type:node.type});
     });
     const controlStart=Math.max(1190,storageStart+530);
     const controlEnd=placeColumn(byGroup.control,controlStart,90,205,150);
@@ -435,8 +434,8 @@ const HPC_INTEGRATED = (() => {
           +'<text class="unit-title" x="'+cx+'" y="'+(b.y+23)+'" text-anchor="middle">'+title+'</text>'
           +'<text class="hpi-oil-kind" x="'+cx+'" y="'+(b.y+39)+'" text-anchor="middle">'+HPC_FREE.esc(variant)+'</text>'
           +oilArt(b.x+35,b.y+44,170,96,running,kind)
-          +(status?'<text class="hpi-oil-status" x="'+cx+'" y="'+(b.y+156)+'" text-anchor="middle">'+HPC_FREE.esc(status)+'</text>':'')
-          +(temps?'<text class="hpi-oil-reading" x="'+cx+'" y="'+(b.y+178)+'" text-anchor="middle">'+temps+'</text>':'')
+          +(status?'<text class="unit-status hpi-oil-status" x="'+cx+'" y="'+(b.y+176)+'" text-anchor="middle">'+HPC_FREE.esc(status)+'</text>':'')
+          +(temps?'<text class="unit-val hpi-oil-reading" x="'+cx+'" y="'+(b.y+205)+'" text-anchor="middle">'+temps+'</text>':'')
           +'</g>';
       }
       const icon=isSource(node)?additionalSourceArt(type,b,on,node):
@@ -446,12 +445,16 @@ const HPC_INTEGRATED = (() => {
         type==='heating_circuit'?'<path class="rib" d="M'+(cx-30)+' '+(cy-18)+' v36 M'+(cx-17)+' '+(cy-18)+' v36 M'+(cx-4)+' '+(cy-18)+' v36 M'+(cx+9)+' '+(cy-18)+' v36 M'+(cx+22)+' '+(cy-18)+' v36"/>':
         '<path class="boiler-flame" d="M'+cx+' '+(cy+17)+' C'+(cx-23)+' '+(cy-2)+' '+(cx-9)+' '+(cy-17)+' '+(cx-2)+' '+(cy-28)+' C'+(cx-3)+' '+(cy-11)+' '+(cx+23)+' '+(cy-13)+' '+(cx+13)+' '+(cy+10)+' Z"/>';
       const sensorEntries=Object.entries(node.sensors||{}).filter(([k,v])=>v && k!=='state').slice(0,2);
-      const labels=sensorEntries.map(([key,id],i)=>'<text class="small" text-anchor="middle" x="'+cx+'" y="'+(b.y+b.h-30+i*16)+'">'+
+      const labels=sensorEntries.map(([key,id],i)=>'<text class="unit-val hpi-source-value" text-anchor="middle" x="'+cx+'" y="'+(b.y+202+i*19)+'">'+
         HPC_FREE.esc(HPC_FREE.fieldLabel(key))+' '+HPC_FREE.esc(HPC_FREE.format(HPC_FREE.state(hass,id)))+'</text>').join('');
+      const sourceState=isSource(node)&&node.sensors.state?HPC_FREE.state(hass,node.sensors.state):null;
+      const stateLabel=sourceState?(HPC_FREE.active(sourceState)
+        ?(String(hass?.locale?.language||'de').startsWith('de')?'In Betrieb':'Running')
+        :(String(hass?.locale?.language||'de').startsWith('de')?'Aus':'Off')):'';
       return '<g class="tap hpi-component" data-hpi-node="'+node.id+'" data-entity="'+HPC_FREE.esc(node.sensors.state||node.sensors.flow||'')+'">'
         +'<rect class="unit'+(on?' on':'')+'" x="'+b.x+'" y="'+b.y+'" width="'+b.w+'" height="'+b.h+'" rx="20"/>'
-        +'<text class="unit-title" x="'+cx+'" y="'+(b.y+24)+'" text-anchor="middle">'+title+'</text>'
-        +icon+labels+'</g>';
+        +'<text class="unit-title" x="'+cx+'" y="'+(b.y+27)+'" text-anchor="middle">'+title+'</text>'
+        +icon+(stateLabel?'<text class="unit-status hpi-source-status" x="'+cx+'" y="'+(b.y+176)+'" text-anchor="middle">'+HPC_FREE.esc(stateLabel)+'</text>':'')+labels+'</g>';
     }).join('');
     const lift=plan.components.filter(node=>node.type==='wood_gasifier'&&node.options?.return_lift)
       .map(node=>{
