@@ -72,3 +72,83 @@ const HPC_EMS = (() => {
   }
   return {detect};
 })();
+
+
+// Detects ETA HACK/eHACK wood-chip boilers from Home Assistant's existing
+// device/entity registries. No direct request to ETA hardware, MQTT or REST.
+// An ETA pellet/SH boiler is not classified as a HACK just because it is ETA.
+const HPC_ETA = (() => {
+  const clean = value => String(value??'').toLowerCase()
+    .normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/[_./-]+/g,' ').replace(/\s+/g,' ').trim();
+  const modelOf = value => {
+    const words=clean(value);
+    if(/(?:^|\s)ehack(?:\s|$)/.test(words)||/(?:^|\s)e hack(?:\s|$)/.test(words))return 'ehack';
+    if(/(?:^|\s)hack vr(?:\s|$)/.test(words))return 'hack_vr';
+    if(/(?:^|\s)hack(?:\s|$)/.test(words))return 'hack';
+    return null;
+  };
+  // Match only explicit boiler measurements. Heizkreis and DHW fields from
+  // the same ETA installation must never be silently assigned as boiler flow.
+  const excluded = /\b(?:heizkreis|heating circuit|heating zone|mischer|mixed circuit|warmwasser|domestic hot water|speicher|buffer|puffer|raumtemperatur)\b/;
+  const rolePatterns = [
+    ['fuel_feed',/\b(?:austragung|foerderschnecke|forderschnecke|fuel feed|stoker|feeding auger)\b/],
+    ['ash_removal',/\b(?:entaschung|aschenschnecke|ash removal|deashing)\b/],
+    ['fuel_level',/\b(?:brennstoffvorrat|fuellstand|fuel level|wood chip stock|lagerstand)\b/],
+    ['exhaust',/\b(?:abgastemperatur|abgas temp|abgas|flue gas|exhaust temperature|flue temperature)\b/],
+    ['oxygen',/\b(?:rest o2|rest o 2|restsauerstoff|o2 ist|oxygen|residual o2|lambda ist)\b/],
+    ['fan',/\b(?:saugzug|abgasgeblase|abgasgeblase|combustion fan|exhaust fan|flue fan)\b/],
+    ['pump',/\b(?:kesselpumpe|kesselladepumpe|ladepumpe|boiler pump|loading pump)\b/],
+    ['return',/\b(?:kesselrucklauf|kessel rucklauf|rucklauftemperatur|rucklauf temp|boiler return|return temperature)\b/],
+    ['flow',/\b(?:kesselvorlauf|kessel vorlauf|kesseltemperatur|kessel temperatur|vorlauftemperatur|boiler temperature|boiler flow|flow temperature|supply temperature)\b/],
+    ['power',/\b(?:kesselleistung|aktuelle leistung|boiler power|thermal output|heizleistung)\b/],
+    ['state',/\b(?:kesselstatus|kessel status|kesselzustand|kessel zustand|betriebszustand|brennerstatus|brenner status|boiler state|boiler status|burner state|operating state)\b/]
+  ];
+  function detect(hass) {
+    if(!hass?.states)return [];
+    const registrations=hass.entities||{},devices=hass.devices||{},groups=new Map();
+    for(const [id,state] of Object.entries(hass.states)){
+      const [domain,raw]=id.split('.');
+      if(!raw||!['sensor','binary_sensor','switch','number','select'].includes(domain))continue;
+      const registry=registrations[id]||{};
+      const device=devices[registry.device_id]||{};
+      const gateway=devices[device.via_device_id]||{};
+      const deviceInfo=[device.name_by_user,device.name,device.model,gateway.name,
+        gateway.model].filter(Boolean).join(' ');
+      const entityInfo=[raw,state?.attributes?.friendly_name].filter(Boolean).join(' ');
+      const model=modelOf(deviceInfo)||modelOf(entityInfo);
+      if(!model)continue;
+      const brand=[registry.platform,registry.unique_id,device.manufacturer,
+        gateway.manufacturer,deviceInfo,entityInfo].filter(Boolean).join(' ');
+      const knownEta=/\beta\b/i.test(clean(brand))||
+        /eta[_-]?webservices|eta[_-]?heating|(?:^|[_\s])eta[_-]/i.test(brand);
+      if(!knownEta)continue;
+      const label=clean(entityInfo);
+      if(excluded.test(label))continue;
+      const role=rolePatterns.find(([,pattern])=>pattern.test(label))?.[0];
+      if(!role)continue;
+      // Group sensors only within their actual Home Assistant device. Entity
+      // prefixes are a fallback when a registry is not exposed to the editor.
+      const group=registry.device_id||raw.replace(/(?:kessel|boiler|abgas|saugzug|austragung).*/,'');
+      const key=group||raw;
+      if(!groups.has(key))groups.set(key,{id:key,name:device.name_by_user||device.name||
+        ('ETA '+({ehack:'eHACK',hack:'HACK',hack_vr:'HACK VR'}[model])),
+        type:'wood_chip_boiler',model,entities:{},count:0,
+        source:/eta[_-]?webservices|eta[_-]?heating/i.test(brand)
+          ?'ETA Heating (Home Assistant)':'ETA (Home Assistant)'});
+      const candidate=groups.get(key);
+      const value=clean(label);
+      const preferred=/\b(?:kessel|boiler)\b/.test(value) ||
+        /\b(?:abgas|saugzug|austragung|entaschung)\b/.test(value);
+      if(!candidate.entities[role]||preferred&&!candidate._priority?.[role]){
+        candidate.entities[role]=id;
+        candidate._priority={...candidate._priority,[role]:preferred};
+      }
+    }
+    return [...groups.values()].map(c=>{
+      const { _priority, ...publicCandidate }=c;
+      return {...publicCandidate,count:Object.keys(c.entities).length};
+    }).sort((a,b)=>b.count-a.count);
+  }
+  return {detect};
+})();
