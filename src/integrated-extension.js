@@ -111,6 +111,17 @@ const HPC_INTEGRATED = (() => {
     if(p.components.length)derived.generator_type=src?types[src.type]:'heat_pump';
     else if(src)derived.generator_type=types[src.type];
     if(src&&src.type!=='heat_pump')derived.boiler_name=src.name;
+    if(src?.type==='heat_pump'){
+      // Original Heat Pump Hydraulic Card artwork renderer reads these exact
+      // top-level settings. The component editor exposes the entire gallery.
+      // Auto inherits a pre-existing classic setting when one is available.
+      const o=src.options||{};
+      if(o.unit_style&&o.unit_style!=='auto')derived.unit_style=o.unit_style;
+      else derived.unit_style=config.unit_style||'auto';
+      if(o.unit_size&&o.unit_size!=='medium')derived.unit_size=o.unit_size;
+      else derived.unit_size=config.unit_size||o.unit_size||'medium';
+      derived.source_type=o.source_type||config.source_type||'air';
+    }
     if(p.components.length){
       // Free plan is authoritative: old dashboard role keys must not draw
       // tanks, hot-water branches or a different heat source.
