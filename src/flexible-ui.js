@@ -725,6 +725,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           return this._applyPlan({components:p.components.filter(c=>c.id!==selected.id),
             connections:p.connections.filter(c=>c.from!==selected.id&&c.to!==selected.id)});
         }
+        if(action==="connect-pair"){
+          const [from,to]=(root.querySelector('#hpc-pair')?.value||'').split('|');
+          if(!from||!to)return;
+          const next=HPC_FREE.connectPair(this._config.plan,from,to);
+          if(next.connections.length===this._config.plan.connections.length)return;
+          return this._applyPlan(next);
+        }
         if(action==="connect"){
           const [from,from_port]=(root.querySelector("#hpc-from")?.value||"").split("|");
           const [to,to_port]=(root.querySelector("#hpc-to")?.value||"").split("|");
