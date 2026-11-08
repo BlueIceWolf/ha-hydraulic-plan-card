@@ -224,7 +224,7 @@ const HPC_ETA_SYSTEM = (() => {
           type==='dhw_tank'?'ETA Warmwasserspeicher':'ETA Heizkreis',
         entities:{},count:0,source:'ETA (Home Assistant)'});
       const c = groups.get(key);
-      if (number) c.name += ' '+number;
+      if (number && !c.name.endsWith(' '+number)) c.name += ' '+number;
       if (!c.entities[role]) c.entities[role] = id;
     }
     return [...groups.values()].map(c=>({...c,count:Object.keys(c.entities).length}))

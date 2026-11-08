@@ -8855,7 +8855,7 @@ const HPC_ETA_SYSTEM = (() => {
           type==='dhw_tank'?'ETA Warmwasserspeicher':'ETA Heizkreis',
         entities:{},count:0,source:'ETA (Home Assistant)'});
       const c = groups.get(key);
-      if (number) c.name += ' '+number;
+      if (number && !c.name.endsWith(' '+number)) c.name += ' '+number;
       if (!c.entities[role]) c.entities[role] = id;
     }
     return [...groups.values()].map(c=>({...c,count:Object.keys(c.entities).length}))
@@ -9519,6 +9519,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           ${emsInfo}
           ${etaInfo}
           ${etaPartInfo}
+          ${chosenEta||chosenEtaPart?`<div class="hpc-actions"><button type="button" class="hpc-primary" data-action="eta-scan-all">${t("ETA-Anlage automatisch erkennen","Detect ETA system automatically")}</button></div>`:""}
           <h3>${t("Bauteil hinzufügen","Add component")}</h3>
           <div class="hpc-row"><div class="hpc-add-preview" id="hpc-free-icon">${HPC_FREE.icon("wood_gasifier")}</div><label>${t("Art","Type")}<select id="hpc-free-type">${typeOptions}</select></label>
             <button type="button" class="hpc-primary" data-action="add-component">${t("Hinzufügen","Add")}</button></div>
@@ -9669,6 +9670,43 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       });
       root.querySelectorAll("[data-action]").forEach(button=>button.addEventListener("click",()=>{
         const action=button.dataset.action;
+        if(action==="eta-scan-all"){
+          if(!window.confirm(t(
+            "Alle eindeutig erkannten ETA-Bauteile und Messwerte ergänzen? Bestehende Einstellungen und Rohrverbindungen bleiben unverändert.",
+            "Add all clearly detected ETA components and values? Existing settings and pipes remain unchanged.")))return;
+          const copy=HPC_FREE.normalize(p);
+          let last=null,added=0;
+          for(const c of etaCandidates){
+            if(HPC_DISCOVERY.matchedNode(copy,c,'eta',etaCandidates))continue;
+            const node=HPC_FREE.newNode('wood_chip_boiler',copy);
+            if(!node)continue;
+            node.name=c.name.slice(0,75);
+            node.options={...node.options,eta_model:c.model};
+            node.discovery={provider:'eta',id:String(c.id)};
+            for(const [key,id] of Object.entries(c.entities))
+              if(HPC_FREE.byType[node.type].fields.includes(key))node.sensors[key]=id;
+            copy.components.push(node);
+            last=node;added++;
+          }
+          for(const c of etaParts){
+            if(copy.components.some(n=>
+              n.discovery?.provider==='eta-system'&&n.discovery.id===c.id ||
+              Object.values(n.sensors||{}).some(id=>Object.values(c.entities).includes(id))))continue;
+            const node=HPC_FREE.newNode(c.type,copy);
+            if(!node)continue;
+            node.name=c.name.slice(0,75);
+            node.discovery={provider:'eta-system',id:c.id};
+            for(const [key,id] of Object.entries(c.entities))
+              if(HPC_FREE.byType[node.type].fields.includes(key))node.sensors[key]=id;
+            if(node.type==='heating_circuit'&&node.sensors.mixer)
+              node.options={...node.options,mixed:true};
+            copy.components.push(node);
+            last=node;added++;
+          }
+          if(!added)return;
+          if(last)this._selectedId=last.id;
+          return this._applyPlan(copy,{hpc_legacy_imported:true});
+        }
         if(action==="eta-part-apply"&&chosenEtaPart){
           const copy=HPC_FREE.normalize(p);
           const node=HPC_FREE.newNode(chosenEtaPart.type,copy);
