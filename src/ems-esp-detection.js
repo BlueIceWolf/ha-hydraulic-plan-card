@@ -159,7 +159,7 @@ const HPC_ETA = (() => {
       const particleSeparator=Object.entries(hass.states).some(([id,state])=>{
         const reg=registrations[id]||{};
         const name=clean([id,state?.attributes?.friendly_name].join(' '));
-        const eta=reg.platform==='eta'||/^sensor\\.eta_/.test(id);
+        const eta=reg.platform==='eta'||/^sensor\.eta_/.test(id);
         if(!eta||!/partikelabscheider|partikel filter|electrostatic separator/.test(name))return false;
         return reg.device_id===c.id || allCandidates.length===1;
       });
