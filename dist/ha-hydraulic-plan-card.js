@@ -7628,7 +7628,9 @@ const HPC_FREE = (function makeFreeHelpers() {
         }
         level_sensors.sort((a,b)=>a.position-b.position);
       }
-      const options=n.type==="wood_gasifier"
+      const options=n.type==="dhw_tank"
+        ?{connection_style:n.options?.connection_style==='branch'?'branch':'separate'}
+        :n.type==="wood_gasifier"
         ?{return_lift:n.options?.return_lift===true}
         :n.type==="wood_chip_boiler"
           ?{eta_model:["ehack","hack","hack_vr"].includes(n.options?.eta_model)?n.options.eta_model:"ehack",
@@ -7731,7 +7733,7 @@ const HPC_FREE = (function makeFreeHelpers() {
   // Build a complete DHW charging branch with one simple choice.
   // No valve position or pipework is inferred from temperature readings.
   // The existing coil path is never replaced or connected twice.
-  function connectDhwCharge(input,sourceId,tankId,kind) {
+  function connectDhwCharge(input,sourceId,tankId,kind,style="branch") {
     const plan=normalize(input);
     const source=plan.components.find(c=>c.id===sourceId);
     const tank=plan.components.find(c=>c.id===tankId&&c.type==='dhw_tank');
@@ -7742,6 +7744,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     // leave multiple conflicting supply/return paths after one click.
     if(plan.connections.some(e=>(e.to===tank.id&&e.to_port==='coil_in')||
       (e.from===tank.id&&e.from_port==='coil_out')))return null;
+    tank.options={...tank.options,connection_style:style==='separate'?'separate':'branch'};
     const control=kind==='pump'?'pump':kind==='diverter'?'diverter':null;
     const newNode=control?HPC_FREE_NEWNODE(control,plan):null;
     if(control&&!newNode)return null;
@@ -8485,6 +8488,14 @@ const HPC_INTEGRATED = (() => {
     const loc=id=>anchored.get(id)||points.get(id);
     const defs=plan.components.filter(isTank).map(c=>'<linearGradient id="hpi-'+c.id+'" x1="0" y1="0" x2="0" y2="1">'+stops(c,hass)+'</linearGradient>').join('');
     const flowing=flowStates(plan,hass);
+    // The WW coil is a selectable consumer of the shared heating supply
+    // and return. Mark branch junctions without creating fake components.
+    const branchTankIds=new Set(plan.components.filter(n=>
+      n.type==='dhw_tank'&&n.options?.connection_style==='branch').map(n=>n.id));
+    const branchFeedEdges=new Set(plan.connections.filter(e=>
+      e.to_port==='coil_in'&&branchTankIds.has(e.to)).map(e=>e.id));
+    const branchReturnEdges=new Set(plan.connections.filter(e=>
+      e.from_port==='coil_out'&&branchTankIds.has(e.from)).map(e=>e.id));
     const links=plan.connections.map(edge=>{
       // Original heating circuits own their valve, emitter and shared risers.
       // Do not draw duplicate pipes over those native routes. Connections to
@@ -8525,9 +8536,14 @@ const HPC_INTEGRATED = (() => {
       const s=HPC_FREE.state(hass,edge.temperature_entity||inferred);
       const color=s?HPC_FREE.color(s):null;
       const on=flowing.has(edge.id);
+      // A visible T junction at both coil legs identifies this as a branch
+      // of the heating distribution. Do not animate it independently:
+      // the edge flow state still controls both legs.
+      const branch=branchFeedEdges.has(edge.id)||branchReturnEdges.has(edge.id);
+      const tee=branch?'<circle class="hpi-coil-branch" cx="'+(branchFeedEdges.has(edge.id)?p.x:q.x)+'" cy="'+(branchFeedEdges.has(edge.id)?p.y:q.y)+'" r="5" fill="var(--card-background-color,#fff)" stroke="'+(on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+'" stroke-width="2"/>':'';
       return '<g class="hpi-link" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"><title>'+HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'
         +'<path class="pipe'+(on?' on':'')+'" d="'+d+'"'+(color?' style="--pc:'+color+'"':'')+'/>'
-        +'<path class="flow'+(on?' on':'')+'" d="'+d+'"/></g>';
+        +'<path class="flow'+(on?' on':'')+'" d="'+d+'"/>'+tee+'</g>';
     }).join('');
     const nodes=extras.map(node=>{
       const b=points.get(node.id);if(!b)return '';
@@ -9522,6 +9538,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             ${[["ehack","ETA eHACK"],["hack","ETA HACK"],["hack_vr","ETA HACK VR"]]
               .map(([id,name])=>`<option value="${id}" ${(selected.options?.eta_model||"ehack")===id?"selected":""}>${name}</option>`).join("")}
           </select></label>`:""}
+        ${selected.type==="dhw_tank"?`<label class="hpc-field">${t("Heizwendel-Anbindung","Heat-exchanger connection")}
+          <select data-dhw-style="${esc(selected.id)}">
+            <option value="branch" ${selected.options?.connection_style==='branch'?'selected':''}>${t("Abzweig vom gemeinsamen Vorlauf und Rücklauf (wie Heizkreis)","Branch from shared supply and return (like a heating circuit)")}</option>
+            <option value="separate" ${selected.options?.connection_style!=='branch'?'selected':''}>${t("Eigener Ladevorlauf und Rücklauf","Separate charging supply and return")}</option>
+          </select></label>`:""}
         ${selected.type==="wood_chip_boiler"?`<label class="hpc-checkbox">
           <input type="checkbox" data-eta-particle="${esc(selected.id)}" ${selected.options?.particle_separator?'checked':''}/>
           <span>${t("Partikelabscheider am Hackgutautomaten","Particle separator on wood-chip boiler")}</span>
@@ -9594,6 +9615,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               </select></label>
               <label>${t("Warmwasserspeicher","Hot-water tank")}<select id="hpc-dhw-target">
                 ${dhwOptions.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+              </select></label>
+              <label>${t("Leitungsführung","Pipe routing")}<select id="hpc-dhw-style">
+                <option value="branch">${t("Abzweig wie Heizkreis – zur Heizwendel","Branch like heating circuit – into coil")}</option>
+                <option value="separate">${t("Eigener Ladekreis","Separate charging circuit")}</option>
               </select></label>
               <label>${t("Ladeart","Charging method")}<select id="hpc-dhw-kind">
                 <option value="pump">${t("Über Ladepumpe","Via charging pump")}</option>
@@ -9881,7 +9906,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           const source=root.querySelector('#hpc-dhw-source')?.value;
           const tank=root.querySelector('#hpc-dhw-target')?.value;
           const kind=root.querySelector('#hpc-dhw-kind')?.value;
-          const next=HPC_FREE.connectDhwCharge(p,source,tank,kind);
+          const style=root.querySelector('#hpc-dhw-style')?.value||'branch';
+          const next=HPC_FREE.connectDhwCharge(p,source,tank,kind,style);
           if(!next)return;
           return this._applyPlan(next);
         }
@@ -9974,6 +10000,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const node=plan.components.find(c=>c.id===el.dataset.etaParticle);
         if(node?.type==='wood_chip_boiler')node.options={...node.options,particle_separator:el.checked};
       })));
+      fieldUpdate('[data-dhw-style]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.dhwStyle);
+        if(node?.type==='dhw_tank')
+          node.options={...node.options,connection_style:el.value==='branch'?'branch':'separate'};
+      });
       fieldUpdate('[data-eta-model]',(plan,el)=>{
         const node=plan.components.find(c=>c.id===el.dataset.etaModel);
         if(node?.type==='wood_chip_boiler')node.options={...node.options,eta_model:el.value};

@@ -574,6 +574,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             ${[["ehack","ETA eHACK"],["hack","ETA HACK"],["hack_vr","ETA HACK VR"]]
               .map(([id,name])=>`<option value="${id}" ${(selected.options?.eta_model||"ehack")===id?"selected":""}>${name}</option>`).join("")}
           </select></label>`:""}
+        ${selected.type==="dhw_tank"?`<label class="hpc-field">${t("Heizwendel-Anbindung","Heat-exchanger connection")}
+          <select data-dhw-style="${esc(selected.id)}">
+            <option value="branch" ${selected.options?.connection_style==='branch'?'selected':''}>${t("Abzweig vom gemeinsamen Vorlauf und Rücklauf (wie Heizkreis)","Branch from shared supply and return (like a heating circuit)")}</option>
+            <option value="separate" ${selected.options?.connection_style!=='branch'?'selected':''}>${t("Eigener Ladevorlauf und Rücklauf","Separate charging supply and return")}</option>
+          </select></label>`:""}
         ${selected.type==="wood_chip_boiler"?`<label class="hpc-checkbox">
           <input type="checkbox" data-eta-particle="${esc(selected.id)}" ${selected.options?.particle_separator?'checked':''}/>
           <span>${t("Partikelabscheider am Hackgutautomaten","Particle separator on wood-chip boiler")}</span>
@@ -646,6 +651,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               </select></label>
               <label>${t("Warmwasserspeicher","Hot-water tank")}<select id="hpc-dhw-target">
                 ${dhwOptions.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+              </select></label>
+              <label>${t("Leitungsführung","Pipe routing")}<select id="hpc-dhw-style">
+                <option value="branch">${t("Abzweig wie Heizkreis – zur Heizwendel","Branch like heating circuit – into coil")}</option>
+                <option value="separate">${t("Eigener Ladekreis","Separate charging circuit")}</option>
               </select></label>
               <label>${t("Ladeart","Charging method")}<select id="hpc-dhw-kind">
                 <option value="pump">${t("Über Ladepumpe","Via charging pump")}</option>
@@ -933,7 +942,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           const source=root.querySelector('#hpc-dhw-source')?.value;
           const tank=root.querySelector('#hpc-dhw-target')?.value;
           const kind=root.querySelector('#hpc-dhw-kind')?.value;
-          const next=HPC_FREE.connectDhwCharge(p,source,tank,kind);
+          const style=root.querySelector('#hpc-dhw-style')?.value||'branch';
+          const next=HPC_FREE.connectDhwCharge(p,source,tank,kind,style);
           if(!next)return;
           return this._applyPlan(next);
         }
@@ -1026,6 +1036,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const node=plan.components.find(c=>c.id===el.dataset.etaParticle);
         if(node?.type==='wood_chip_boiler')node.options={...node.options,particle_separator:el.checked};
       })));
+      fieldUpdate('[data-dhw-style]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.dhwStyle);
+        if(node?.type==='dhw_tank')
+          node.options={...node.options,connection_style:el.value==='branch'?'branch':'separate'};
+      });
       fieldUpdate('[data-eta-model]',(plan,el)=>{
         const node=plan.components.find(c=>c.id===el.dataset.etaModel);
         if(node?.type==='wood_chip_boiler')node.options={...node.options,eta_model:el.value};

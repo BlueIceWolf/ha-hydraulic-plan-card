@@ -450,6 +450,14 @@ const HPC_INTEGRATED = (() => {
     const loc=id=>anchored.get(id)||points.get(id);
     const defs=plan.components.filter(isTank).map(c=>'<linearGradient id="hpi-'+c.id+'" x1="0" y1="0" x2="0" y2="1">'+stops(c,hass)+'</linearGradient>').join('');
     const flowing=flowStates(plan,hass);
+    // The WW coil is a selectable consumer of the shared heating supply
+    // and return. Mark branch junctions without creating fake components.
+    const branchTankIds=new Set(plan.components.filter(n=>
+      n.type==='dhw_tank'&&n.options?.connection_style==='branch').map(n=>n.id));
+    const branchFeedEdges=new Set(plan.connections.filter(e=>
+      e.to_port==='coil_in'&&branchTankIds.has(e.to)).map(e=>e.id));
+    const branchReturnEdges=new Set(plan.connections.filter(e=>
+      e.from_port==='coil_out'&&branchTankIds.has(e.from)).map(e=>e.id));
     const links=plan.connections.map(edge=>{
       // Original heating circuits own their valve, emitter and shared risers.
       // Do not draw duplicate pipes over those native routes. Connections to
@@ -490,9 +498,14 @@ const HPC_INTEGRATED = (() => {
       const s=HPC_FREE.state(hass,edge.temperature_entity||inferred);
       const color=s?HPC_FREE.color(s):null;
       const on=flowing.has(edge.id);
+      // A visible T junction at both coil legs identifies this as a branch
+      // of the heating distribution. Do not animate it independently:
+      // the edge flow state still controls both legs.
+      const branch=branchFeedEdges.has(edge.id)||branchReturnEdges.has(edge.id);
+      const tee=branch?'<circle class="hpi-coil-branch" cx="'+(branchFeedEdges.has(edge.id)?p.x:q.x)+'" cy="'+(branchFeedEdges.has(edge.id)?p.y:q.y)+'" r="5" fill="var(--card-background-color,#fff)" stroke="'+(on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+'" stroke-width="2"/>':'';
       return '<g class="hpi-link" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"><title>'+HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'
         +'<path class="pipe'+(on?' on':'')+'" d="'+d+'"'+(color?' style="--pc:'+color+'"':'')+'/>'
-        +'<path class="flow'+(on?' on':'')+'" d="'+d+'"/></g>';
+        +'<path class="flow'+(on?' on':'')+'" d="'+d+'"/>'+tee+'</g>';
     }).join('');
     const nodes=extras.map(node=>{
       const b=points.get(node.id);if(!b)return '';

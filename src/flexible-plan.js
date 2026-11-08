@@ -89,7 +89,9 @@ const HPC_FREE = (function makeFreeHelpers() {
         }
         level_sensors.sort((a,b)=>a.position-b.position);
       }
-      const options=n.type==="wood_gasifier"
+      const options=n.type==="dhw_tank"
+        ?{connection_style:n.options?.connection_style==='branch'?'branch':'separate'}
+        :n.type==="wood_gasifier"
         ?{return_lift:n.options?.return_lift===true}
         :n.type==="wood_chip_boiler"
           ?{eta_model:["ehack","hack","hack_vr"].includes(n.options?.eta_model)?n.options.eta_model:"ehack",
@@ -192,7 +194,7 @@ const HPC_FREE = (function makeFreeHelpers() {
   // Build a complete DHW charging branch with one simple choice.
   // No valve position or pipework is inferred from temperature readings.
   // The existing coil path is never replaced or connected twice.
-  function connectDhwCharge(input,sourceId,tankId,kind) {
+  function connectDhwCharge(input,sourceId,tankId,kind,style="branch") {
     const plan=normalize(input);
     const source=plan.components.find(c=>c.id===sourceId);
     const tank=plan.components.find(c=>c.id===tankId&&c.type==='dhw_tank');
@@ -203,6 +205,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     // leave multiple conflicting supply/return paths after one click.
     if(plan.connections.some(e=>(e.to===tank.id&&e.to_port==='coil_in')||
       (e.from===tank.id&&e.from_port==='coil_out')))return null;
+    tank.options={...tank.options,connection_style:style==='separate'?'separate':'branch'};
     const control=kind==='pump'?'pump':kind==='diverter'?'diverter':null;
     const newNode=control?HPC_FREE_NEWNODE(control,plan):null;
     if(control&&!newNode)return null;
