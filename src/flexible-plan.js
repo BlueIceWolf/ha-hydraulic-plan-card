@@ -92,8 +92,15 @@ const HPC_FREE = (function makeFreeHelpers() {
         :["oil_boiler","gas_boiler","pellet_boiler"].includes(n.type)
           ?{boiler_kind:["standard","low_temp","condensing"].includes(n.options?.boiler_kind)?n.options.boiler_kind:"standard"}
           :{};
+      // Remember which HA device was imported. This is only a read-only
+      // identity for duplicate detection, never a credential or gateway URL.
+      const discovery=typeof n.discovery?.id==="string"&&
+        ["ems-esp","eta"].includes(n.discovery?.provider)&&
+        /^[a-zA-Z0-9._:\/-]{1,150}$/.test(n.discovery.id)
+        ?{provider:n.discovery.provider,id:n.discovery.id}:undefined;
       components.push({id:n.id,type:n.type,name:String(n.name||display(n.type)).slice(0,75),
-        x:coord(n.x,defaults[group]),y:coord(n.y,70+index*(group==="storage"?240:180)),sensors,level_sensors,options});
+        x:coord(n.x,defaults[group]),y:coord(n.y,70+index*(group==="storage"?240:180)),sensors,level_sensors,options,
+        ...(discovery?{discovery}:{})});
     }
     const byId=Object.fromEntries(components.map(c=>[c.id,c]));
     const connections=[], edgeIds=new Set();
