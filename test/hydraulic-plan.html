@@ -105,6 +105,30 @@
       'Oil boiler renders as the primary source');
     check(oil.shadowRoot.getElementById('svg')?.textContent.includes('Ölkessel'),
       'Oil boiler uses the German title');
+    const oilPlan = await mount({
+      type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[{
+        id:'main_oil',type:'oil_boiler',name:'Buderus S115U',
+        options:{boiler_kind:'low_temp'},
+        sensors:{state:ids.burning,flow:ids.flow,return:ids.ret}
+      }],connections:[]}
+    },hassOf());
+    const oilSvg = oilPlan.shadowRoot.getElementById('svg');
+    const oilPrimaryArt = oilSvg.querySelector('[data-hpi-node="main_oil"] .hpi-oil-art');
+    check(oilSvg.querySelector('#primary-boiler-art')?.style.display==='none',
+      'Custom oil boiler replaces the generic artwork in the primary slot');
+    check(!!oilPrimaryArt?.classList.contains('hpi-oil-low_temp') &&
+      !!oilPrimaryArt.querySelector('.hpi-oil-burner') &&
+      !!oilPrimaryArt.querySelector('.hpi-oil-flange') &&
+      !!oilPrimaryArt.querySelector('.hpi-oil-hose'),
+      'Primary oil boiler shows a recognizable external burner, mounting flange and oil line');
+    check(!!oilPrimaryArt?.classList.contains('on'),
+      'Burner indication follows the primary oil burner state');
+    oilPlan.hass=hassOf({[ids.burning]:state(ids.burning,'off')});
+    check(!oilPlan.shadowRoot.querySelector('[data-hpi-node="main_oil"] .hpi-oil-art')?.classList.contains('on'),
+      'Oil burner status reacts to live HA updates without changing the cabinet drawing');
+    oilPlan.remove();
+
     const hybrid = await mount({
       type: 'custom:hydraulic-plan-card', preset: 'none',
       generator_type: 'heat_pump', boiler_type: 'oil', boiler_name: 'Ölkessel',
@@ -272,8 +296,10 @@
       'Primary oil boiler displays its own burner and control cabinet');
     const addedOil=free.shadowRoot.querySelector('[data-hpi-node="oel"]');
     check(!!addedOil?.querySelector('.hpi-oil-casing') &&
-      !!addedOil?.querySelector('.hpi-oil-control'),
-      'Additional oil boiler has a full-size cabinet, burner, and controls');
+      !!addedOil?.querySelector('.hpi-oil-burner') &&
+      !!addedOil?.querySelector('.hpi-oil-control') &&
+      !!addedOil?.querySelector('.hpi-oil-flange'),
+      'Additional oil boiler shares the realistic casing, external burner and controls');
     const liftCard=await mount({type:'custom:hydraulic-plan-card',preset:'none',
       plan:{components:[{id:'wood',type:'wood_gasifier',name:'Holzvergaser',
         options:{return_lift:true},
