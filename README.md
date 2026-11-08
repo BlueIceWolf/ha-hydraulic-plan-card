@@ -125,3 +125,7 @@ Hydraulic Plan Card derives from **Heat Pump Hydraulic Card** by **Sturmi77**, c
 The editor detects compatible EMS-ESP devices from already available Home Assistant MQTT Discovery entities (no separate network connection). On a boiler with suitable identifiers it can propose an **oil boiler** (e.g. a Buderus S115U); otherwise it displays a boiler with **unknown fuel**. An EMS bus connection does **not** by itself establish fuel type, and no boiler is silently added. You must choose **Assign detected values** in the editor before the mapping is stored.
 
 Supported short names include `boiler_burngas` (actual burner), `boiler_curflowtemp`, `boiler_rettemp`, `boiler_exhausttemp`, `boiler_heatingpump`, and `boiler_oilpreheat` (fuel detection only). The exact HA entity IDs depend on EMS-ESP's MQTT Discovery naming options. Existing manual assignments take precedence, and the card never sends control commands.
+
+### Pufferspeicher und Rohrverbindungen
+
+Mehrere Pufferspeicher werden automatisch nach ihrer gespeicherten Verbindungstopologie angeordnet. Mit **Puffer in Reihe verbinden** werden die oberen Vorlaufanschlüsse und unteren Rücklaufanschlüsse benachbarter Speicher miteinander verknüpft. Vorhandene Leitungen bleiben unverändert; der Vorgang fügt fehlende Verbindungen hinzu und ist wiederholbar. Der tatsächliche hydraulische Aufbau muss überprüft werden. Eine Parallelschaltung wird nicht eigenständig als Reihenschaltung interpretiert. Ohne explizite Verbindung bleiben die zusätzlichen Rohre im freien Plan unsichtbar.

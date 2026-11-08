@@ -398,6 +398,26 @@
     editor.querySelector('button[data-action="add-component"]')?.click();
     check(updatedConfig?.plan?.components.length===11,'New components are saved through config-changed');
 
+    const buffersEditor=document.createElement('hydraulic-plan-card-editor');
+    buffersEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[{id:'b1',type:'buffer',name:'Puffer 1',sensors:{}},
+        {id:'b2',type:'buffer',name:'Puffer 2',sensors:{}},
+        {id:'b3',type:'buffer',name:'Puffer 3',sensors:{}}],connections:[]}});
+    document.body.append(buffersEditor);buffersEditor.hass=hassFree;
+    let buffersConfig;
+    buffersEditor.addEventListener('config-changed',e=>buffersConfig=e.detail.config);
+    buffersEditor.querySelector('[data-action="buffer-series"]')?.click();
+    check(buffersConfig?.plan.connections.length===4 &&
+      buffersConfig.plan.connections.some(e=>e.from==='b1'&&e.from_port==='top_out'&&
+        e.to==='b2'&&e.to_port==='top_in') &&
+      buffersConfig.plan.connections.some(e=>e.from==='b2'&&e.from_port==='bottom_out'&&
+        e.to==='b1'&&e.to_port==='bottom_in'),
+      'Three buffers form a directed top supply and bottom return series with one click');
+    buffersEditor.querySelector('[data-action="buffer-series"]')?.click();
+    check(buffersConfig?.plan.connections.length===4,
+      'Adding a series twice does not duplicate already connected pipes');
+    buffersEditor.remove();
+
     // Mixer percentage is a valve position; it must NOT suppress a pump-driven
     // animation at either end of its 0–100% travel.
     const flowNodes=[

@@ -317,6 +317,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           data-level-entity="${esc(selected.id)}" data-level-index="${index}" value="${esc(point.entity)}"/></label>
         <button data-action="remove-level" data-index="${index}" type="button">${t("Löschen","Delete")}</button></div>`).join("");
       const isTank=selected&&["buffer","dhw_tank"].includes(selected.type);
+      const bufferList=p.components.filter(c=>c.type==="buffer");
+      const misplacedBufferEdges=p.connections.filter(e=>{
+        const from=p.components.find(c=>c.id===e.from),to=p.components.find(c=>c.id===e.to);
+        return from?.type==="buffer"&&to?.type==="buffer"&&e.from_port==="bottom_out"&&e.to_port==="top_in";
+      });
       const chosen=selected?`<h3>${t("Bauteil konfigurieren","Configure component")}</h3>
         <div class="hpc-row"><label>${t("Bezeichnung","Name")}<input data-name="${esc(selected.id)}"
           maxlength="75" value="${esc(selected.name)}"/></label>
@@ -361,6 +366,12 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <p>${t("Die Bauteile werden passend zu ihren Anschlüssen automatisch im ursprünglichen Hydraulikplan angeordnet. Du musst keine Positionen eingeben. Die Live-Vorschau siehst du im Dashboard.","Components are automatically arranged in the original hydraulic schematic. No manual coordinates are required. The dashboard shows the live preview.")}</p>
           ${chosen}
           <h3>${t("Rohrverbindungen","Pipe connections")}</h3>
+          ${bufferList.length>=2?`<div class="hpc-ems">
+            <strong>${t("Pufferspeicher verbinden","Connect buffer tanks")}</strong>
+            <p>${t("Reihenschaltung: Vorlauf jeweils oben zum nächsten Puffer, Rücklauf unten zurück zum vorherigen. Bereits vorhandene Verbindungen bleiben erhalten; prüfe die tatsächliche Verrohrung.","Series layout: hot flow at the top to the next buffer, cooler return at the bottom to the previous. Existing connections are retained; check your actual pipework.")}</p>
+            <button type="button" data-action="buffer-series">${t("Puffer in Reihe verbinden","Connect buffers in series")}</button>
+          </div>`:""}
+          ${misplacedBufferEdges.length?`<p class="hpc-connection-warning">${t("Achtung: Eine Pufferleitung ist von unten nach oben verbunden. Bitte prüfen, ob das der tatsächlichen Verrohrung entspricht.","Warning: a buffer pipe links bottom to top. Verify this corresponds to the actual installation.")}</p>`:""}
           <div class="hpc-row"><label>${t("Von Anschluss","From port")}<select id="hpc-from">
             <option value="">–</option>${portOptions("from")}</select></label>
             <label>${t("Zu Anschluss","To port")}<select id="hpc-to"><option value="">–</option></select></label>
@@ -424,6 +435,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           if(!HPC_FREE.validConnection(p,from,from_port,to,to_port))return;
           const id=(()=>{let i=1;const seen=new Set(p.connections.map(x=>x.id));while(seen.has("leitung_"+i))i++;return "leitung_"+i;})();
           return this._applyPlan({components:p.components,connections:[...p.connections,{id,from,from_port,to,to_port}]});
+        }
+        if(action==="buffer-series"){
+          const next=HPC_FREE.connectBufferSeries(p);
+          if(next.connections.length===p.connections.length)return;
+          return this._applyPlan(next);
         }
         if(action==="remove-edge"){
           return this._applyPlan({components:p.components,connections:p.connections.filter(c=>c.id!==button.dataset.edgeId)});
