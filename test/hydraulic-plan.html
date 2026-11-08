@@ -537,6 +537,46 @@
       'Original style display and fullscreen settings remain editable');
     nativeEditor.remove();
 
+    const etaNode={id:'eta1',type:'wood_chip_boiler',name:'ETA Hackgutheizung',
+      sensors:{state:ids.burning,flow:ids.flow,pump:ids.pump},
+      options:{eta_model:'hack_vr'}};
+    const etaPrimary=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[etaNode],connections:[]}},hassOf());
+    const etaSvg=etaPrimary.shadowRoot.getElementById('svg');
+    check(etaPrimary._config.generator_type==='pellet' &&
+      !!etaSvg.querySelector('.hpi-chip-primary .hpi-chip-feed'),
+      'ETA chip boiler replaces original primary pellet artwork inside the same SVG');
+    check(etaSvg.querySelector('#primary-boiler-art')?.style.display==='none' &&
+      etaSvg.querySelector('.hpi-chip-primary')?.textContent.includes('HACK VR'),
+      'ETA primary schematic displays the selected HACK VR model without a false pellet drawing');
+    etaPrimary.remove();
+
+    const etaAdditional=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[{id:'holzalt',type:'wood_gasifier',name:'Holzvergaser',sensors:{}},
+        {id:'eta2',type:'wood_chip_boiler',name:'ETA eHACK',sensors:{},
+          options:{eta_model:'ehack'}}],connections:[]}},hassOf());
+    check(!!etaAdditional.shadowRoot.querySelector('g[data-hpi-node="eta2"] .hpi-chip-face') &&
+      etaAdditional.shadowRoot.getElementById('svg')?.querySelectorAll('#hpi-root').length===1,
+      'Additional ETA eHACK uses the original hydraulic diagram and its own pictogram');
+    etaAdditional.remove();
+
+    const etaEditor=document.createElement('hydraulic-plan-card-editor');
+    etaEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[etaNode],connections:[]}});
+    document.body.append(etaEditor);etaEditor.hass=hassOf();
+    const etaPicker=etaEditor.querySelector('[data-eta-model="eta1"]');
+    check(etaPicker?.value==='hack_vr' &&
+      !!etaEditor.querySelector('[data-select="eta1"] .hpc-pictogram'),
+      'ETA model and wood-chip pictogram appear in the component setup');
+    let etaConfig;
+    etaEditor.addEventListener('config-changed',e=>etaConfig=e.detail.config);
+    if(etaPicker){etaPicker.value='ehack';etaPicker.dispatchEvent(new Event('change',{bubbles:true}));}
+    check(etaConfig?.plan.components[0]?.options?.eta_model==='ehack',
+      'Changing ETA HACK to eHACK persists through editor normalization');
+    etaEditor.remove();
+
+
+
     wood.remove(); oil.remove(); hybrid.remove();
   } catch (err) {
     failures.push('Unexpected runtime exception: ' + (err?.stack || String(err)));
