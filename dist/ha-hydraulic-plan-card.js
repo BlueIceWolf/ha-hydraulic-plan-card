@@ -8599,7 +8599,7 @@ const HPC_INTEGRATED = (() => {
       // the edge flow state still controls both legs.
       const branch=branchFeedEdges.has(edge.id)||branchReturnEdges.has(edge.id);
       const junction=supplyTee||returnTee;
-      const tee=branch||junction?'<circle class="hpi-coil-branch" cx="'+(junction?.x??(branchFeedEdges.has(edge.id)?p.x:q.x))+'" cy="'+(junction?.y??(branchFeedEdges.has(edge.id)?p.y:q.y))+'" r="5" fill="var(--card-background-color,#fff)" stroke="'+(on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+'" stroke-width="2"/>':'';
+      const tee=junction?'<circle class="hpi-coil-branch" cx="'+junction.x+'" cy="'+junction.y+'" r="5" fill="var(--card-background-color,#fff)" stroke="'+(on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+'" stroke-width="2"/>':'';
       return '<g class="hpi-link" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"><title>'+HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'
         +'<path class="pipe'+(on?' on':'')+'" d="'+d+'"'+(color?' style="--pc:'+color+'"':'')+'/>'
         +'<path class="flow'+(on?' on':'')+'" d="'+d+'"/>'+tee+'</g>';
