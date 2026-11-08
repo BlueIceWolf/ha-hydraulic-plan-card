@@ -7998,7 +7998,8 @@ const HPC_INTEGRATED = (() => {
     // Legacy entities intentionally win over auto-mappings; existing heat pump
     // users retain precisely their previous presets/overrides.
     const derived={...config};
-    if(src)derived.generator_type=types[src.type];
+    if(p.components.length)derived.generator_type=src?types[src.type]:'heat_pump';
+    else if(src)derived.generator_type=types[src.type];
     if(src&&src.type!=='heat_pump')derived.boiler_name=src.name;
     if(p.components.length){
       // Free plan is authoritative: old dashboard role keys must not draw
@@ -8222,9 +8223,14 @@ const HPC_INTEGRATED = (() => {
         const supplyY=isCore?250:b.y+57;
         const returnY=isCore?380:b.y+b.h-34;
         const valveX=outletX+42;
-        const fromX=outletX+8;
-        const stemY=supplyY+24;
-        const bypass='M'+fromX+' '+supplyY+' H'+valveX+' V'+returnY;
+        const fromX=outletX;
+        // Attached RLA loop: two real attachment points at the boiler flow
+        // and return; the visual branch must not end in mid-air.
+        const returnX=isCore?outletX:b.x;
+        const bypass=isCore
+          ?'M'+fromX+' '+supplyY+' H'+valveX+' V'+returnY+' H'+returnX
+          :'M'+fromX+' '+supplyY+' H'+valveX+' V'+returnY+
+            ' V'+(b.y+b.h+22)+' H'+(b.x-22)+' V'+returnY+' H'+returnX;
         const state=HPC_FREE.state(hass,node.sensors.pump);
         const flowing=state!==null&&HPC_FREE.active(state);
         const position=HPC_FREE.state(hass,node.sensors.mixer);
@@ -8245,7 +8251,7 @@ const HPC_INTEGRATED = (() => {
     return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+'</g>',
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
-  return {layout,coreConfig,svg,tankPoints,flowStates};
+  return {layout,coreConfig,svg,tankPoints,flowStates,isSource};
 })();
 
 // EMS-ESP exposes its heating appliances via Home Assistant MQTT Discovery.
@@ -8380,6 +8386,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const signature=JSON.stringify(p)+'|'+tick;
       if(!force&&signature===this._integratedSig&&svg.querySelector('#hpi-root'))return;
       const rendered=HPC_INTEGRATED.svg(model,this._hass);
+      // A storage-only plan is valid. Without a selected heat source the
+      // original engine would otherwise paint a fictitious heat pump/boiler.
+      if(!p.components.some(c=>HPC_INTEGRATED.isSource?.(c)||
+        ["wood_gasifier","oil_boiler","pellet_boiler","gas_boiler","heat_pump"].includes(c.type))){
+        const source=svg.querySelector("#hp-box")?.closest("g.tap");
+        if(source)source.style.display="none";
+      }
       // The original heat-pump SVG has prewired pipes. In component mode
       // those would show fictitious connections and overlapping lines.
       for(const legacy of svg.querySelectorAll('path[id^="p-"],path[id^="f-"]')){

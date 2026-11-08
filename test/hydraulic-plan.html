@@ -434,6 +434,13 @@
       'Adding a series twice does not duplicate already connected pipes');
     buffersEditor.remove();
 
+    const storageOnly=await mount({type:'custom:hydraulic-plan-card',
+      generator_type:'oil',preset:'none',
+      plan:{components:[{id:'tankonly',type:'buffer',name:'Puffer',sensors:{}}],connections:[]}},hassOf());
+    check(!storageOnly.shadowRoot.querySelector('#hp-box')?.closest('g.tap')?.getClientRects().length,
+      'Buffer-only plans never display a fictitious boiler or heat pump');
+    storageOnly.remove();
+
     // Mixer percentage is a valve position; it must NOT suppress a pump-driven
     // animation at either end of its 0–100% travel.
     const flowNodes=[

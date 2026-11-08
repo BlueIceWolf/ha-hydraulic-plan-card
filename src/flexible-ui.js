@@ -55,6 +55,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const signature=JSON.stringify(p)+'|'+tick;
       if(!force&&signature===this._integratedSig&&svg.querySelector('#hpi-root'))return;
       const rendered=HPC_INTEGRATED.svg(model,this._hass);
+      // A storage-only plan is valid. Without a selected heat source the
+      // original engine would otherwise paint a fictitious heat pump/boiler.
+      if(!p.components.some(c=>HPC_INTEGRATED.isSource?.(c)||
+        ["wood_gasifier","oil_boiler","pellet_boiler","gas_boiler","heat_pump"].includes(c.type))){
+        const source=svg.querySelector("#hp-box")?.closest("g.tap");
+        if(source)source.style.display="none";
+      }
       // The original heat-pump SVG has prewired pipes. In component mode
       // those would show fictitious connections and overlapping lines.
       for(const legacy of svg.querySelectorAll('path[id^="p-"],path[id^="f-"]')){
