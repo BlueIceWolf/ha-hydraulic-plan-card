@@ -505,17 +505,29 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <h3>${t("Hydraulikschema","Hydraulic schematic")}</h3>
           <p>${t("Die Bauteile werden passend zu ihren Anschlüssen automatisch im ursprünglichen Hydraulikplan angeordnet. Du musst keine Positionen eingeben. Die Live-Vorschau siehst du im Dashboard.","Components are automatically arranged in the original hydraulic schematic. No manual coordinates are required. The dashboard shows the live preview.")}</p>
           ${chosen}
-          <h3>${t("Rohrverbindungen","Pipe connections")}</h3>
+          <h3>${t("Bauteile verbinden","Connect components")}</h3>
+          <div class="hpc-row hpc-quick-connect">
+            <label class="hpc-field">${t("Was soll verbunden werden?","What should be connected?")}
+              <select id="hpc-pair"><option value="">${t("Verbindung wählen","Choose connection")}</option>${pairOptions}</select>
+            </label>
+            <button type="button" data-action="connect-pair" class="hpc-primary" ${suggestedPairs.length?"":"disabled"}>${t("Verbinden","Connect")}</button>
+          </div>
+          <p class="hpc-connection-hint">${t("Vorlauf und Rücklauf werden gemeinsam angeschlossen. Beim Holzvergaser führt der Rücklauf vom Speicher zurück zum Kessel.","Supply and return are connected together. For wood gasifiers the return leads from the tank back to the boiler.")}</p>
           ${bufferList.length>=2?`<div class="hpc-ems">
             <strong>${t("Pufferspeicher verbinden","Connect buffer tanks")}</strong>
             <p>${t("Reihenschaltung: Vorlauf jeweils oben zum nächsten Puffer, Rücklauf unten zurück zum vorherigen. Bereits vorhandene Verbindungen bleiben erhalten; prüfe die tatsächliche Verrohrung.","Series layout: hot flow at the top to the next buffer, cooler return at the bottom to the previous. Existing connections are retained; check your actual pipework.")}</p>
             <button type="button" data-action="buffer-series">${t("Puffer in Reihe verbinden","Connect buffers in series")}</button>
           </div>`:""}
           ${misplacedBufferEdges.length?`<p class="hpc-connection-warning">${t("Achtung: Eine Pufferleitung ist von unten nach oben verbunden. Bitte prüfen, ob das der tatsächlichen Verrohrung entspricht.","Warning: a buffer pipe links bottom to top. Verify this corresponds to the actual installation.")}</p>`:""}
-          <div class="hpc-row"><label>${t("Von Anschluss","From port")}<select id="hpc-from">
-            <option value="">–</option>${portOptions("from")}</select></label>
-            <label>${t("Zu Anschluss","To port")}<select id="hpc-to"><option value="">–</option></select></label>
-            <button type="button" data-action="connect" class="hpc-primary">${t("Verbinden","Connect")}</button></div>
+          <details class="hpc-advanced-pipes">
+            <summary>${t("Spezielle Anschlüsse einzeln verbinden","Connect individual ports (advanced)")}</summary>
+            <div class="hpc-row"><label>${t("Ausgang","From port")}<select id="hpc-from">
+              <option value="">–</option>${portOptions("from")}</select></label>
+              <label>${t("Eingang","To port")}<select id="hpc-to"><option value="">–</option></select></label>
+              <button type="button" data-action="connect">${t("Einzelne Leitung hinzufügen","Add individual pipe")}</button>
+            </div>
+          </details>
+          <h3>${t("Vorhandene Leitungen","Configured pipes")}</h3>
           ${connectionRows||`<p>${t("Noch keine Rohrverbindungen eingerichtet. Das Schema nimmt keine echte Verrohrung an.","No pipe connections configured. The diagram does not infer pipework.")}</p>`}
           <p>${t("Die Leitungen werden bei aktivem Pumpen- oder Flusssignal animiert. 0 % und 100 % Mischerstellung verhindern die Animation nicht. Ohne zugeordneten Pumpenstatus ist der Durchfluss unbekannt. Bitte die tatsächliche Hydraulik prüfen.","Pipes animate when an assigned pump or flow signal is active. Mixer positions of 0% or 100% do not disable circulation. Without a pump signal, flow is unknown. Verify actual pipework.")}</p>`}
         ${dataList}
