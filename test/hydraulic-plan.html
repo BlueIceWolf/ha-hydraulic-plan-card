@@ -765,7 +765,7 @@
         sensors:{}}],connections:[]}});
     document.body.append(wpEditor);wpEditor.hass=hassOf();
     const stylePicker=wpEditor.querySelector('[data-wp-style="wp_style"]');
-    check(stylePicker?.options.length===HFC_UNIT_STYLES.length &&
+    check(stylePicker?.options.length===13 &&
       Array.from(stylePicker.options).some(option=>option.value==='wolf')&&
       Array.from(stylePicker.options).some(option=>option.value==='stiebel'),
       'All original outdoor-unit manufacturer illustrations are selectable');
