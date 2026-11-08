@@ -365,7 +365,14 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // Native Home Assistant ha-form matches the original card's entity setup.
       const useNativeForm=!!globalThis.customElements?.get('ha-form');
       const useNativePicker=!!globalThis.customElements?.get('ha-entity-picker');
-      const activeFields=selected ? HPC_FREE.byType[selected.type].fields.filter(key=>key!=='mixer'||selected.options?.return_lift) : [];
+      const hcMixed=selected?.type==='heating_circuit'
+        ?(typeof selected.options?.mixed==='boolean'?selected.options.mixed:!!selected.sensors.mixer)
+        :false;
+      // Mixer measurement is always available on a mixed heating circuit.
+      // Only a wood-gasifier return-lift mixer belongs behind a separate toggle.
+      const activeFields=selected?HPC_FREE.byType[selected.type].fields.filter(key=>
+        key!=='mixer'||selected.type==='heating_circuit'&&hcMixed||
+        selected.type==='wood_gasifier'&&selected.options?.return_lift):[];
       const mainFields={wood_gasifier:['state','flow','return','pump'],oil_boiler:['state','flow','return','pump'],
         pellet_boiler:['state','flow','return','pump'],gas_boiler:['state','flow','return','pump'],
         heat_pump:['state','flow','return','power'],buffer:['top','middle','bottom'],
@@ -465,6 +472,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             ${[["standard",t("Standardkessel","Standard boiler")],["low_temp",t("Niedertemperaturkessel","Low-temperature boiler")],["condensing",t("Brennwertkessel","Condensing boiler")]]
              .map(([id,name])=>`<option value="${id}" ${(selected.options?.boiler_kind||"standard")===id?"selected":""}>${name}</option>`).join("")}
           </select></label>`:""}
+        ${selected.type==="heating_circuit"?`<label class="hpc-checkbox">
+          <input type="checkbox" data-hc-mixer="${esc(selected.id)}" ${hcMixed?'checked':''}/>
+          <span>${t("Heizkreis mit Mischer","Heating circuit with mixing valve")}</span>
+        </label>
+        ${hcMixed?`<p>${t("Mischerstellung als Entität unter Messwerte zuordnen. Ohne Messwert wird der Mischer nur als Bauteil angezeigt.","Assign the mixer position under measured values. Without a value, only the mixing valve symbol is shown.")}</p>`:''}`:""}
         ${selected.type==="heating_circuit"?`<label class="hpc-field">${t("Heizflächenart","Heat emitter")}
           <select data-heating-emitter="${esc(selected.id)}">
             ${[['underfloor',t('Fußboden- / Flächenheizung','Underfloor heating')],
@@ -822,6 +834,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const c=plan.components.find(x=>x.id===el.dataset.boilerKind);
         if(c)c.options={...c.options,boiler_kind:el.value};
       });
+      root.querySelectorAll('[data-hc-mixer]').forEach(el=>el.addEventListener('change',()=>changePlan(plan=>{
+        const node=plan.components.find(c=>c.id===el.dataset.hcMixer);
+        if(node?.type!=='heating_circuit')return;
+        node.options={...node.options,mixed:el.checked};
+        // Keep an existing sensor for a future re-enable. The renderer and
+        // sensor form both honor mixed:false without deleting it.
+      })));
       fieldUpdate('[data-heating-emitter]',(plan,el)=>{
         const node=plan.components.find(c=>c.id===el.dataset.heatingEmitter);
         if(node?.type==='heating_circuit'&&HFC_EMITTERS.includes(el.value))
