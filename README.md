@@ -119,3 +119,9 @@ Browser tests use Playwright. No external API or database is needed for the card
 ## Attribution and license
 
 Hydraulic Plan Card derives from **Heat Pump Hydraulic Card** by **Sturmi77**, copyright © 2026, distributed under the **MIT License**. The original license notice is included in [LICENSE](LICENSE), and the original source header is retained in the derived JavaScript. Modifications in this repository are separately documented. We are not affiliated with, or endorsed by, the upstream maintainer.
+
+### EMS-ESP boiler discovery
+
+The editor detects compatible EMS-ESP devices from already available Home Assistant MQTT Discovery entities (no separate network connection). On a boiler with suitable identifiers it can propose an **oil boiler** (e.g. a Buderus S115U); otherwise it displays a boiler with **unknown fuel**. An EMS bus connection does **not** by itself establish fuel type, and no boiler is silently added. You must choose **Assign detected values** in the editor before the mapping is stored.
+
+Supported short names include `boiler_burngas` (actual burner), `boiler_curflowtemp`, `boiler_rettemp`, `boiler_exhausttemp`, `boiler_heatingpump`, and `boiler_oilpreheat` (fuel detection only). The exact HA entity IDs depend on EMS-ESP's MQTT Discovery naming options. Existing manual assignments take precedence, and the card never sends control commands.

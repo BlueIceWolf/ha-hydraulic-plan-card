@@ -7862,7 +7862,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     ${routes}${svgNodes}
   </svg>`;
 }
-  const css="\n  :host { display:block; --hpc-muted: var(--secondary-text-color, #7b8798); }\n  ha-card { background:var(--ha-card-background,var(--card-background-color,#fff)); padding:14px;overflow:hidden; }\n  .hpc-board {width:100%;overflow:auto;overscroll-behavior:contain;border-radius:12px;\n    border:1px solid var(--divider-color,rgba(110,125,145,.22));\n    background:var(--card-background-color,rgba(0,0,0,.02));}\n  #hpc-free-svg{min-width:650px;display:block;width:100%;height:auto;max-height:72vh;}\n  .hpc-appliance .hpc-unit-border{fill:var(--secondary-background-color,rgba(126,144,160,.1));\n    stroke:var(--divider-color,#9ca3af);stroke-width:2.3;}\n  .hpc-appliance.is-on .hpc-unit-border{stroke:var(--hfc-heat,#ca793e);}\n  .hpc-node.is-selected .hpc-unit-border,.hpc-node.is-selected .hpc-tank-shadow{\n    stroke:var(--primary-color,#2196f3);stroke-width:4;}\n  .hpc-unit-border,.hpc-tank-shadow,.hpc-tank-main{filter:drop-shadow(0 2px 3px rgba(0,0,0,.08))}\n  .hpc-component-icon{stroke:var(--hpc-muted);fill:none;stroke-width:2.8}\n  .hpc-component-icon.is-on{stroke:var(--hfc-hot,#b35b38)}\n  .hpc-component-icon circle,.hpc-component-icon rect{fill:var(--card-background-color,#fff)}\n  .hpc-node{cursor:pointer}.hpc-node:hover .hpc-unit-border{stroke:var(--primary-color,#2196f3)}\n  .hpc-label{font:600 16px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-name{font-size:15px}\n  .hpc-reading{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-reading{font:600 12px var(--ha-font-family-body,system-ui,sans-serif);\n    fill:#fff;stroke:rgba(29,46,62,.85);paint-order:stroke fill;stroke-width:3px;}\n  .hpc-detail{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--secondary-text-color,#7d8590);}\n  .hpc-tank-shadow{fill:var(--card-background-color,#fff);stroke:var(--divider-color,#8e9bab);stroke-width:2.4;}\n  .hpc-tank-main{stroke:var(--divider-color,rgba(70,90,110,.6));stroke-width:1.3}\n  .hpc-tank-shine{fill:none;stroke:rgba(255,255,255,.28);stroke-width:6;stroke-linecap:round}\n  .hpc-tank-tick{fill:none;stroke:rgba(255,255,255,.50);stroke-width:1.1;}\n  .hpc-port{fill:var(--card-background-color,#fff);stroke:var(--hfc-flow-hot,#ad584b);stroke-width:2}\n  .hpc-route{pointer-events:none;}\n  .hpc-pipe-outline{fill:none;stroke:var(--divider-color,rgba(110,125,145,.5));\n    stroke-width:13;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-pipe{fill:none;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-arrow{fill:var(--primary-text-color,#516274);}\n  .hpc-pulse{fill:none;stroke:rgba(255,255,255,.9);stroke-width:3;stroke-dasharray:5 13;\n    animation:hpc-motion 1.35s linear infinite;}\n  @keyframes hpc-motion{to{stroke-dashoffset:-36}}\n  @media(prefers-reduced-motion:reduce){.hpc-pulse{animation:none;}}\n  .hpc-note{font-size:.82em;color:var(--secondary-text-color,#7d8590);margin:10px 3px 4px;}\n  .hpc-editor{font-family:var(--ha-font-family-body,inherit);color:var(--primary-text-color,inherit);}\n  .hpc-editor h3{font-size:1.02em;font-weight:600;margin:18px 0 9px;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding-bottom:6px}\n  .hpc-editor p{font-size:.88em;line-height:1.5;color:var(--secondary-text-color,#7d8590)}\n  .hpc-actions,.hpc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:9px 0}\n  .hpc-editor button,.hpc-editor select,.hpc-editor input{\n    box-sizing:border-box;font:inherit;border-radius:10px;\n    border:1px solid var(--divider-color,rgba(127,127,127,.34));\n    padding:10px 12px;color:var(--primary-text-color,inherit);\n    background:var(--card-background-color,#fff);max-width:100%;min-width:0}\n  .hpc-editor input:focus,.hpc-editor select:focus{outline:2px solid var(--primary-color,#03a9f4);outline-offset:1px}\n  .hpc-editor button{cursor:pointer;font-weight:500}\n  .hpc-editor button:hover{background:var(--secondary-background-color,rgba(127,127,127,.12))}\n  .hpc-editor button.hpc-primary{background:var(--primary-color,#03a9f4);color:#fff;border:0;}\n  .hpc-editor label{display:flex;flex-direction:column;gap:5px;font-size:.86em;font-weight:500;flex:1 1 170px;}\n  .hpc-editor .hpc-checkbox{display:flex;flex-direction:row;align-items:center;gap:11px;flex:1 1 100%;cursor:pointer;padding:11px 12px;border:1px solid var(--divider-color,rgba(127,127,127,.32));border-radius:10px;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-editor .hpc-checkbox input{width:19px;height:19px;margin:0;flex:0 0 auto;accent-color:var(--primary-color,#03a9f4);}\n  .hpc-editor .hpc-field{margin:6px 0;}\n  .hpc-editor .hpc-component-list{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
+  const css="\n  :host { display:block; --hpc-muted: var(--secondary-text-color, #7b8798); }\n  ha-card { background:var(--ha-card-background,var(--card-background-color,#fff)); padding:14px;overflow:hidden; }\n  .hpc-board {width:100%;overflow:auto;overscroll-behavior:contain;border-radius:12px;\n    border:1px solid var(--divider-color,rgba(110,125,145,.22));\n    background:var(--card-background-color,rgba(0,0,0,.02));}\n  #hpc-free-svg{min-width:650px;display:block;width:100%;height:auto;max-height:72vh;}\n  .hpc-appliance .hpc-unit-border{fill:var(--secondary-background-color,rgba(126,144,160,.1));\n    stroke:var(--divider-color,#9ca3af);stroke-width:2.3;}\n  .hpc-appliance.is-on .hpc-unit-border{stroke:var(--hfc-heat,#ca793e);}\n  .hpc-node.is-selected .hpc-unit-border,.hpc-node.is-selected .hpc-tank-shadow{\n    stroke:var(--primary-color,#2196f3);stroke-width:4;}\n  .hpc-unit-border,.hpc-tank-shadow,.hpc-tank-main{filter:drop-shadow(0 2px 3px rgba(0,0,0,.08))}\n  .hpc-component-icon{stroke:var(--hpc-muted);fill:none;stroke-width:2.8}\n  .hpc-component-icon.is-on{stroke:var(--hfc-hot,#b35b38)}\n  .hpc-component-icon circle,.hpc-component-icon rect{fill:var(--card-background-color,#fff)}\n  .hpc-node{cursor:pointer}.hpc-node:hover .hpc-unit-border{stroke:var(--primary-color,#2196f3)}\n  .hpc-label{font:600 16px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-name{font-size:15px}\n  .hpc-reading{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-reading{font:600 12px var(--ha-font-family-body,system-ui,sans-serif);\n    fill:#fff;stroke:rgba(29,46,62,.85);paint-order:stroke fill;stroke-width:3px;}\n  .hpc-detail{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--secondary-text-color,#7d8590);}\n  .hpc-tank-shadow{fill:var(--card-background-color,#fff);stroke:var(--divider-color,#8e9bab);stroke-width:2.4;}\n  .hpc-tank-main{stroke:var(--divider-color,rgba(70,90,110,.6));stroke-width:1.3}\n  .hpc-tank-shine{fill:none;stroke:rgba(255,255,255,.28);stroke-width:6;stroke-linecap:round}\n  .hpc-tank-tick{fill:none;stroke:rgba(255,255,255,.50);stroke-width:1.1;}\n  .hpc-port{fill:var(--card-background-color,#fff);stroke:var(--hfc-flow-hot,#ad584b);stroke-width:2}\n  .hpc-route{pointer-events:none;}\n  .hpc-pipe-outline{fill:none;stroke:var(--divider-color,rgba(110,125,145,.5));\n    stroke-width:13;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-pipe{fill:none;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-arrow{fill:var(--primary-text-color,#516274);}\n  .hpc-pulse{fill:none;stroke:rgba(255,255,255,.9);stroke-width:3;stroke-dasharray:5 13;\n    animation:hpc-motion 1.35s linear infinite;}\n  @keyframes hpc-motion{to{stroke-dashoffset:-36}}\n  @media(prefers-reduced-motion:reduce){.hpc-pulse{animation:none;}}\n  .hpc-note{font-size:.82em;color:var(--secondary-text-color,#7d8590);margin:10px 3px 4px;}\n  .hpc-editor{font-family:var(--ha-font-family-body,inherit);color:var(--primary-text-color,inherit);}\n  .hpc-editor h3{font-size:1.02em;font-weight:600;margin:18px 0 9px;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding-bottom:6px}\n  .hpc-editor p{font-size:.88em;line-height:1.5;color:var(--secondary-text-color,#7d8590)}\n  .hpc-actions,.hpc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:9px 0}\n  .hpc-editor button,.hpc-editor select,.hpc-editor input{\n    box-sizing:border-box;font:inherit;border-radius:10px;\n    border:1px solid var(--divider-color,rgba(127,127,127,.34));\n    padding:10px 12px;color:var(--primary-text-color,inherit);\n    background:var(--card-background-color,#fff);max-width:100%;min-width:0}\n  .hpc-editor input:focus,.hpc-editor select:focus{outline:2px solid var(--primary-color,#03a9f4);outline-offset:1px}\n  .hpc-editor button{cursor:pointer;font-weight:500}\n  .hpc-editor button:hover{background:var(--secondary-background-color,rgba(127,127,127,.12))}\n  .hpc-editor button.hpc-primary{background:var(--primary-color,#03a9f4);color:#fff;border:0;}\n  .hpc-editor label{display:flex;flex-direction:column;gap:5px;font-size:.86em;font-weight:500;flex:1 1 170px;}\n  .hpc-editor .hpc-checkbox{display:flex;flex-direction:row;align-items:center;gap:11px;flex:1 1 100%;cursor:pointer;padding:11px 12px;border:1px solid var(--divider-color,rgba(127,127,127,.32));border-radius:10px;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-editor .hpc-checkbox input{width:19px;height:19px;margin:0;flex:0 0 auto;accent-color:var(--primary-color,#03a9f4);}\n  .hpc-editor .hpc-field{margin:6px 0;}\n  .hpc-editor .hpc-component-list{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}\n  .hpc-ems{border:1px solid var(--primary-color,#03a9f4);border-radius:12px;padding:8px 14px 14px;margin:14px 0;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-ems h3{margin-top:5px;}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
   return {types,byType,ports,portRole,validConnection,dimension,display,fieldLabel,esc,normalize,newNode,sample,state,active,format,color,portXY,draw,css,text};
 })();
 
@@ -8199,6 +8199,76 @@ const HPC_INTEGRATED = (() => {
   return {layout,coreConfig,svg,tankPoints,flowStates};
 })();
 
+// EMS-ESP exposes its heating appliances via Home Assistant MQTT Discovery.
+// We only inspect the frontend's already available entity/device registries.
+// No MQTT broker credentials, network requests, or heating-control writes.
+const HPC_EMS = (() => {
+  const roles = {
+    state: ['burngas','burneractive','burnerstatus','burnerstate','burner','burngas2'],
+    flow: ['curflowtemp','flowtemp','supplytemperature','supplytemp','boiltemp'],
+    return: ['rettemp','returntemp','returntemperature'],
+    exhaust: ['exhausttemp','fluegastemp','fluegastemperature'],
+    pump: ['heatingpump','boilerpump','loadingpump','boilerloadingpump'],
+    starts: ['burnstarts','burnerstarts','burnerstarth'],
+    fan: ['fanwork','combustionfan'],
+    oxygen: ['o2','oxygen','residualoxygen'],
+    power: ['boilerpowerw','heatingpowerw','outputpowerw']
+  };
+  const allAliases = new Set(Object.values(roles).flat());
+  const isBoilerEntity = id => /(?:^|_)boiler_/.test(id);
+  function detect(hass) {
+    if(!hass?.states)return [];
+    const found=new Map(), registrations=hass.entities||{}, devices=hass.devices||{};
+    for(const id of Object.keys(hass.states)){
+      const [domain,short]=id.split('.');
+      if(!['sensor','binary_sensor','switch','number','select'].includes(domain)||!short)continue;
+      if(!isBoilerEntity(short))continue;
+      const suffix=short.replace(/^.*?boiler_/,'').replace(/[^a-z0-9]/g,'');
+      const itemRole=Object.entries(roles).find(([role,names])=>names.includes(suffix))?.[0]||null;
+      // Oil preheating is useful evidence of fuel type but not a burner status.
+      if(!itemRole&&suffix!=='oilpreheat')continue;
+      const registry=registrations[id]||{};
+      const device=devices[registry.device_id]||{};
+      const gateway=devices[device.via_device_id]||{};
+      const meta=[registry.unique_id,registry.platform,device.name,device.name_by_user,
+        device.model,device.manufacturer,gateway.name,gateway.model,gateway.manufacturer,
+        JSON.stringify(device.identifiers||[]),JSON.stringify(gateway.identifiers||[])].join(' ').toLowerCase();
+      const isEms=/ems[-_\s]?esp|emsesp/.test(meta);
+      const group=registry.device_id||short.replace(/boiler_.*/,'boiler');
+      if(!found.has(group))found.set(group,{group,entities:{},evidence:[],marker:false,
+        description:[device.name_by_user||device.name||'',device.model||'',device.manufacturer||''].join(' ').trim()});
+      const candidate=found.get(group);
+      candidate.marker ||= isEms;
+      candidate.evidence.push({id,role:itemRole,suffix});
+      if(itemRole){
+        const current=candidate.entities[itemRole];
+        const rank=roles[itemRole].indexOf(suffix);
+        const existingRank=current?roles[itemRole].findIndex(name=>current.endsWith(name)):Infinity;
+        if(!current||rank<existingRank)candidate.entities[itemRole]=id;
+      }
+    }
+    const output=[];
+    for(const item of found.values()){
+      const count=Object.keys(item.entities).length;
+      if(count<2||(!item.marker&&count<3))continue;
+      const description=item.description.toLowerCase();
+      const oilModel=/\b(?:s115u?|g115|g125|g215|s125|oil|oel|öl|logano\s+g1)/i.test(description);
+      const gasModel=/\b(?:gas|gaseous|logamax|gb172|gb192|gb125)\b/i.test(description);
+      const oilSignal=item.evidence.some(e=>e.suffix==='oilpreheat');
+      const fuel=oilModel||oilSignal?'oil_boiler':gasModel?'gas_boiler':'unknown';
+      output.push({
+        id:item.group,name:item.description||'EMS-ESP Boiler',
+        source:item.marker?'EMS-ESP':'MQTT (EMS-ESP möglicherweise)',
+        confirmed:item.marker,
+        type:fuel,entities:item.entities,count,
+        fuelCertain:fuel!=='unknown'
+      });
+    }
+    return output.sort((a,b)=>Number(b.confirmed)-Number(a.confirmed)||b.count-a.count);
+  }
+  return {detect};
+})();
+
 const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
   class HydraulicPlanCard extends HeatpumpFlowCard {
     static getConfigElement() { return document.createElement('hydraulic-plan-card-editor'); }
@@ -8435,6 +8505,17 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const t=(de,en)=>lang==="de"?de:en,esc=HPC_FREE.esc;
       const p=HPC_FREE.normalize(this._config.plan);
       const configured=true;
+      const emsCandidates=HPC_EMS.detect(this._hass);
+      const chosenEms=emsCandidates[0];
+      const emsTypeLabel=(type)=>type==="oil_boiler"?t("Ölkessel","Oil boiler"):
+        type==="gas_boiler"?t("Gaskessel","Gas boiler"):t("Kessel (Brennstoff prüfen)","Boiler (verify fuel)");
+      const emsInfo=chosenEms?`<section class="hpc-ems">
+        <h3>${t("Heizung über EMS-ESP erkannt","Heating device detected via EMS-ESP")}</h3>
+        <p><strong>${esc(chosenEms.name)}</strong> · ${esc(chosenEms.source)} · ${emsTypeLabel(chosenEms.type)}</p>
+        <p>${chosenEms.count} ${t("passende Messwerte gefunden. Die Erkennung liest nur Home-Assistant-Entitäten und verändert deine Heizung nicht.","matching values found. Detection only reads Home Assistant entities and never changes heating controls.")}</p>
+        ${chosenEms.type==="unknown"?`<p>${t("Der Brennstoff lässt sich aus den verfügbaren Geräten nicht sicher erkennen. Bitte den richtigen Kesseltyp auswählen.","Fuel type cannot be reliably inferred. Select the proper boiler type first.")}</p>`:""}
+        <button type="button" data-action="ems-apply">${t("Messwerte dem passenden Kessel zuordnen","Assign detected values to matching boiler")}</button>
+      </section>`:"";
       const selected=p.components.find(c=>c.id===this._selectedId)||p.components[0];
       if(selected)this._selectedId=selected.id;
       const sensors=Object.keys(this._hass?.states||{}).filter(id=>/^(sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/.test(id));
@@ -8512,6 +8593,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <div class="hpc-row"><label>${t("Name der Anlage","System name")}<input id="hpc-free-title"
             value="${esc(this._config.title||"")}" placeholder="Hydraulic Plan Card"/></label></div>
           <div class="hpc-actions"><button type="button" data-action="example">${t("Beispielkomponenten ergänzen","Add example components")}</button></div>
+          ${emsInfo}
           <h3>${t("Bauteil hinzufügen","Add component")}</h3>
           <div class="hpc-row"><label>${t("Art","Type")}<select id="hpc-free-type">${typeOptions}</select></label>
             <button type="button" class="hpc-primary" data-action="add-component">${t("Hinzufügen","Add")}</button></div>
@@ -8539,6 +8621,25 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const changePlan=(fn)=>{const next=HPC_FREE.normalize(p);fn(next);this._applyPlan(next);};
       root.querySelectorAll("[data-action]").forEach(button=>button.addEventListener("click",()=>{
         const action=button.dataset.action;
+        if(action==="ems-apply"&&chosenEms){
+          const matches=p.components.filter(c=>c.type===chosenEms.type&&
+            HPC_FREE.byType[c.type]?.group==="source");
+          const same=matches.find(c=>Object.values(c.sensors||{}).some(id=>Object.values(chosenEms.entities).includes(id)));
+          const target=same||matches[0]||
+            (chosenEms.type==="unknown"&&selected&&HPC_FREE.byType[selected.type]?.group==="source"?selected:null);
+          if(!target&&chosenEms.type==="unknown")return;
+          const copy=HPC_FREE.normalize(p);
+          const node=target?copy.components.find(c=>c.id===target.id):HPC_FREE.newNode(chosenEms.type,copy);
+          if(!node)return;
+          if(!target)copy.components.push(node);
+          // Never overwrite a value the user selected manually.
+          for(const [key,id] of Object.entries(chosenEms.entities)){
+            if(HPC_FREE.byType[node.type].fields.includes(key)&&!node.sensors[key])node.sensors[key]=id;
+          }
+          if(!target)node.name=chosenEms.name.slice(0,75);
+          this._selectedId=node.id;
+          return this._applyPlan(copy,{hpc_legacy_imported:true});
+        }
         if(action==="start")return this._applyPlan({components:[],connections:[]});
         if(action==="example")return this._applyPlan(HPC_FREE.sample());
         if(action==="add-component"){

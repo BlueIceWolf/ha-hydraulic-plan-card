@@ -294,6 +294,46 @@
       'Unconfigured original fixed pipes are hidden');
     graph.remove();
 
+    // EMS-ESP MQTT Discovery: use manufacturer/device metadata and actual boiler
+    // aliases; a generic EMS boiler alone must not be guessed as an oil boiler.
+    const emsHass=hassOf({
+      'binary_sensor.boiler_burngas':state('binary_sensor.boiler_burngas','on'),
+      'sensor.boiler_curflowtemp':state('sensor.boiler_curflowtemp',72,'°C'),
+      'sensor.boiler_rettemp':state('sensor.boiler_rettemp',54,'°C'),
+      'binary_sensor.boiler_oilpreheat':state('binary_sensor.boiler_oilpreheat','off')
+    });
+    emsHass.entities=Object.fromEntries([
+      'binary_sensor.boiler_burngas','sensor.boiler_curflowtemp',
+      'sensor.boiler_rettemp','binary_sensor.boiler_oilpreheat'
+    ].map(id=>[id,{device_id:'oil1',platform:'mqtt',unique_id:'ems-esp_'+id}]));
+    emsHass.devices={oil1:{name:'Buderus Logano S115U',model:'S115U',
+      manufacturer:'EMS-ESP'}};
+    const emsEditor=document.createElement('hydraulic-plan-card-editor');
+    emsEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[],connections:[]}});
+    document.body.append(emsEditor);
+    emsEditor.hass=emsHass;
+    check(!!emsEditor.querySelector('.hpc-ems')?.textContent.includes('Ölkessel'),
+      'EMS-ESP oil boiler is detected from device metadata and oil preheater');
+    let emsConfig;
+    emsEditor.addEventListener('config-changed',ev=>emsConfig=ev.detail.config);
+    emsEditor.querySelector('[data-action="ems-apply"]')?.click();
+    const detectedOil=emsConfig?.plan.components.find(c=>c.type==='oil_boiler');
+    check(detectedOil?.sensors.flow==='sensor.boiler_curflowtemp' &&
+      detectedOil?.sensors.state==='binary_sensor.boiler_burngas',
+      'EMS-ESP assigns real boiler values only after user confirms');
+    emsEditor.remove();
+    const unknownHass=hassOf({
+      'binary_sensor.boiler_burngas':state('binary_sensor.boiler_burngas','on'),
+      'sensor.boiler_curflowtemp':state('sensor.boiler_curflowtemp',72,'°C'),
+      'sensor.boiler_rettemp':state('sensor.boiler_rettemp',54,'°C')
+    });
+    unknownHass.entities=Object.fromEntries(Object.keys(unknownHass.states).filter(id=>id.includes('boiler_'))
+      .map(id=>[id,{device_id:'gas1',platform:'mqtt',unique_id:'ems-esp_'+id}]));
+    unknownHass.devices={gas1:{name:'EMS-ESP Boiler',manufacturer:'EMS-ESP'}};
+    const generic=HPC_EMS.detect(unknownHass);
+    check(generic[0]?.type==='unknown','EMS bus alone never implies oil as fuel');
+
     const editor=document.createElement('hydraulic-plan-card-editor');
     editor.setConfig({type:'custom:hydraulic-plan-card',plan:{components:sample,connections:edges}});
     document.body.appendChild(editor);editor.hass=hassFree;

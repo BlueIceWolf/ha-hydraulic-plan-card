@@ -234,6 +234,17 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const t=(de,en)=>lang==="de"?de:en,esc=HPC_FREE.esc;
       const p=HPC_FREE.normalize(this._config.plan);
       const configured=true;
+      const emsCandidates=HPC_EMS.detect(this._hass);
+      const chosenEms=emsCandidates[0];
+      const emsTypeLabel=(type)=>type==="oil_boiler"?t("Ölkessel","Oil boiler"):
+        type==="gas_boiler"?t("Gaskessel","Gas boiler"):t("Kessel (Brennstoff prüfen)","Boiler (verify fuel)");
+      const emsInfo=chosenEms?`<section class="hpc-ems">
+        <h3>${t("Heizung über EMS-ESP erkannt","Heating device detected via EMS-ESP")}</h3>
+        <p><strong>${esc(chosenEms.name)}</strong> · ${esc(chosenEms.source)} · ${emsTypeLabel(chosenEms.type)}</p>
+        <p>${chosenEms.count} ${t("passende Messwerte gefunden. Die Erkennung liest nur Home-Assistant-Entitäten und verändert deine Heizung nicht.","matching values found. Detection only reads Home Assistant entities and never changes heating controls.")}</p>
+        ${chosenEms.type==="unknown"?`<p>${t("Der Brennstoff lässt sich aus den verfügbaren Geräten nicht sicher erkennen. Bitte den richtigen Kesseltyp auswählen.","Fuel type cannot be reliably inferred. Select the proper boiler type first.")}</p>`:""}
+        <button type="button" data-action="ems-apply">${t("Messwerte dem passenden Kessel zuordnen","Assign detected values to matching boiler")}</button>
+      </section>`:"";
       const selected=p.components.find(c=>c.id===this._selectedId)||p.components[0];
       if(selected)this._selectedId=selected.id;
       const sensors=Object.keys(this._hass?.states||{}).filter(id=>/^(sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/.test(id));
@@ -311,6 +322,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <div class="hpc-row"><label>${t("Name der Anlage","System name")}<input id="hpc-free-title"
             value="${esc(this._config.title||"")}" placeholder="Hydraulic Plan Card"/></label></div>
           <div class="hpc-actions"><button type="button" data-action="example">${t("Beispielkomponenten ergänzen","Add example components")}</button></div>
+          ${emsInfo}
           <h3>${t("Bauteil hinzufügen","Add component")}</h3>
           <div class="hpc-row"><label>${t("Art","Type")}<select id="hpc-free-type">${typeOptions}</select></label>
             <button type="button" class="hpc-primary" data-action="add-component">${t("Hinzufügen","Add")}</button></div>
@@ -338,6 +350,25 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const changePlan=(fn)=>{const next=HPC_FREE.normalize(p);fn(next);this._applyPlan(next);};
       root.querySelectorAll("[data-action]").forEach(button=>button.addEventListener("click",()=>{
         const action=button.dataset.action;
+        if(action==="ems-apply"&&chosenEms){
+          const matches=p.components.filter(c=>c.type===chosenEms.type&&
+            HPC_FREE.byType[c.type]?.group==="source");
+          const same=matches.find(c=>Object.values(c.sensors||{}).some(id=>Object.values(chosenEms.entities).includes(id)));
+          const target=same||matches[0]||
+            (chosenEms.type==="unknown"&&selected&&HPC_FREE.byType[selected.type]?.group==="source"?selected:null);
+          if(!target&&chosenEms.type==="unknown")return;
+          const copy=HPC_FREE.normalize(p);
+          const node=target?copy.components.find(c=>c.id===target.id):HPC_FREE.newNode(chosenEms.type,copy);
+          if(!node)return;
+          if(!target)copy.components.push(node);
+          // Never overwrite a value the user selected manually.
+          for(const [key,id] of Object.entries(chosenEms.entities)){
+            if(HPC_FREE.byType[node.type].fields.includes(key)&&!node.sensors[key])node.sensors[key]=id;
+          }
+          if(!target)node.name=chosenEms.name.slice(0,75);
+          this._selectedId=node.id;
+          return this._applyPlan(copy,{hpc_legacy_imported:true});
+        }
         if(action==="start")return this._applyPlan({components:[],connections:[]});
         if(action==="example")return this._applyPlan(HPC_FREE.sample());
         if(action==="add-component"){
