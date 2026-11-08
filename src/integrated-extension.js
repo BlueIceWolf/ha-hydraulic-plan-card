@@ -118,8 +118,9 @@ const HPC_INTEGRATED = (() => {
       const o=src.options||{};
       if(o.unit_style&&o.unit_style!=='auto')derived.unit_style=o.unit_style;
       else derived.unit_style=config.unit_style||'auto';
-      if(o.unit_size&&o.unit_size!=='medium')derived.unit_size=o.unit_size;
-      else derived.unit_size=config.unit_size||o.unit_size||'medium';
+      if(o.unit_size)derived.unit_size=o.unit_size;
+      else if(config.unit_size)derived.unit_size=config.unit_size;
+      else delete derived.unit_size;
       derived.source_type=o.source_type||config.source_type||'air';
     }
     if(p.components.length){
