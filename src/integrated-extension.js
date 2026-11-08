@@ -498,9 +498,13 @@ const HPC_INTEGRATED = (() => {
       ?'<g class="tap hpi-oil-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
         +oilArt(92,238,156,102,!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource.options?.boiler_kind)+'</g>'
       :'';
+    const primaryGas=firstSource?.type==='gas_boiler'
+      ?'<g class="tap hpi-gas-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
+        +additionalSourceArt('gas_boiler',{x:50,y:195},!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource)+'</g>'
+      :'';
     const firstBuffer=plan.components.find(c=>c.type==='buffer');
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank');
-    return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+primaryChip+primaryOil+'</g>',
+    return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+primaryChip+primaryOil+primaryGas+'</g>',
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
   return {layout,coreConfig,svg,tankPoints,flowStates,isSource};
