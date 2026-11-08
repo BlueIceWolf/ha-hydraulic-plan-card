@@ -623,8 +623,8 @@
     storageOnly.remove();
 
     // Multiple heating circuits must share the original pair of risers.
-    // Where the hot vertical riser crosses an earlier return, use a small
-    // insulated bridge rather than drawing a straight hot line through blue.
+    // The return from the tank is one continuous collector; the hot
+    // supply has a small non-connected gap where it crosses that return.
     const bufferBridged=await mount({type:'custom:hydraulic-plan-card',preset:'none',
       plan:{components:[
         {id:'buffer_test',type:'buffer',name:'Pufferspeicher',
@@ -642,15 +642,19 @@
     const bufferSvg=bufferBridged.shadowRoot.getElementById('svg');
     check(bufferSvg.querySelectorAll('#p-hc-up2').length===1 &&
       bufferSvg.querySelectorAll('#f-hc-up2').length===1 &&
-      bufferSvg.querySelector('#p-hc-up2')?.getAttribute('d')?.includes('C644'),
-      'Shared supply riser uses a clean bridge rather than a duplicate hot pipe');
-    check(bufferSvg.querySelectorAll('#hpi-riser-bridge-2').length===1 &&
-      bufferSvg.querySelectorAll('#hpi-buffer-couplings').length===1 &&
-      bufferSvg.querySelectorAll('.hpi-buffer-port').length===2,
-      'Buffer flow/return couplings are visible without new parallel pipe routes');
+      bufferSvg.querySelector('#p-hc-up2')?.getAttribute('d')?.includes('M660 503') &&
+      bufferSvg.querySelector('#f-hc-up2')?.getAttribute('d')?.includes('M660 503'),
+      'Supply riser has a short crossing gap, leaving the return uninterrupted');
+    check(bufferSvg.querySelectorAll('#hpi-riser-bridge-2').length===0 &&
+      bufferSvg.querySelectorAll('#hpi-buffer-couplings').length===0 &&
+      bufferSvg.querySelectorAll('#p-hc-down2').length===1 &&
+      bufferSvg.querySelectorAll('#f-hc-down2').length===1 &&
+      bufferSvg.querySelector('#p-hc-down2')?.getAttribute('d')==='M676 745 V495',
+      'One original return collector joins both circuits without extra loops or connection rings');
     bufferBridged.hass=hassOf({[ids.bufTop]:state(ids.bufTop,68,'°C')});
-    check(bufferBridged.shadowRoot.querySelectorAll('#hpi-riser-bridge-2').length===1,
-      'Live updates never duplicate riser bridges or tank connectors');
+    check(bufferBridged.shadowRoot.querySelectorAll('#hpi-riser-bridge-2').length===0 &&
+      bufferBridged.shadowRoot.querySelectorAll('#p-hc-down2').length===1,
+      'Live sensor updates preserve one return line without duplicate loops');
     bufferBridged.remove();
 
     // A stopped domestic-hot-water loading pump closes the entire coil
