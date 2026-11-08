@@ -16,6 +16,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       if(this._integratedPlan?.components.length)return false;
       return super._startState();
     }
+    // Render the heater mixing valve with the ORIGINAL card's own
+    // _circuitSvg/_mixerSvg, including its correct integrated bypass.
+    // Physical mixers must be visible even without a position sensor.
+    _hasMixer(n) {
+      const circuit=this._integratedPlan?.components
+        .filter(c=>c.type==='heating_circuit')[n-1];
+      if(circuit)return circuit.options?.mixed===true ||
+        (circuit.options?.mixed!==false&&super._hasMixer(n));
+      return super._hasMixer(n);
+    }
     _render() {
       if(!this._integratedPlan?.components.length&&this._hass&&this._config&&this._startState()){
         const lang=String(this._hass?.locale?.language||navigator.language||'de').startsWith('de')?'de':'en';
@@ -68,10 +78,15 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const source=svg.querySelector("#hp-box")?.closest("g.tap");
         if(source)source.style.display="none";
       }
-      // The original heat-pump SVG has prewired pipes. In component mode
-      // those would show fictitious connections and overlapping lines.
+      // Reuse the ORIGINAL card's complete heating-circuit artwork and
+      // prewired common supply/return trunks. In particular its mixer bypass
+      // is integrated into the actual radiators and is not a separate overlay.
+      // Only upstream generator/storage routes are replaced by custom pipes.
       for(const legacy of svg.querySelectorAll('path[id^="p-"],path[id^="f-"]')){
-        if(!legacy.closest('#hpi-root'))legacy.style.display='none';
+        if(legacy.closest('#hpi-root'))continue;
+        const id=legacy.id;
+        legacy.style.display=/^[pf]-hc(?:-?vl|-?rl|-?body|-?trunk|-?up|-?down|-?mix)/.test(id)
+          ?'':'none';
       }
       svg.querySelector('#hpi-root')?.remove();
       svg.insertAdjacentHTML('beforeend','<g id="hpi-root"><defs>'+rendered.defs+'</defs>'+rendered.body+'</g>');
