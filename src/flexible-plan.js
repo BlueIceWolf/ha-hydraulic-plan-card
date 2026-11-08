@@ -13,6 +13,8 @@ const HPC_FREE = (function makeFreeHelpers() {
     {type:"mixer",de:"3-Wege-Mischer / Rücklaufanhebung",en:"3-way mixing valve",group:"control",fields:["position","state"],ports:["a:L:.25","b:L:.75","ab:R:.5"]},
     {type:"diverter",de:"3-Wege-Umschaltventil",en:"3-way diverter valve",group:"control",fields:["position","state"],ports:["a:L:.25","b:L:.75","ab:R:.5"]},
     {type:"electric_heater",de:"Heizstab / Heizregister",en:"Electric heater",group:"control",fields:["state","power","flow","target"],ports:["in:L:.5","out:R:.5"]},
+    // The electrostatic filter belongs to the flue-gas path, NOT the water circuit.
+    {type:"particle_separator",de:"Elektrostatischer Partikelabscheider",en:"Electrostatic particle separator",group:"control",fields:["state","voltage","current"],ports:[]},
     {type:"manifold",de:"Verteiler / Sammelpunkt",en:"Manifold",group:"control",fields:[],ports:["a:L:.2","b:L:.5","c:L:.8","d:R:.2","e:R:.5","f:R:.8"]},
   ];
   const fields = {
@@ -22,6 +24,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     top:["Oben","Top"],middle:["Mitte","Middle"],bottom:["Unten","Bottom"],heater:["Heizstab","Immersion heater"],
     target:["Sollwert","Setpoint"],mixer:["Mischerstellung (%)","Mixing valve position (%)"],mixer_opening:["Mischer öffnet","Mixer opening"],mixer_closing:["Mischer schließt","Mixer closing"],position:["Stellung","Position"],volume:["Volumenstrom","Flow rate"],
     fuel_feed:["Austragung / Förderschnecke","Fuel feed / auger"],ash_removal:["Entaschung","Ash removal"],fuel_level:["Brennstoffvorrat","Fuel stock"],
+    voltage:["Hochspannung (kV)","Voltage (kV)"],current:["Strom (mA)","Current (mA)"],
   };
   const byType = Object.fromEntries(types.map(t=>[t.type,t]));
   const entityRx = /^(?:sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/;
@@ -36,7 +39,8 @@ const HPC_FREE = (function makeFreeHelpers() {
       wood_gasifier: '<rect x="7" y="7" width="34" height="34" rx="5"/><path d="M10 35h28M14 31h20M18 28c-5-7 3-12 5-18 2 7 10 11 8 18-2 5-10 7-13 0Z"/>',
       oil_boiler: '<rect x="5" y="5" width="27" height="38" rx="4"/><path d="M9 35h19M11 11h15M18 17c-3 4-5 7-5 9a5 5 0 0 0 10 0c0-2-2-5-5-9Z"/><rect x="32" y="17" width="11" height="16" rx="3"/><circle cx="37.5" cy="25" r="2"/><path d="M32 22h-4"/>',
       pellet_boiler: '<rect x="6" y="6" width="36" height="36" rx="5"/><path d="M10 29h28M10 33h28M12 38h24"/><circle cx="16" cy="18" r="3"/><circle cx="25" cy="18" r="3"/><circle cx="34" cy="18" r="3"/>',
-      wood_chip_boiler: '<rect x="16" y="5" width="26" height="38" rx="4"/><path d="M20 10h18M20 35h18M24 15h11M12 35 5 40M6 29h10M6 33h10M9 26l2 7M5 29l6-3M9 33l7-3"/><rect x="24" y="20" width="11" height="8" rx="2"/>',
+      wood_chip_boiler: '<path d="M17 6h25v34H17zM17 31h25M20 11h19v20H20zM24 16h10v12H24zM13 25 3 34M6 29l-3-6M4 36l12-6"/>',
+      particle_separator: '<rect x="8" y="14" width="32" height="27" rx="2"/><path d="M3 25h5m32 0h5M16 19v15M24 19v15M32 19v15M17 38l7 0 7 0M26 4l-7 12h7l-4 11 10-16h-7l1-7Z"/>',
       gas_boiler: '<rect x="6" y="6" width="36" height="36" rx="5"/><path d="M13 37h22M19 33c-6-7 3-13 6-22 0 8 10 12 8 20-1 7-12 10-14 2Z"/>',
       heat_pump: '<rect x="5" y="6" width="38" height="36" rx="5"/><circle cx="24" cy="24" r="13"/><path d="M24 24V13c-7 0-9 6-4 9m4 2 10 5c4-7 0-12-6-10m-4 5-9 6c4 7 10 7 12 0"/>',
       buffer: '<rect x="12" y="5" width="24" height="38" rx="8"/><path d="M12 17h24M12 30h24M19 9h10M19 39h10"/>',
@@ -224,7 +228,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     const index=nodes.filter(c=>byType[c.type].group===group).length;
     const prefix={wood_gasifier:"holzvergaser",oil_boiler:"oelkessel",pellet_boiler:"pelletkessel",wood_chip_boiler:"eta_hackgut",gas_boiler:"gaskessel",heat_pump:"waermepumpe",
       buffer:"puffer",dhw_tank:"warmwasser",heating_circuit:"heizkreis",pump:"pumpe",mixer:"mischer",diverter:"ventil",
-      electric_heater:"heizstab",manifold:"verteiler"}[type];
+      electric_heater:"heizstab",particle_separator:"partikelabscheider",manifold:"verteiler"}[type];
     return {id:nextId(prefix,new Set(nodes.map(c=>c.id))),type,name:type==="wood_chip_boiler"?"ETA eHACK":display(type),x:{source:75,control:365,storage:635,load:910}[group],
       y:70+index*(group==="storage"?240:180),sensors:{},options:{}};
   }
