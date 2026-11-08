@@ -493,6 +493,50 @@
       'Generic setup hint does not incorrectly demand a heat-pump integration');
     brandNew.remove();
 
+
+    // New generator drawings use the same upstream SVG and unit typography as
+    // heat pumps and tanks rather than generic flame-only cards.
+    const sourceVariants=['wood_gasifier','pellet_boiler','gas_boiler','heat_pump'];
+    const multiSource=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[{id:'oelmain',type:'oil_boiler',name:'Ölkessel',sensors:{}},
+        ...sourceVariants.map((type,i)=>({id:'quelle'+i,type,name:type,sensors:{}}))],
+        connections:[]}},hassOf());
+    const sourceArt=[...multiSource.shadowRoot.querySelectorAll('g[data-hpi-node]')];
+    check(sourceArt.length===4 && sourceArt.every(node=>!!node.querySelector('.hpi-source-case')),
+      'Wood, pellet, gas and additional heat pumps have dedicated original-style illustrations');
+    check(!!multiSource.shadowRoot.querySelector('.hpi-source-fan-ring') &&
+      !!multiSource.shadowRoot.querySelector('.hpi-source-pellet'),
+      'Supplemental heat pump fan and pellet storage are recognisable in SVG');
+    multiSource.remove();
+    check(!!addedOil?.querySelector('.hpi-oil-mark'),
+      'Added oil boiler has a distinctive oil-drop burner pictogram');
+
+    // Home Assistant registers ha-form. Use a tiny stand-in to validate the
+    // schema and the saved entity mapping without needing the full HA frontend.
+    if(!customElements.get('ha-form'))customElements.define('ha-form',class extends HTMLElement{});
+    const nativeEditor=document.createElement('hydraulic-plan-card-editor');
+    nativeEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[{id:'oilnative',type:'oil_boiler',name:'Ölkessel',sensors:{}}],connections:[]}});
+    document.body.append(nativeEditor);nativeEditor.hass=hassOf();
+    const nativeForm=nativeEditor.querySelector('#hpc-native-sensors');
+    check(!!nativeForm && nativeForm.schema?.[0]?.type==='expandable',
+      'Original-style native ha-form shows grouped entity selectors');
+    check(!!nativeEditor.querySelector('[data-select="oilnative"] .hpc-pictogram') &&
+      !!nativeEditor.querySelector('#hpc-free-icon .hpc-pictogram'),
+      'Oil boiler is visibly selectable with a pictogram');
+    let changedNative;
+    nativeEditor.addEventListener('config-changed',event=>changedNative=event.detail.config);
+    nativeForm?.dispatchEvent(new CustomEvent('value-changed',{bubbles:true,detail:{
+      value:{sensors:{state:ids.burning,flow:ids.flow}}
+    }}));
+    check(changedNative?.plan.components[0]?.sensors.state===ids.burning &&
+      changedNative?.plan.components[0]?.sensors.flow===ids.flow,
+      'Native entity picker changes persist without dropping assigned boiler fields');
+    const settingsForm=nativeEditor.querySelector('#hpc-native-settings');
+    check(!!settingsForm && settingsForm.schema?.[0]?.type==='expandable',
+      'Original style display and fullscreen settings remain editable');
+    nativeEditor.remove();
+
     wood.remove(); oil.remove(); hybrid.remove();
   } catch (err) {
     failures.push('Unexpected runtime exception: ' + (err?.stack || String(err)));
