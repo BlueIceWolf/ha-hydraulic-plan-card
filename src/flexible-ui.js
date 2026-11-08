@@ -60,7 +60,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const originalBoilerArt=svg.querySelector('#primary-boiler-art');
       const primaryType=p.components.find(HPC_INTEGRATED.isSource)?.type;
       if(originalBoilerArt)originalBoilerArt.style.display=
-        ['wood_chip_boiler','oil_boiler'].includes(primaryType)?'none':'';
+        ['wood_chip_boiler','oil_boiler','gas_boiler'].includes(primaryType)?'none':'';
       // A storage-only plan is valid. Without a selected heat source the
       // original engine would otherwise paint a fictitious heat pump/boiler.
       if(!p.components.some(c=>HPC_INTEGRATED.isSource?.(c)||
