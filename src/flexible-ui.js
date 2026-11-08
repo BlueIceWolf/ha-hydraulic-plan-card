@@ -55,10 +55,12 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const signature=JSON.stringify(p)+'|'+tick;
       if(!force&&signature===this._integratedSig&&svg.querySelector('#hpi-root'))return;
       const rendered=HPC_INTEGRATED.svg(model,this._hass);
-      // The native primary boiler still supplies the original pipes and labels.
-      // Replace only its generic furnace artwork with the matching ETA boiler.
+      // Preserve the original hydraulic anchors and labels. Oil and ETA use
+      // their own recognizable boiler artwork in exactly the same SVG.
       const originalBoilerArt=svg.querySelector('#primary-boiler-art');
-      if(originalBoilerArt)originalBoilerArt.style.display=p.components.find(HPC_INTEGRATED.isSource)?.type==='wood_chip_boiler'?'none':'';
+      const primaryType=p.components.find(HPC_INTEGRATED.isSource)?.type;
+      if(originalBoilerArt)originalBoilerArt.style.display=
+        ['wood_chip_boiler','oil_boiler'].includes(primaryType)?'none':'';
       // A storage-only plan is valid. Without a selected heat source the
       // original engine would otherwise paint a fictitious heat pump/boiler.
       if(!p.components.some(c=>HPC_INTEGRATED.isSource?.(c)||
