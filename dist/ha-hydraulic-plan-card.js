@@ -8595,6 +8595,28 @@ const HPC_INTEGRATED = (() => {
       // left; no pipe may cross the tank or create a second parallel header.
       const supplyTee=supplyTees.get(edge.id);
       const returnTee=returnTees.get(edge.id);
+      // The DHW coil is drawn above the buffer. A return to its right-hand
+      // collector must travel AROUND the vessel: never through the tank.
+      // Use the same outer pipe lane for charging pumps and their coil return.
+      const bufferCoilReturn=all[edge.from]?.type==='dhw_tank'&&
+        edge.from_port==='coil_out'&&all[edge.to]?.type==='buffer'&&
+        edge.to_port==='return_in';
+      const bufferCoilSupply=all[edge.from]?.type==='buffer'&&
+        all[edge.to]?.type==='pump'&&toShape.inline&&
+        edge.from_port==='top_out'&&edge.to_port==='in';
+      if(bufferCoilReturn&&!returnTee){
+        const outerX=toShape.x+toShape.w+75;
+        const exitX=p.x-38;
+        const below=Math.max(toShape.y+toShape.h+32,fromShape.y+fromShape.h+34);
+        d='M'+p.x+' '+p.y+' H'+exitX+' V'+below+
+          ' H'+outerX+' V'+q.y+' H'+q.x;
+      }else if(bufferCoilSupply&&!supplyTee){
+        const outerX=fromShape.x+fromShape.w+75;
+        const entryX=q.x-28;
+        const upperY=Math.min(18,toShape.y-28);
+        d='M'+p.x+' '+p.y+' H'+outerX+' V'+upperY+
+          ' H'+entryX+' V'+q.y+' H'+q.x;
+      }
       if(supplyTee){
         const entryX=q.x-34;
         const above=Math.min(20,q.y-42);
