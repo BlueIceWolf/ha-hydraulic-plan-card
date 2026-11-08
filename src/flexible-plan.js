@@ -138,6 +138,60 @@ const HPC_FREE = (function makeFreeHelpers() {
     if(portRole(a.type,fromPort)==="in"||portRole(b.type,toPort)==="out")return false;
     return !p.connections.some(e=>e.from===from&&e.from_port===fromPort&&e.to===to&&e.to_port===toPort);
   }
+  // Connect ordinary heating components by their actual hydraulic ports.
+  // The two choices are components, not directional pipe ends: a complete
+  // heating circuit needs a hot supply AND a separate cooler return.
+  // This helper never guesses mixing-valve routes or plant safety logic.
+  function connectPair(input,firstId,secondId) {
+    const plan=normalize(input);
+    const first=plan.components.find(c=>c.id===firstId);
+    const second=plan.components.find(c=>c.id===secondId);
+    if(!first||!second||first.id===second.id)return plan;
+    const source=type=>byType[type]?.group==='source';
+    const pairs=[];
+    if(source(first.type)&&second.type==='buffer'){
+      pairs.push([first.id,'flow',second.id,'top_in'],
+        [second.id,'bottom_out',first.id,'return']);
+    }else if(source(first.type)&&second.type==='dhw_tank'){
+      pairs.push([first.id,first.type==='oil_boiler'?'dhw':'flow',second.id,'coil_in'],
+        [second.id,'coil_out',first.id,'return']);
+    }else if(first.type==='buffer'&&second.type==='buffer'){
+      pairs.push([first.id,'top_out',second.id,'top_in'],
+        [second.id,'bottom_out',first.id,'bottom_in']);
+    }else if((source(first.type)||first.type==='buffer')&&second.type==='heating_circuit'){
+      pairs.push([first.id,first.type==='buffer'?'top_out':'flow',second.id,'flow_in'],
+        [second.id,'return_out',first.id,first.type==='buffer'?'bottom_in':'return']);
+    }else if(first.type==='pump'){
+      if(second.type==='buffer')pairs.push([first.id,'out',second.id,'top_in']);
+      if(second.type==='dhw_tank')pairs.push([first.id,'out',second.id,'coil_in']);
+    }else if(source(first.type)&&second.type==='pump'){
+      pairs.push([first.id,first.type==='oil_boiler'?'dhw':'flow',second.id,'in']);
+    }
+    const existing=new Set(plan.connections.map(e=>[e.from,e.from_port,e.to,e.to_port].join('|')));
+    const ids=new Set(plan.connections.map(e=>e.id));
+    for(const [from,fromPort,to,toPort] of pairs){
+      const key=[from,fromPort,to,toPort].join('|');
+      if(existing.has(key)||!validConnection(plan,from,fromPort,to,toPort))continue;
+      const id=nextId('leitung',ids);
+      ids.add(id);existing.add(key);
+      plan.connections.push({id,from,from_port:fromPort,to,to_port:toPort,
+        flow_entity:'',temperature_entity:''});
+    }
+    return normalize(plan);
+  }
+  function connectionPairs(input) {
+    const p=normalize(input);
+    const choices=[];
+    for(const a of p.components)for(const b of p.components){
+      if(a.id===b.id)continue;
+      const proposed=connectPair(p,a.id,b.id);
+      if(proposed.connections.length<=p.connections.length)continue;
+      const both=proposed.connections.length-p.connections.length;
+      choices.push({from:a.id,to:b.id,label:a.name+' → '+b.name,
+        count:both});
+    }
+    return choices;
+  }
   function connectBufferSeries(input) {
     const plan=normalize(input),buffers=plan.components.filter(c=>c.type==="buffer");
     if(buffers.length<2)return plan;
@@ -385,5 +439,5 @@ const HPC_FREE = (function makeFreeHelpers() {
   </svg>`;
 }
   const css="\n  :host { display:block; --hpc-muted: var(--secondary-text-color, #7b8798); }\n  ha-card { background:var(--ha-card-background,var(--card-background-color,#fff)); padding:14px;overflow:hidden; }\n  .hpc-board {width:100%;overflow:auto;overscroll-behavior:contain;border-radius:12px;\n    border:1px solid var(--divider-color,rgba(110,125,145,.22));\n    background:var(--card-background-color,rgba(0,0,0,.02));}\n  #hpc-free-svg{min-width:650px;display:block;width:100%;height:auto;max-height:72vh;}\n  .hpc-appliance .hpc-unit-border{fill:var(--secondary-background-color,rgba(126,144,160,.1));\n    stroke:var(--divider-color,#9ca3af);stroke-width:2.3;}\n  .hpc-appliance.is-on .hpc-unit-border{stroke:var(--hfc-heat,#ca793e);}\n  .hpc-node.is-selected .hpc-unit-border,.hpc-node.is-selected .hpc-tank-shadow{\n    stroke:var(--primary-color,#2196f3);stroke-width:4;}\n  .hpc-unit-border,.hpc-tank-shadow,.hpc-tank-main{filter:drop-shadow(0 2px 3px rgba(0,0,0,.08))}\n  .hpc-component-icon{stroke:var(--hpc-muted);fill:none;stroke-width:2.8}\n  .hpc-component-icon.is-on{stroke:var(--hfc-hot,#b35b38)}\n  .hpc-component-icon circle,.hpc-component-icon rect{fill:var(--card-background-color,#fff)}\n  .hpc-node{cursor:pointer}.hpc-node:hover .hpc-unit-border{stroke:var(--primary-color,#2196f3)}\n  .hpc-label{font:600 16px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-name{font-size:15px}\n  .hpc-reading{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-reading{font:600 12px var(--ha-font-family-body,system-ui,sans-serif);\n    fill:#fff;stroke:rgba(29,46,62,.85);paint-order:stroke fill;stroke-width:3px;}\n  .hpc-detail{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--secondary-text-color,#7d8590);}\n  .hpc-tank-shadow{fill:var(--card-background-color,#fff);stroke:var(--divider-color,#8e9bab);stroke-width:2.4;}\n  .hpc-tank-main{stroke:var(--divider-color,rgba(70,90,110,.6));stroke-width:1.3}\n  .hpc-tank-shine{fill:none;stroke:rgba(255,255,255,.28);stroke-width:6;stroke-linecap:round}\n  .hpc-tank-tick{fill:none;stroke:rgba(255,255,255,.50);stroke-width:1.1;}\n  .hpc-port{fill:var(--card-background-color,#fff);stroke:var(--hfc-flow-hot,#ad584b);stroke-width:2}\n  .hpc-route{pointer-events:none;}\n  .hpc-pipe-outline{fill:none;stroke:var(--divider-color,rgba(110,125,145,.5));\n    stroke-width:13;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-pipe{fill:none;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-arrow{fill:var(--primary-text-color,#516274);}\n  .hpc-pulse{fill:none;stroke:rgba(255,255,255,.9);stroke-width:3;stroke-dasharray:5 13;\n    animation:hpc-motion 1.35s linear infinite;}\n  @keyframes hpc-motion{to{stroke-dashoffset:-36}}\n  @media(prefers-reduced-motion:reduce){.hpc-pulse{animation:none;}}\n  .hpc-note{font-size:.82em;color:var(--secondary-text-color,#7d8590);margin:10px 3px 4px;}\n  .hpc-editor{font-family:var(--ha-font-family-body,inherit);color:var(--primary-text-color,inherit);}\n  .hpc-editor h3{font-size:1.02em;font-weight:600;margin:18px 0 9px;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding-bottom:6px}\n  .hpc-editor p{font-size:.88em;line-height:1.5;color:var(--secondary-text-color,#7d8590)}\n  .hpc-actions,.hpc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:9px 0}\n  .hpc-editor button,.hpc-editor select,.hpc-editor input{\n    box-sizing:border-box;font:inherit;border-radius:10px;\n    border:1px solid var(--divider-color,rgba(127,127,127,.34));\n    padding:10px 12px;color:var(--primary-text-color,inherit);\n    background:var(--card-background-color,#fff);max-width:100%;min-width:0}\n  .hpc-editor input:focus,.hpc-editor select:focus{outline:2px solid var(--primary-color,#03a9f4);outline-offset:1px}\n  .hpc-editor button{cursor:pointer;font-weight:500}\n  .hpc-editor button:hover{background:var(--secondary-background-color,rgba(127,127,127,.12))}\n  .hpc-editor button.hpc-primary{background:var(--primary-color,#03a9f4);color:#fff;border:0;}\n  .hpc-editor label{display:flex;flex-direction:column;gap:5px;font-size:.86em;font-weight:500;flex:1 1 170px;}\n  .hpc-editor .hpc-checkbox{display:flex;flex-direction:row;align-items:center;gap:11px;flex:1 1 100%;cursor:pointer;padding:11px 12px;border:1px solid var(--divider-color,rgba(127,127,127,.32));border-radius:10px;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-editor .hpc-checkbox input{width:19px;height:19px;margin:0;flex:0 0 auto;accent-color:var(--primary-color,#03a9f4);}\n  .hpc-editor .hpc-field{margin:6px 0;}\n  .hpc-editor .hpc-component-list{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}\n  .hpc-editor .hpc-pictogram{width:29px;height:29px;flex:none;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-add-preview{display:flex;align-items:center;justify-content:center;min-width:46px;min-height:46px;border-radius:12px;background:var(--secondary-background-color,rgba(127,127,127,.09))}\n  .hpc-editor .hpc-add-preview .hpc-pictogram{width:34px;height:34px;color:var(--primary-color,#03a9f4)}\n  .hpc-editor .hpc-config-title{display:flex;align-items:center;gap:9px}\n  .hpc-editor .hpc-config-title .hpc-pictogram{width:25px;height:25px}\n  .hpc-editor .hpc-component-list button{display:inline-flex;align-items:center;gap:8px;text-align:left}\n  .hpc-editor .hpc-component-list button span{display:flex;flex-direction:column;line-height:1.3}\n  .hpc-editor .hpc-component-list button small{font-size:.75em;font-weight:400;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-native-form{margin:8px 0 16px;--ha-form-grid-column-min-width:220px}\n  .hpc-editor .hpc-native-form ha-form{display:block}\n  .hpc-ems{border:1px solid var(--primary-color,#03a9f4);border-radius:12px;padding:8px 14px 14px;margin:14px 0;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-ems h3{margin-top:5px;}\n  .hpc-connection-warning{color:var(--error-color,#e16a42)!important;font-weight:600;}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
-  return {types,byType,ports,portRole,validConnection,connectBufferSeries,dimension,display,fieldLabel,icon,esc,normalize,newNode,sample,state,active,format,color,portXY,draw,css,text};
+  return {types,byType,ports,portRole,validConnection,connectPair,connectionPairs,connectBufferSeries,dimension,display,fieldLabel,icon,esc,normalize,newNode,sample,state,active,format,color,portXY,draw,css,text};
 })();
