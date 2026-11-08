@@ -91,6 +91,11 @@ const HPC_FREE = (function makeFreeHelpers() {
           ?{eta_model:["ehack","hack","hack_vr"].includes(n.options?.eta_model)?n.options.eta_model:"ehack"}
         :["oil_boiler","gas_boiler","pellet_boiler"].includes(n.type)
           ?{boiler_kind:["standard","low_temp","condensing"].includes(n.options?.boiler_kind)?n.options.boiler_kind:"standard"}
+          :n.type==="heat_pump"
+          // Keep the full outdoor-unit gallery from the original card.
+          ?{unit_style:HFC_UNIT_STYLES.includes(n.options?.unit_style)?n.options.unit_style:"auto",
+            unit_size:HFC_UNIT_SIZES.includes(n.options?.unit_size)?n.options.unit_size:"medium",
+            source_type:["air","brine","water"].includes(n.options?.source_type)?n.options.source_type:"air"}
           :{};
       // Remember which HA device was imported. This is only a read-only
       // identity for duplicate detection, never a credential or gateway URL.
