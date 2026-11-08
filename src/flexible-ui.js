@@ -415,6 +415,32 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const from=p.components.find(c=>c.id===e.from),to=p.components.find(c=>c.id===e.to);
         return from?.type==="buffer"&&to?.type==="buffer"&&e.from_port==="bottom_out"&&e.to_port==="top_in";
       });
+      // Keep the complete original outdoor-unit illustration selector.
+      // The same familiar manufacturer and cabinet choices are available
+      // directly on each heat pump instead of buried in classic YAML fields.
+      const unitLabels={
+        auto:t('Automatisch','Automatic'),generic:t('Standardgerät','Generic unit'),
+        lambda:'Lambda',vaillant:'Vaillant',panasonic:'Panasonic Aquarea',
+        viessmann:'Viessmann',bosch:'Bosch / Buderus',saunier:'Saunier Duval',
+        samsung:'Samsung',wolf:'Wolf',kronoterm:'Kronoterm',
+        alpha_innotec:'alpha innotec',stiebel:'Stiebel Eltron'
+      };
+      const heatPumpChoices=selected?.type==='heat_pump'
+        ?`<h3>${t("Außengerät wie in der Originalkarte","Original outdoor-unit style")}</h3>
+          <div class="hpc-row">
+            <label class="hpc-field">${t("Darstellung des Außengeräts","Outdoor-unit appearance")}
+              <select data-wp-style="${esc(selected.id)}">
+                ${HFC_UNIT_STYLES.map(style=>`<option value="${style}" ${(selected.options?.unit_style||'auto')===style?'selected':''}>${esc(unitLabels[style]||style)}</option>`).join('')}
+              </select>
+            </label>
+            <label class="hpc-field">${t("Gerätegröße / Lüfter","Unit size / fans")}
+              <select data-wp-size="${esc(selected.id)}">
+                <option value="" ${!selected.options?.unit_size?'selected':''}>${t("Automatisch","Automatic")}</option>
+                ${[['small',t('Klein','Small')],['medium',t('Mittel','Medium')],['large',t('Groß / zwei Lüfter','Large / two fans')]]
+                  .map(([value,label])=>`<option value="${value}" ${selected.options?.unit_size===value?'selected':''}>${label}</option>`).join('')}
+              </select>
+            </label>
+          </div>`:'';
       const chosen=selected?`<h3 class="hpc-config-title">${HPC_FREE.icon(selected.type)} ${t("Bauteil konfigurieren","Configure component")}</h3>
         <div class="hpc-row"><label>${t("Bezeichnung","Name")}<input data-name="${esc(selected.id)}"
           maxlength="75" value="${esc(selected.name)}"/></label>
@@ -439,6 +465,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             ${[["ehack","ETA eHACK"],["hack","ETA HACK"],["hack_vr","ETA HACK VR"]]
               .map(([id,name])=>`<option value="${id}" ${(selected.options?.eta_model||"ehack")===id?"selected":""}>${name}</option>`).join("")}
           </select></label>`:""}
+        ${heatPumpChoices}
         ${useNativeForm?'<div class="hpc-native-form"><ha-form id="hpc-native-sensors"></ha-form></div>':activeFields.map(key=>sensorField(selected.id,key,selected.sensors[key])).join("")}
         ${isTank?`<h3>${t("Zusätzliche Temperaturfühler","Additional temperature sensors")}</h3>
           <p>${t("Ordne jeden Fühler seiner tatsächlichen Einbauhöhe zu. 0 % = oben, 100 % = unten.","Set each sensor to its real installation height. 0% = top, 100% = bottom.")}</p>
@@ -729,6 +756,17 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(['Gaskessel','Gas boiler'].includes(node.name))node.name='Ölkessel';
         node.options={boiler_kind:node.options?.boiler_kind||'standard'};
         // Shared flow/return ports and existing sensor assignments survive.
+      });
+      fieldUpdate('[data-wp-style]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.wpStyle);
+        if(node?.type==='heat_pump')node.options={...node.options,unit_style:el.value};
+      });
+      fieldUpdate('[data-wp-size]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.wpSize);
+        if(node?.type!=='heat_pump')return;
+        node.options={...node.options};
+        if(el.value)node.options.unit_size=el.value;
+        else delete node.options.unit_size;
       });
       fieldUpdate("[data-boiler-kind]",(plan,el)=>{
         const c=plan.components.find(x=>x.id===el.dataset.boilerKind);
