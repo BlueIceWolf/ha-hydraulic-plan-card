@@ -475,7 +475,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         ["control",t("Pumpen, Mischer und Verteiler","Pumps, valves and manifolds")]
       ];
       const typeOptions=categories.map(([group,label])=>`<optgroup label="${esc(label)}">${HPC_FREE.types
-        .filter(c=>c.group===group)
+        .filter(c=>c.group===group&&c.type!=='particle_separator')
         .map(c=>`<option value="${esc(c.type)}">${esc(HPC_FREE.display(c.type,lang))}</option>`).join("")}</optgroup>`).join("");
       const portNames={
         flow:t("Vorlauf","Flow"),return:t("Rücklauf","Return"),dhw:t("Warmwasser","Hot water"),
@@ -786,7 +786,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             const node=HPC_FREE.newNode('wood_chip_boiler',copy);
             if(!node)continue;
             node.name=c.name.slice(0,75);
-            node.options={...node.options,eta_model:c.model};
+            node.options={...node.options,eta_model:c.model,particle_separator:c.particleSeparator===true};
             node.discovery={provider:'eta',id:String(c.id)};
             for(const [key,id] of Object.entries(c.entities))
               if(HPC_FREE.byType[node.type].fields.includes(key))node.sensors[key]=id;
@@ -842,7 +842,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             node.name=chosenEta.name.slice(0,75);
             copy.components.push(node);
           }
-          node.options={...node.options,eta_model:target?.options?.eta_model||chosenEta.model};
+          node.options={...node.options,eta_model:target?.options?.eta_model||chosenEta.model,
+            particle_separator:node.options?.particle_separator===true||chosenEta.particleSeparator===true};
           node.discovery={provider:'eta',id:String(chosenEta.id)};
           for(const [key,id] of Object.entries(chosenEta.entities)){
             if(HPC_FREE.byType[node.type].fields.includes(key)&&!node.sensors[key])

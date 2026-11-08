@@ -151,9 +151,19 @@ const HPC_ETA = (() => {
         candidate._priority={...candidate._priority,[role]:preferred};
       }
     }
-    return [...groups.values()].map(c=>{
+    const allCandidates=[...groups.values()];
+    return allCandidates.map(c=>{
       const { _priority, ...publicCandidate }=c;
-      return {...publicCandidate,count:Object.keys(c.entities).length};
+      // Attach a particulate separator only when the ETA data explicitly
+      // advertises one and it can be tied to this same boiler device.
+      const particleSeparator=Object.entries(hass.states).some(([id,state])=>{
+        const reg=registrations[id]||{};
+        const name=clean([id,state?.attributes?.friendly_name].join(' '));
+        const eta=reg.platform==='eta'||/^sensor\\.eta_/.test(id);
+        if(!eta||!/partikelabscheider|partikel filter|electrostatic separator/.test(name))return false;
+        return reg.device_id===c.id || allCandidates.length===1;
+      });
+      return {...publicCandidate,particleSeparator,count:Object.keys(c.entities).length};
     }).sort((a,b)=>b.count-a.count);
   }
   return {detect};
