@@ -381,8 +381,9 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <p>${t("Wähle selbst, welche Wärmeerzeuger, Speicher und Heizkreise du hast und wie sie verbunden sind. Eine Wärmepumpe ist nicht erforderlich.","Choose your own heat generators, tanks, heating circuits and connections. No heat-pump integration required.")}</p>
           <div class="hpc-actions"><button type="button" class="hpc-primary" data-action="start">${t("Leeren Plan anlegen","Start blank plan")}</button>
             <button type="button" data-action="example">${t("Beispiel: Elternanlage","Example: parents' system")}</button></div>`:`
-          <div class="hpc-row"><label>${t("Name der Anlage","System name")}<input id="hpc-free-title"
-            value="${esc(this._config.title||"")}" placeholder="Hydraulic Plan Card"/></label></div>
+          ${useNativeForm?'<ha-form id="hpc-native-settings"></ha-form>':
+             `<div class="hpc-row"><label>${t("Name der Anlage","System name")}<input id="hpc-free-title"
+             value="${esc(this._config.title||"")}" placeholder="Hydraulic Plan Card"/></label></div>`}
           <div class="hpc-actions"><button type="button" data-action="example">${t("Beispielanlage laden (ersetzt Plan)","Load example (replaces plan)")}</button></div>
           ${emsInfo}
           <h3>${t("Bauteil hinzufügen","Add component")}</h3>
@@ -416,6 +417,47 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       this._freeUi.scrollTop=oldY;
       const root=this._freeUi;
       const changePlan=(fn)=>{const next=HPC_FREE.normalize(p);fn(next);this._applyPlan(next);};
+      const settingsForm=root.querySelector('#hpc-native-settings');
+      if(settingsForm){
+        const choice=(name,options)=>({name,selector:{select:{mode:'dropdown',
+          options:options.map(([value,label])=>({value,label}))}}});
+        const settingsFields=[
+          {name:'title',selector:{text:{}}},
+          choice('layout',[['default',t('Standard','Default')],['compact',t('Kompakt','Compact')],
+            ['wide',t('Breit','Wide')],['wall',t('Wanddisplay','Wall display')]]),
+          choice('theme',[['auto',t('Automatisch','Automatic')],['night',t('Nacht','Night')],
+            ['contrast',t('Kontrast','Contrast')]]),
+          choice('animations',[['auto',t('Automatisch','Automatic')],['always',t('Immer','Always')],
+            ['off',t('Aus','Off')]]),
+          {name:'fullscreen',selector:{boolean:{}}},
+          {name:'diagnostic',selector:{boolean:{}}},
+          {name:'controls',selector:{entity:{multiple:true,domain:['switch','input_boolean','light',
+            'fan','automation','button','input_button','script','scene','climate','number','input_number',
+            'select','input_select','water_heater']}}},
+        ];
+        settingsForm.hass=this._hass;
+        settingsForm.schema=[{type:'expandable',name:'appearance',flatten:true,
+          title:t('Darstellung und Bedienung','Appearance and controls'),schema:settingsFields}];
+        settingsForm.computeLabel=entry=>({
+          title:t('Name der Anlage','System name'),layout:t('Layout','Layout'),
+          theme:t('Farbschema','Theme'),animations:t('Animationen','Animations'),
+          fullscreen:t('Vollbildansicht','Fullscreen'),diagnostic:t('Diagnosebericht','Diagnostic report'),
+          controls:t('Schnellbedienung','Quick controls')})[entry.name]||entry.name;
+        settingsForm.data={title:this._config.title||'',layout:this._config.layout||'default',
+          theme:this._config.theme||'auto',animations:this._config.animations||'auto',
+          fullscreen:this._config.fullscreen!==false,diagnostic:this._config.diagnostic!==false,
+          controls:this._config.controls||[]};
+        settingsForm.addEventListener('value-changed',event=>{
+          event.stopPropagation();
+          const values=event.detail?.value;
+          if(!values)return;
+          const changed={};
+          for(const key of ['title','layout','theme','animations','fullscreen','diagnostic','controls']){
+            if(Object.hasOwn(values,key))changed[key]=values[key];
+          }
+          if(Object.keys(changed).length)this._save({...this._config,...changed});
+        });
+      }
       const chosenForm=root.querySelector('#hpc-native-sensors');
       this._nativeSensorForm=chosenForm||null;
       if(chosenForm&&selected){
