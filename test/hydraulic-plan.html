@@ -527,7 +527,7 @@
       plan:{components:[{id:'oelmain',type:'oil_boiler',name:'Ölkessel',sensors:{}},
         ...sourceVariants.map((type,i)=>({id:'quelle'+i,type,name:type,sensors:{}}))],
         connections:[]}},hassOf());
-    const sourceArt=[...multiSource.shadowRoot.querySelectorAll('g[data-hpi-node]')];
+    const sourceArt=[...multiSource.shadowRoot.querySelectorAll('g.hpi-component[data-hpi-node]')];
     check(sourceArt.length===4 && sourceArt.every(node=>!!node.querySelector('.hpi-source-case')),
       'Wood, pellet, gas and additional heat pumps have dedicated original-style illustrations');
     check(!!multiSource.shadowRoot.querySelector('.hpi-source-fan-ring') &&
