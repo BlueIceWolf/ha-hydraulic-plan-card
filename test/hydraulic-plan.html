@@ -620,6 +620,48 @@
       'Buffer-only plans never display a fictitious boiler or heat pump');
     storageOnly.remove();
 
+    // A stopped domestic-hot-water loading pump closes the entire coil
+    // circuit, not just its flow pipe. The parallel heating loop may still run.
+    const wwPumpId='switch.ww_charging_pump';
+    const heatPumpId='switch.heating_circuit_pump';
+    const wwSystem=[
+      {id:'wwsrc',type:'oil_boiler',name:'Ölkessel',
+        sensors:{pump:ids.pump,state:ids.burning}},
+      {id:'wwpump',type:'pump',name:'WW-Ladepumpe',
+        sensors:{state:wwPumpId}},
+      {id:'wwtank',type:'dhw_tank',name:'Warmwasserspeicher',sensors:{}},
+      {id:'wwhc',type:'heating_circuit',name:'Heizkreis',
+        sensors:{pump:heatPumpId}}
+    ];
+    const wwLinks=[
+      {id:'ww_pre',from:'wwsrc',from_port:'dhw',to:'wwpump',to_port:'in'},
+      {id:'ww_flow',from:'wwpump',from_port:'out',to:'wwtank',to_port:'coil_in'},
+      {id:'ww_return',from:'wwtank',from_port:'coil_out',to:'wwsrc',to_port:'return'},
+      {id:'heat_flow',from:'wwsrc',from_port:'flow',to:'wwhc',to_port:'flow_in'},
+      {id:'heat_return',from:'wwhc',from_port:'return_out',to:'wwsrc',to_port:'return'}
+    ];
+    const wwCard=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:wwSystem,connections:wwLinks}},
+      hassOf({[wwPumpId]:state(wwPumpId,'off'),
+        [heatPumpId]:state(heatPumpId,'on')}));
+    const wwActive=()=>[...wwCard.shadowRoot.querySelectorAll('g.hpi-link path.flow.on')]
+      .map(path=>path.closest('g.hpi-link')?.getAttribute('data-hpi-edge'))
+      .filter(Boolean);
+    const wwById=id=>!!wwCard.shadowRoot.querySelector(
+      'g.hpi-link[data-hpi-edge="'+id+'"] path.flow.on');
+    check(!wwById('ww_pre')&&!wwById('ww_flow')&&!wwById('ww_return')&&
+      wwById('heat_flow')&&wwById('heat_return'),
+      'WW charging pump off: both coil flow and return stop while heating remains active');
+    wwCard.hass=hassOf({[wwPumpId]:state(wwPumpId,'on'),
+      [heatPumpId]:state(heatPumpId,'on')});
+    check(wwById('ww_flow')&&wwById('ww_return'),
+      'WW charging pump on: both coil flow and return animate together');
+    wwCard.hass=hassOf({[wwPumpId]:state(wwPumpId,'off'),
+      [heatPumpId]:state(heatPumpId,'on')});
+    check(!wwById('ww_flow')&&!wwById('ww_return'),
+      'WW charging pump switching off stops return animation immediately');
+    wwCard.remove();
+
     // Mixer percentage is a valve position; it must NOT suppress a pump-driven
     // animation at either end of its 0–100% travel.
     const flowNodes=[
