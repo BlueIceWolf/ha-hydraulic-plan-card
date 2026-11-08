@@ -6,7 +6,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     {type:"wood_chip_boiler",de:"ETA Hackschnitzelkessel",en:"ETA Wood-chip boiler",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","fuel_feed","ash_removal","fuel_level","particle_state","particle_voltage","particle_current"],ports:["flow:R:.25","return:L:.75"]},
     {type:"gas_boiler",de:"Gaskessel",en:"Gas boiler",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
     {type:"heat_pump",de:"Wärmepumpe",en:"Heat pump",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
-    {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:L:.8","return_in:R:.8","bottom_out:R:.8"]},
+    {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:L:.8","return_in:L:.8","bottom_out:R:.8"]},
     {type:"dhw_tank",de:"Warmwasserspeicher",en:"Hot-water tank",group:"storage",fields:["top","middle","bottom"],ports:["coil_in:L:.28","coil_out:L:.74","hot_out:R:.24","cold_in:R:.78"]},
     {type:"heating_circuit",de:"Heizkreis (gemischt/ungemischt)",en:"Heating circuit",group:"load",fields:["flow","return","target","pump","mixer","mixer_opening","mixer_closing"],ports:["flow_in:L:.25","return_out:L:.75"]},
     {type:"pump",de:"Umwälzpumpe",en:"Circulation pump",group:"control",fields:["state","power","volume"],ports:["in:L:.5","out:R:.5"]},
@@ -131,13 +131,11 @@ const HPC_FREE = (function makeFreeHelpers() {
     const connections=[], edgeIds=new Set();
     for(const e of (Array.isArray(raw.connections)?raw.connections:[]).slice(0,180)){
       if(!e||!isId(e.id)||edgeIds.has(e.id)||!byId[e.from]||!byId[e.to])continue;
-      // Upgrade existing DHW/heating consumer returns to the right-hand
-      // collector port. Left-hand bottom_in remains available for generators
-      // and serial buffer connections, preserving real hydraulic topology.
-      const toPort=byId[e.to].type==='buffer'&&e.to_port==='bottom_in'&&
-        (byId[e.from].type==='dhw_tank'&&e.from_port==='coil_out'||
-         byId[e.from].type==='heating_circuit'&&e.from_port==='return_out')
-        ?'return_in':e.to_port;
+      // Incoming pipes must terminate on the left side of a buffer.
+      // Keep old "return_in" connections as a compatibility alias, but
+      // all new consumer returns use bottom_in like other tank inlets.
+      const toPort=byId[e.to].type==='buffer'&&e.to_port==='return_in'
+        ?'bottom_in':e.to_port;
       if(e.from===e.to||!ports(byId[e.from].type).some(p=>p.id===e.from_port)||
          !ports(byId[e.to].type).some(p=>p.id===toPort))continue;
       edgeIds.add(e.id);
@@ -185,7 +183,7 @@ const HPC_FREE = (function makeFreeHelpers() {
         [second.id,'bottom_out',first.id,'bottom_in']);
     }else if((source(first.type)||first.type==='buffer')&&second.type==='heating_circuit'){
       pairs.push([first.id,first.type==='buffer'?'top_out':'flow',second.id,'flow_in'],
-        [second.id,'return_out',first.id,first.type==='buffer'?'return_in':'return']);
+        [second.id,'return_out',first.id,first.type==='buffer'?'bottom_in':'return']);
     }else if(first.type==='pump'){
       if(second.type==='buffer')pairs.push([first.id,'out',second.id,'top_in']);
       if(second.type==='dhw_tank')pairs.push([first.id,'out',second.id,'coil_in']);
@@ -228,7 +226,7 @@ const HPC_FREE = (function makeFreeHelpers() {
       plan.components.push(newNode);
     }
     const supplyPort=source.type==='buffer'?'top_out':source.type==='oil_boiler'?'dhw':'flow';
-    const returnPort=source.type==='buffer'?'return_in':'return';
+    const returnPort=source.type==='buffer'?'bottom_in':'return';
     const specs=newNode
       ?[[source.id,supplyPort,newNode.id,kind==='pump'?'in':'ab'],
         [newNode.id,kind==='pump'?'out':'a',tank.id,'coil_in'],

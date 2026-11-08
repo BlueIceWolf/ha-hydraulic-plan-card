@@ -7545,7 +7545,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     {type:"wood_chip_boiler",de:"ETA Hackschnitzelkessel",en:"ETA Wood-chip boiler",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","fuel_feed","ash_removal","fuel_level","particle_state","particle_voltage","particle_current"],ports:["flow:R:.25","return:L:.75"]},
     {type:"gas_boiler",de:"Gaskessel",en:"Gas boiler",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
     {type:"heat_pump",de:"Wärmepumpe",en:"Heat pump",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
-    {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:L:.8","return_in:R:.8","bottom_out:R:.8"]},
+    {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:L:.8","return_in:L:.8","bottom_out:R:.8"]},
     {type:"dhw_tank",de:"Warmwasserspeicher",en:"Hot-water tank",group:"storage",fields:["top","middle","bottom"],ports:["coil_in:L:.28","coil_out:L:.74","hot_out:R:.24","cold_in:R:.78"]},
     {type:"heating_circuit",de:"Heizkreis (gemischt/ungemischt)",en:"Heating circuit",group:"load",fields:["flow","return","target","pump","mixer","mixer_opening","mixer_closing"],ports:["flow_in:L:.25","return_out:L:.75"]},
     {type:"pump",de:"Umwälzpumpe",en:"Circulation pump",group:"control",fields:["state","power","volume"],ports:["in:L:.5","out:R:.5"]},
@@ -7670,13 +7670,11 @@ const HPC_FREE = (function makeFreeHelpers() {
     const connections=[], edgeIds=new Set();
     for(const e of (Array.isArray(raw.connections)?raw.connections:[]).slice(0,180)){
       if(!e||!isId(e.id)||edgeIds.has(e.id)||!byId[e.from]||!byId[e.to])continue;
-      // Upgrade existing DHW/heating consumer returns to the right-hand
-      // collector port. Left-hand bottom_in remains available for generators
-      // and serial buffer connections, preserving real hydraulic topology.
-      const toPort=byId[e.to].type==='buffer'&&e.to_port==='bottom_in'&&
-        (byId[e.from].type==='dhw_tank'&&e.from_port==='coil_out'||
-         byId[e.from].type==='heating_circuit'&&e.from_port==='return_out')
-        ?'return_in':e.to_port;
+      // Incoming pipes must terminate on the left side of a buffer.
+      // Keep old "return_in" connections as a compatibility alias, but
+      // all new consumer returns use bottom_in like other tank inlets.
+      const toPort=byId[e.to].type==='buffer'&&e.to_port==='return_in'
+        ?'bottom_in':e.to_port;
       if(e.from===e.to||!ports(byId[e.from].type).some(p=>p.id===e.from_port)||
          !ports(byId[e.to].type).some(p=>p.id===toPort))continue;
       edgeIds.add(e.id);
@@ -7724,7 +7722,7 @@ const HPC_FREE = (function makeFreeHelpers() {
         [second.id,'bottom_out',first.id,'bottom_in']);
     }else if((source(first.type)||first.type==='buffer')&&second.type==='heating_circuit'){
       pairs.push([first.id,first.type==='buffer'?'top_out':'flow',second.id,'flow_in'],
-        [second.id,'return_out',first.id,first.type==='buffer'?'return_in':'return']);
+        [second.id,'return_out',first.id,first.type==='buffer'?'bottom_in':'return']);
     }else if(first.type==='pump'){
       if(second.type==='buffer')pairs.push([first.id,'out',second.id,'top_in']);
       if(second.type==='dhw_tank')pairs.push([first.id,'out',second.id,'coil_in']);
@@ -7767,7 +7765,7 @@ const HPC_FREE = (function makeFreeHelpers() {
       plan.components.push(newNode);
     }
     const supplyPort=source.type==='buffer'?'top_out':source.type==='oil_boiler'?'dhw':'flow';
-    const returnPort=source.type==='buffer'?'return_in':'return';
+    const returnPort=source.type==='buffer'?'bottom_in':'return';
     const specs=newNode
       ?[[source.id,supplyPort,newNode.id,kind==='pump'?'in':'ab'],
         [newNode.id,kind==='pump'?'out':'a',tank.id,'coil_in'],
@@ -8140,8 +8138,15 @@ const HPC_INTEGRATED = (() => {
         const tank=edge&&p.components.find(c=>c.id===edge.to&&c.type==='dhw_tank');
         const tankBox=tank&&(anchored.get(tank.id)||points.get(tank.id));
         if(tankBox){
-          const inletY=tankBox.y+40;
-          points.set(node.id,{x:tankBox.x-90,y:inletY-20,w:40,h:40,type:'pump',inline:true});
+          // Put the pump on the *supply run* leaving the buffer to the
+          // right. Keep distance from the WW tank and its temperature label.
+          const feeder=p.connections.find(c=>c.to===node.id&&c.to_port==='in');
+          const source=feeder&&p.components.find(c=>c.id===feeder.from);
+          const sourceBox=source&&(anchored.get(source.id)||points.get(source.id));
+          const laneX=sourceBox?.type==='buffer'?sourceBox.x+sourceBox.w+80:
+            tankBox.x+220;
+          const laneY=sourceBox?.type==='buffer'?sourceBox.y-64:tankBox.y+250;
+          points.set(node.id,{x:laneX,y:laneY,w:40,h:40,type:'pump',inline:true});
           return;
         }
       }
@@ -8240,11 +8245,11 @@ const HPC_INTEGRATED = (() => {
       return{x:290,y:250};
     }
     if(shape.type==='buffer'){
-      // The boiler/storage charge enters from the LEFT; all heating loads
-      // take their flow and return from the RIGHT of the buffer tank.
+      // Ports are defined by flow DIRECTION: every inlet is on the left,
+      // every outlet is on the right, including consumer return inlets.
       const y=shape.y+shape.h*(key.includes('bottom')||key==='return_in'?.875:
         key.includes('mid')?.54:.20);
-      const right=key.includes('out')||key==='return_in';
+      const right=key.includes('out');
       return{x:shape.x+(right?shape.w:0),y};
     }
     if(shape.type==='dhw_tank'){
@@ -8262,7 +8267,7 @@ const HPC_INTEGRATED = (() => {
   }
   function portSide(node,shape,key) {
     if(shape.type==='source')return 'R';
-    if(shape.type==='buffer')return key.endsWith('_out')||key==='return_in'?'R':'L';
+    if(shape.type==='buffer')return key.endsWith('_out')?'R':'L';
     if(shape.type==='dhw_tank')return key.startsWith('coil_')?'L':'R';
     if(shape.type==='heating_circuit')return 'L';
     return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'R';
@@ -8606,22 +8611,23 @@ const HPC_INTEGRATED = (() => {
       // Use the same outer pipe lane for charging pumps and their coil return.
       const bufferCoilReturn=all[edge.from]?.type==='dhw_tank'&&
         edge.from_port==='coil_out'&&all[edge.to]?.type==='buffer'&&
-        edge.to_port==='return_in';
+        edge.to_port==='bottom_in';
       const bufferCoilSupply=all[edge.from]?.type==='buffer'&&
         all[edge.to]?.type==='pump'&&toShape.inline&&
         edge.from_port==='top_out'&&edge.to_port==='in';
       if(bufferCoilReturn&&!returnTee){
-        const outerX=toShape.x+toShape.w+75;
-        const exitX=p.x-38;
+        // A return enters the buffer on the LEFT. Take the coil outlet
+        // around the entire storage envelope rather than across the tank.
+        const exitX=p.x-70;
         const below=Math.max(toShape.y+toShape.h+32,fromShape.y+fromShape.h+34);
+        const entryX=q.x-35;
         d='M'+p.x+' '+p.y+' H'+exitX+' V'+below+
-          ' H'+outerX+' V'+q.y+' H'+q.x;
-      }else if(bufferCoilSupply&&!supplyTee){
-        const outerX=fromShape.x+fromShape.w+75;
-        const entryX=q.x-28;
-        const upperY=Math.min(18,toShape.y-28);
-        d='M'+p.x+' '+p.y+' H'+outerX+' V'+upperY+
           ' H'+entryX+' V'+q.y+' H'+q.x;
+      }else if(bufferCoilSupply&&!supplyTee){
+        // Source outlet -> inline pump input: all pipe pieces meet at the
+        // actual port centres (no hidden gap or pump bypass).
+        const laneX=Math.min(q.x-30,p.x+35);
+        d='M'+p.x+' '+p.y+' H'+laneX+' V'+q.y+' H'+q.x;
       }
       if(supplyTee){
         const entryX=q.x-34;
@@ -8629,11 +8635,15 @@ const HPC_INTEGRATED = (() => {
         d='M'+supplyTee.x+' '+supplyTee.y+' V'+above+
           ' H'+entryX+' V'+q.y+' H'+q.x;
       }else if(returnTee){
-        // From the LEFT side of the coil, travel around the storage bank
-        // before joining the heating return header, never through the tank.
-        const exitX=p.x-70,below=Math.max(555,fromShape.y+fromShape.h+35);
+        // Join the actual left-hand return inlet, without a right-side
+        // collector pretending to be a buffer entry.
+        const exitX=p.x-70;
+        const bufferShape=all[edge.to]?.type==='buffer'?toShape:null;
+        const below=bufferShape?Math.max(bufferShape.y+bufferShape.h+32,fromShape.y+fromShape.h+34):
+          Math.max(555,fromShape.y+fromShape.h+35);
+        const entryX=q.x-35;
         d='M'+p.x+' '+p.y+' H'+exitX+' V'+below+
-          ' H'+returnTee.x+' V'+returnTee.y;
+          ' H'+entryX+' V'+q.y+' H'+q.x;
       }
       const inferred=(()=>{
         const node=all[edge.from],field=edge.from_port;
