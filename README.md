@@ -159,3 +159,19 @@ Supported short names include `boiler_burngas` (actual burner), `boiler_curflowt
 ### Pufferspeicher und Rohrverbindungen
 
 Mehrere Pufferspeicher werden automatisch nach ihrer gespeicherten Verbindungstopologie angeordnet. Mit **Puffer in Reihe verbinden** werden die oberen Vorlaufanschlüsse und unteren Rücklaufanschlüsse benachbarter Speicher miteinander verknüpft. Vorhandene Leitungen bleiben unverändert; der Vorgang fügt fehlende Verbindungen hinzu und ist wiederholbar. Der tatsächliche hydraulische Aufbau muss überprüft werden. Eine Parallelschaltung wird nicht eigenständig als Reihenschaltung interpretiert. Ohne explizite Verbindung bleiben die zusätzlichen Rohre im freien Plan unsichtbar.
+
+## Migration und Sicherung
+
+Das Planformat verwendet `hpc_schema_version: 2`. Ältere **gültige** Komponentenpläne
+werden beim Öffnen des Editors einmalig und ohne Änderung der bestätigten Topologie
+migriert; der originale Stand wird in `hpc_migration_backup` gesichert. Veraltete
+Pufferrücklauf-Anschlüsse (`return_in`) werden auf den linken `bottom_in`-Port
+überführt. Nicht eindeutig übernehmbare Bauteile, Sensoren oder Verbindungen
+**blockieren** eine automatische Migration, statt stillschweigend gelöscht zu werden.
+
+Klassische Konfigurationen werden nur nach bestätigter Übernahme umgestellt.
+Bekannte Wärmeerzeuger, Speicher, Heizkreise und Entitäten werden übernommen,
+jedoch keine spekulativen Rohre ergänzt. Die bisherigen klassischen Felder
+bleiben unverändert erhalten. Unter **Migration & Konfiguration** zeigt der
+Editor Prüfhinweise und ermöglicht das Wiederherstellen des ursprünglichen
+gesicherten Standes. Die Wiederherstellung verwirft spätere Änderungen.

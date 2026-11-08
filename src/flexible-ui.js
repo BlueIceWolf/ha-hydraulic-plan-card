@@ -293,9 +293,19 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     setConfig(config){
       // Home Assistant can call setConfig repeatedly (including for our own config-changed
       // event). Redrawing on an equivalent config destroys focused text inputs and selects.
-      const newConfig=config||{};
+      const incoming=config||{};
+      const result=HPC_MIGRATION.upgrade(incoming);
+      const newConfig=result.changed?result.config:incoming;
+      this._migrationWarnings=result.warnings||[];
       const changed=JSON.stringify(this._config)!==JSON.stringify(newConfig);
       this._config=newConfig;
+      // Versioned, non-destructive plan upgrades are committed once.
+      // Calling setConfig again with the emitted v2 config is idempotent.
+      if(result.changed){
+        this.dispatchEvent(new CustomEvent('config-changed',{
+          detail:{config:newConfig},bubbles:true,composed:true
+        }));
+      }
       if(this._free()||this._unconfigured()){
         if(changed || !this._freeUi?.isConnected)this._renderFlex();
       } else {
@@ -332,64 +342,14 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       if(repaint)this._render();
     }
     _applyPlan(plan,extra={},options={}){
-      this._save({...this._config,...extra,plan:HPC_FREE.normalize(plan)},options);
+      const current=this._config||{};
+      // Always record the schema version for a saved graph. The migration
+      // snapshot is kept unchanged, so rollback remains possible.
+      this._save({...current,...extra,plan:HPC_FREE.normalize(plan),
+        hpc_schema_version:HPC_MIGRATION.VERSION},options);
     }
     _legacyPlan(){
-      // Classic setups often already contain buffers, DHW and heat circuits.
-      // Import ALL configured roles into editable components before the first
-      // new addition so the transition cannot silently lose them.
-      const c=this._config||{},entities=c.entities||{};
-      const mapped={wood_gasifier:'wood_gasifier',oil:'oil_boiler',
-        pellet:'pellet_boiler',wood_chip_boiler:'wood_chip_boiler',gas:'gas_boiler',heat_pump:'heat_pump'};
-      const result={components:[],connections:[]};
-      const add=(type,name,map)=>{
-        if(!type)return;
-        const node=HPC_FREE.newNode(type,result);
-        if(!node)return;
-        node.name=name||HPC_FREE.display(type);
-        for(const [field,role] of Object.entries(map)){
-          if(entities[role])node.sensors[field]=entities[role];
-        }
-        result.components.push(node);
-      };
-      const source=mapped[c.generator_type];
-      if(source){
-        add(source,c.boiler_name||HPC_FREE.display(source),source==="heat_pump"
-          ?{state:'mode',flow:'flow',return:'return',power:'power'}
-          :{state:'boiler_state',flow:'boiler_flow',return:'boiler_return',
-            exhaust:'boiler_exhaust',oxygen:'boiler_o2',fan:'boiler_fan',
-            pump:'boiler_pump',power:'boiler_power',starts:'boiler_burner_starts'});
-      }
-      const second=mapped[c.boiler_type];
-      if(second&&second!==source){
-        add(second,HPC_FREE.display(second),{state:'boiler_state',
-          flow:'boiler_flow',return:'boiler_return',pump:'boiler_pump'});
-      }
-      if(c.buffer===true||['buffer_top','buffer_middle','buffer_bottom'].some(key=>entities[key])){
-        add('buffer','Puffer 1',{top:'buffer_top',middle:'buffer_middle',bottom:'buffer_bottom'});
-      }
-      if(['dhw_top','dhw_middle','dhw_bottom'].some(key=>entities[key])){
-        add('dhw_tank','Warmwasserspeicher',{top:'dhw_top',middle:'dhw_middle',bottom:'dhw_bottom'});
-      }
-      const count=Math.min(6,Math.max(0,Math.round(+c.hc_count)||0));
-      for(let i=1;i<=6;i++){
-        const prefix=i===1?'hc_':'hc'+i+'_';
-        const roles={flow:prefix+'flow',return:prefix+'return',target:prefix+'setpoint',
-          pump:prefix+'pump',mixer:prefix+'mixer',
-          mixer_opening:prefix+'mixer_opening',mixer_closing:prefix+'mixer_closing'};
-        if(i<=count||Object.values(roles).some(role=>entities[role])){
-          add('heating_circuit','Heizkreis '+i,roles);
-          const circuit=result.components.at(-1);
-          if(circuit?.type==='heating_circuit'){
-            const oldKey=i===1?'hc_type':'hc'+i+'_type';
-            circuit.options={emitter:HFC_EMITTERS.includes(c[oldKey])?c[oldKey]:'radiator',
-              mixed:!!(circuit.sensors.mixer||circuit.sensors.mixer_opening||circuit.sensors.mixer_closing)};
-          }
-        }
-      }
-      // Legacy fixed SVG piping has no reliable per-port graph representation.
-      // Never pretend its pipes are real user-confirmed connections.
-      return HPC_FREE.normalize(result);
+      return HPC_MIGRATION.legacyPlan(this._config).plan;
     }
     _showFreeButton(){
       if(!this._config||!this._hass||this._free())return;
@@ -397,7 +357,18 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       this._switch=document.createElement("div");
       this._switch.innerHTML=`<style>${HPC_FREE.css}</style><div class="hpc-editor hpc-actions"><button type="button" class="hpc-primary">Bauteile im vorhandenen Hydraulikplan ergänzen</button></div>`;
       this.prepend(this._switch);
-      this._switch.querySelector("button").addEventListener("click",()=>this._applyPlan({components:[],connections:[]}));
+      this._switch.querySelector("button").addEventListener("click",()=>{
+        const result=HPC_MIGRATION.upgrade(this._config,{classic:true});
+        if(!result.changed){
+          window.alert(result.warnings.join('\n')||'Migration nicht möglich.');
+          return;
+        }
+        if(!window.confirm(
+          'Vorhandene Wärmeerzeuger, Speicher, Heizkreise und Messwerte übernehmen? '+
+          'Die klassische Konfiguration wird als Sicherung gespeichert. '+
+          'Hydraulische Leitungen müssen danach geprüft werden.'))return;
+        this._save(result.config);
+      });
     }
     _renderFlex(){
       if(!this._config)return;
@@ -408,6 +379,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const lang=String(this._hass?.locale?.language||navigator.language||"de").startsWith("de")?"de":"en";
       const t=(de,en)=>lang==="de"?de:en,esc=HPC_FREE.esc;
       const p=HPC_FREE.normalize(this._config.plan);
+      const migrationNotes=[...(this._config.hpc_migration_notes||[]),
+        ...(this._migrationWarnings||[])];
       const configured=true;
       const emsCandidates=HPC_EMS.detect(this._hass);
       const etaCandidates=HPC_ETA.detect(this._hass);
@@ -644,6 +617,15 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
              `<div class="hpc-row"><label>${t("Name der Anlage","System name")}<input id="hpc-free-title"
              value="${esc(this._config.title||"")}" placeholder="Hydraulic Plan Card"/></label></div>`}
           <div class="hpc-actions"><button type="button" data-action="example">${t("Beispielanlage laden (ersetzt Plan)","Load example (replaces plan)")}</button></div>
+          <details class="hpc-advanced-pipes" ${this._config.hpc_migration_review||this._migrationWarnings?.length?'open':''}>
+            <summary>${t("Migration & Konfiguration","Migration & configuration")} · v${esc(this._config.hpc_schema_version||1)}</summary>
+            <p>${t("Die ursprüngliche Konfiguration bleibt bei der ersten Migration als Sicherung erhalten. Vorhandene Sensoren und bestätigte Leitungen werden nicht neu geraten.","The original configuration is backed up on first migration. Sensor mappings and confirmed connections are not guessed.")}</p>
+            ${migrationNotes.map(note=>`<p class="hpc-connection-warning">${esc(note)}</p>`).join('')}
+            ${this._config.hpc_migration_backup?`<div class="hpc-actions">
+              <button type="button" data-action="migration-restore">${t("Vorherige Konfiguration wiederherstellen","Restore previous configuration")}</button>
+              ${this._config.hpc_migration_review?`<button type="button" data-action="migration-ack">${t("Hydraulik geprüft","Hydraulics reviewed")}</button>`:""}
+            </div>`:""}
+          </details>
           ${emsInfo}
           ${etaInfo}
           ${etaPartInfo}
@@ -821,6 +803,17 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       });
       root.querySelectorAll("[data-action]").forEach(button=>button.addEventListener("click",()=>{
         const action=button.dataset.action;
+        if(action==="migration-restore"){
+          const backup=HPC_MIGRATION.restore(this._config);
+          if(!backup)return;
+          if(!window.confirm(t(
+            "Gespeicherte Konfiguration vor der Migration wiederherstellen? Spätere Änderungen gehen verloren.",
+            "Restore the saved pre-migration configuration? Later edits will be lost.")))return;
+          return this._save(backup);
+        }
+        if(action==="migration-ack"){
+          return this._save({...this._config,hpc_migration_review:false});
+        }
         if(action==="eta-scan-all"){
           if(!window.confirm(t(
             "Alle eindeutig erkannten ETA-Bauteile und Messwerte ergänzen? Bestehende Einstellungen und Rohrverbindungen bleiben unverändert.",
@@ -942,13 +935,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           return this._applyPlan(HPC_FREE.sample(),{hpc_legacy_imported:true});
         }
         if(action==="add-component"){
-          const importing=!p.components.length&&!this._config.hpc_legacy_imported;
-          const legacy=importing?this._legacyPlan():{components:[],connections:[]};
-          const base=legacy.components.length?legacy:p;
-          const node=HPC_FREE.newNode(root.querySelector("#hpc-free-type")?.value,base);
+          // Adding a component must never silently import classic entities
+          // or replace a previously saved plan without a migration preview.
+          const node=HPC_FREE.newNode(root.querySelector("#hpc-free-type")?.value,p);
           if(!node)return;this._selectedId=node.id;
-          return this._applyPlan({components:[...base.components,node],connections:base.connections},
-            legacy.components.length?{hpc_legacy_imported:true}:{});
+          return this._applyPlan({components:[...p.components,node],connections:p.connections});
         }
         if(action==="remove-component"&&selected){
           this._selectedId=null;
