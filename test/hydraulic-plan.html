@@ -195,6 +195,22 @@
       'Additional boilers, buffers, heater and mixer are appended as original-style units');
     check(freeSvg?.querySelectorAll('g.hpi-link').length===2,
       'All configured pipes are drawn, including links between original components');
+    const supplementalOil=freeSvg?.querySelector('g[data-hpi-node="oel"] rect.unit');
+    const originalSource=freeSvg?.querySelector('rect#hp-box');
+    check(supplementalOil?.getAttribute('height')===originalSource?.getAttribute('height')&&
+      supplementalOil?.getAttribute('width')===originalSource?.getAttribute('width'),
+      'Additional sources use exactly the same unit dimensions as the original primary generator');
+    const secondBuffer=freeSvg?.querySelector('g[data-hpi-node="puffer2"] rect.tank');
+    const thirdBuffer=freeSvg?.querySelector('g[data-hpi-node="puffer3"] rect.tank');
+    const nativeBuffer=freeSvg?.querySelector('rect.tank[x="520"][y="320"]');
+    check(secondBuffer?.getAttribute('width')===nativeBuffer?.getAttribute('width')&&
+      secondBuffer?.getAttribute('height')===nativeBuffer?.getAttribute('height')&&
+      thirdBuffer?.getAttribute('height')===nativeBuffer?.getAttribute('height'),
+      'Added tanks use the original 120 x 200 tank proportions');
+    check(Number(secondBuffer?.getAttribute('y'))<650 &&
+      Number(thirdBuffer?.getAttribute('x'))<815,
+      'Storage is arranged compactly beside the original radiator column');
+
 
     const automaticBefore=freeSvg.querySelector('g[data-hpi-node="puffer2"] rect.tank')?.getAttribute('x');
     const movedInputs=sample.map((node)=>({...node,x:3210,y:4890}));
