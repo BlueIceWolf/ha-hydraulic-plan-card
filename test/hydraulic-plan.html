@@ -380,9 +380,10 @@
       autoEtaResult.plan.components[0].sensors.flow===etaSensorIds.flow&&
       autoEtaResult.plan.components[0].sensors.exhaust===etaSensorIds.exhaust,
       'Accepting ETA suggestion adds the correct model with detected sensor assignments');
-    autoEtaEditor.querySelector('[data-action="eta-apply"]')?.click();
-    check(autoEtaEditor._config.plan.components.length===1,
-      'Confirming the same ETA device again does not duplicate the boiler');
+    check(!autoEtaEditor.querySelector('[data-action="eta-apply"]') &&
+      autoEtaEditor._config.plan.components.length===1 &&
+      autoEtaEditor._config.plan.components[0].discovery?.provider==='eta',
+      'Already imported ETA devices are not offered again and their identity is stored');
     autoEtaEditor.remove();
     const etaPelletHass=hassOf({'sensor.eta_epe_kessel_kesseltemperatur':
       state('sensor.eta_epe_kessel_kesseltemperatur',67,'°C')});
@@ -419,8 +420,19 @@
     emsEditor.querySelector('[data-action="ems-apply"]')?.click();
     const detectedOil=emsConfig?.plan.components.find(c=>c.type==='oil_boiler');
     check(detectedOil?.sensors.flow==='sensor.boiler_curflowtemp' &&
-      detectedOil?.sensors.state==='binary_sensor.boiler_burngas',
-      'EMS-ESP assigns real boiler values only after user confirms');
+      detectedOil?.sensors.state==='binary_sensor.boiler_burngas' &&
+      detectedOil.discovery?.provider==='ems-esp',
+      'EMS-ESP assigns real boiler values and stores its device ID only after consent');
+    check(!emsEditor.querySelector('[data-action="ems-apply"]'),
+      'After importing an EMS oil boiler, the same device is no longer shown as found');
+    const manualOilEditor=document.createElement('hydraulic-plan-card-editor');
+    manualOilEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[{id:'my_oil',type:'oil_boiler',name:'Eigener Ölkessel',
+        sensors:{state:'binary_sensor.boiler_burngas'}}],connections:[]}});
+    document.body.append(manualOilEditor);manualOilEditor.hass=emsHass;
+    check(!manualOilEditor.querySelector('[data-action="ems-apply"]'),
+      'Already manually assigned oil sensors are recognized, not duplicated');
+    manualOilEditor.remove();
     emsEditor.remove();
     const unknownHass=hassOf({
       'binary_sensor.boiler_burngas':state('binary_sensor.boiler_burngas','on'),
@@ -446,13 +458,65 @@
       'Identified oil boiler is offered without misreading heating block as temperature');
     onlyModelEditor.remove();
 
+    // Logano GB125 is an OIL condensing boiler, while the generic EMS
+    // burngas status is not evidence of a gas appliance.
+    const gb125Hass=hassOf({
+      'binary_sensor.boiler_burngas':state('binary_sensor.boiler_burngas','on'),
+      'sensor.boiler_curflowtemp':state('sensor.boiler_curflowtemp',67,'°C')
+    });
+    gb125Hass.entities=Object.fromEntries(Object.keys(gb125Hass.states).filter(id=>id.includes('boiler_'))
+      .map(id=>[id,{device_id:'buderus_gb125',platform:'mqtt',unique_id:'ems-esp_'+id}]));
+    gb125Hass.devices={buderus_gb125:{name:'Buderus Logamax plus GB125',model:'GB125',
+      manufacturer:'Buderus EMS-ESP'}};
+    check(HPC_EMS.detect(gb125Hass)[0]?.type==='oil_boiler',
+      'GB125 is correctly recognized as an oil boiler, never as a gas boiler');
+    const genericGasHass=hassOf({
+      'binary_sensor.boiler_burngas':state('binary_sensor.boiler_burngas','on'),
+      'sensor.boiler_curflowtemp':state('sensor.boiler_curflowtemp',48,'°C')
+    });
+    genericGasHass.entities=Object.fromEntries(Object.keys(genericGasHass.states).filter(id=>id.includes('boiler_'))
+      .map(id=>[id,{device_id:'explicit_gas',platform:'mqtt',unique_id:'ems-esp_'+id}]));
+    genericGasHass.devices={explicit_gas:{name:'Buderus GB172',model:'GB172',
+      manufacturer:'EMS-ESP'}};
+    check(HPC_EMS.detect(genericGasHass)[0]?.type==='gas_boiler',
+      'An explicitly named gas boiler is still classified as gas');
+    const properGas=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[{id:'primary_gas',type:'gas_boiler',name:'Buderus GB172',
+        sensors:{state:'binary_sensor.boiler_burngas'}}],connections:[]}},genericGasHass);
+    check(!!properGas.shadowRoot.querySelector('.hpi-gas-primary .hpi-source-flame') &&
+      properGas.shadowRoot.querySelector('#primary-boiler-art')?.style.display==='none',
+      'Gas boiler has a distinct primary pictogram, not a hidden generic furnace');
+    properGas.remove();
+    const fixGasEditor=document.createElement('hydraulic-plan-card-editor');
+    fixGasEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[{id:'wrong_type',type:'gas_boiler',name:'Gaskessel',
+        sensors:{state:'binary_sensor.boiler_burngas',flow:'sensor.boiler_curflowtemp'}}],
+        connections:[]}});
+    document.body.append(fixGasEditor);fixGasEditor.hass=gb125Hass;
+    const correctedFuel=fixGasEditor.querySelector('[data-source-type="wrong_type"]');
+    let correctedConfig;
+    fixGasEditor.addEventListener('config-changed',e=>correctedConfig=e.detail.config);
+    if(correctedFuel){correctedFuel.value='oil_boiler';
+      correctedFuel.dispatchEvent(new Event('change',{bubbles:true}));}
+    check(!!correctedFuel && correctedConfig?.plan.components[0]?.type==='oil_boiler' &&
+      correctedConfig.plan.components[0].id==='wrong_type' &&
+      correctedConfig.plan.components[0].sensors.flow==='sensor.boiler_curflowtemp',
+      'Previously misidentified gas entry can be changed to oil without losing sensors or ID');
+    fixGasEditor.remove();
+
     const genericEditor=document.createElement('hydraulic-plan-card-editor');
     genericEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
       plan:{components:[],connections:[]}});
     document.body.append(genericEditor);genericEditor.hass=unknownHass;
-    check(!!genericEditor.querySelector('.hpc-ems')?.textContent.includes('Brennstoff prüfen') &&
-      !genericEditor.querySelector('.hpc-ems')?.textContent.includes('Ölkessel'),
-      'EMS bus alone never implies oil as fuel');
+    check(!!genericEditor.querySelector('#hpc-ems-type') &&
+      genericEditor.querySelector('[data-action="ems-apply"]')?.disabled &&
+      genericEditor.querySelector('#hpc-ems-type').value==='',
+      'Unknown EMS fuel never defaults to oil or gas; explicit choice is required');
+    const genericFuel=genericEditor.querySelector('#hpc-ems-type');
+    genericFuel.value='oil_boiler';
+    genericFuel.dispatchEvent(new Event('change',{bubbles:true}));
+    check(!genericEditor.querySelector('[data-action="ems-apply"]').disabled,
+      'User can explicitly choose oil when metadata cannot identify the fuel');
     genericEditor.remove();
 
     const editor=document.createElement('hydraulic-plan-card-editor');
