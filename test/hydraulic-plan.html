@@ -354,6 +354,22 @@
     unknownHass.entities=Object.fromEntries(Object.keys(unknownHass.states).filter(id=>id.includes('boiler_'))
       .map(id=>[id,{device_id:'gas1',platform:'mqtt',unique_id:'ems-esp_'+id}]));
     unknownHass.devices={gas1:{name:'EMS-ESP Boiler',manufacturer:'EMS-ESP'}};
+    const onlyModelHass=hassOf({
+      'sensor.boiler_heating_block':state('sensor.boiler_heating_block',0)
+    });
+    onlyModelHass.entities={'sensor.boiler_heating_block':{
+      device_id:'oil2',platform:'mqtt',unique_id:'ems-esp-boiler-heatingblock'}};
+    onlyModelHass.devices={oil2:{name:'Buderus Logano S115U',model:'S115U',
+      manufacturer:'EMS-ESP'}};
+    const onlyModelEditor=document.createElement('hydraulic-plan-card-editor');
+    onlyModelEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[],connections:[]}});
+    document.body.append(onlyModelEditor);onlyModelEditor.hass=onlyModelHass;
+    check(onlyModelEditor.querySelector('.hpc-ems')?.textContent.includes('Ölkessel') &&
+      onlyModelEditor.querySelector('.hpc-ems')?.textContent.includes('0 zuordenbare'),
+      'Identified oil boiler is offered without misreading heating block as temperature');
+    onlyModelEditor.remove();
+
     const genericEditor=document.createElement('hydraulic-plan-card-editor');
     genericEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
       plan:{components:[],connections:[]}});

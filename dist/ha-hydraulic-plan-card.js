@@ -8275,7 +8275,9 @@ const HPC_EMS = (() => {
       const suffix=short.replace(/^.*?boiler_/,'').replace(/[^a-z0-9]/g,'');
       const itemRole=Object.entries(roles).find(([role,names])=>names.includes(suffix))?.[0]||null;
       // Oil preheating is useful evidence of fuel type but not a burner status.
-      if(!itemRole&&suffix!=='oilpreheat')continue;
+      // A heating block is NOT a flow temperature and must never be
+      // automatically assigned as such. It can still identify the gateway.
+      if(!itemRole&&!['oilpreheat','heatingblock'].includes(suffix))continue;
       const registry=registrations[id]||{};
       const device=devices[registry.device_id]||{};
       const gateway=devices[device.via_device_id]||{};
@@ -8299,12 +8301,15 @@ const HPC_EMS = (() => {
     const output=[];
     for(const item of found.values()){
       const count=Object.keys(item.entities).length;
-      if(count<2||(!item.marker&&count<3))continue;
       const description=item.description.toLowerCase();
       const oilModel=/\b(?:s115u?|g115|g125|g215|s125|oil|oel|öl|logano\s+g1)/i.test(description);
       const gasModel=/\b(?:gas|gaseous|logamax|gb172|gb192|gb125)\b/i.test(description);
       const oilSignal=item.evidence.some(e=>e.suffix==='oilpreheat');
       const fuel=oilModel||oilSignal?'oil_boiler':gasModel?'gas_boiler':'unknown';
+      // One definitive EMS-ESP oil boiler can be recognized even when it
+      // exposes only a heating-block status and no temperatures yet.
+      if(count<2 && !(item.marker&&fuel!=='unknown'&&item.evidence.length>0))continue;
+      if(!item.marker&&count<3)continue;
       output.push({
         id:item.group,name:item.description||'EMS-ESP Boiler',
         source:item.marker?'EMS-ESP':'MQTT (EMS-ESP möglicherweise)',
@@ -8595,9 +8600,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const emsInfo=chosenEms?`<section class="hpc-ems">
         <h3>${t("Heizung über EMS-ESP erkannt","Heating device detected via EMS-ESP")}</h3>
         <p><strong>${esc(chosenEms.name)}</strong> · ${esc(chosenEms.source)} · ${emsTypeLabel(chosenEms.type)}</p>
-        <p>${chosenEms.count} ${t("passende Messwerte gefunden. Die Erkennung liest nur Home-Assistant-Entitäten und verändert deine Heizung nicht.","matching values found. Detection only reads Home Assistant entities and never changes heating controls.")}</p>
+        <p>${chosenEms.count} ${t("zuordenbare Messwerte gefunden. Die Erkennung liest nur Home-Assistant-Entitäten und verändert deine Heizung nicht.","assignable values found. Detection only reads Home Assistant entities and never changes heating controls.")}</p>
+        ${chosenEms.count===0?`<p>${t("Das Gerät ist erkannt, stellt aber noch keine passenden Messwerte bereit. Bitte die EMS-ESP-Veröffentlichung prüfen.","Device recognized, but no matching measured values are available yet. Check EMS-ESP publishing settings.")}</p>`:""}
         ${chosenEms.type==="unknown"?`<p>${t("Der Brennstoff lässt sich aus den verfügbaren Geräten nicht sicher erkennen. Bitte den richtigen Kesseltyp auswählen.","Fuel type cannot be reliably inferred. Select the proper boiler type first.")}</p>`:""}
-        <button type="button" data-action="ems-apply">${t("Messwerte dem passenden Kessel zuordnen","Assign detected values to matching boiler")}</button>
+        <button type="button" data-action="ems-apply">${chosenEms.count?t("Kessel übernehmen und Messwerte zuordnen","Add boiler and assign values"):t("Erkannten Kessel hinzufügen","Add detected boiler")}</button>
       </section>`:"";
       const selected=p.components.find(c=>c.id===this._selectedId)||p.components[0];
       if(selected)this._selectedId=selected.id;

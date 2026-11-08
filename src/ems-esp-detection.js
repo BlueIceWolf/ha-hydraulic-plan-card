@@ -25,7 +25,9 @@ const HPC_EMS = (() => {
       const suffix=short.replace(/^.*?boiler_/,'').replace(/[^a-z0-9]/g,'');
       const itemRole=Object.entries(roles).find(([role,names])=>names.includes(suffix))?.[0]||null;
       // Oil preheating is useful evidence of fuel type but not a burner status.
-      if(!itemRole&&suffix!=='oilpreheat')continue;
+      // A heating block is NOT a flow temperature and must never be
+      // automatically assigned as such. It can still identify the gateway.
+      if(!itemRole&&!['oilpreheat','heatingblock'].includes(suffix))continue;
       const registry=registrations[id]||{};
       const device=devices[registry.device_id]||{};
       const gateway=devices[device.via_device_id]||{};
@@ -49,12 +51,15 @@ const HPC_EMS = (() => {
     const output=[];
     for(const item of found.values()){
       const count=Object.keys(item.entities).length;
-      if(count<2||(!item.marker&&count<3))continue;
       const description=item.description.toLowerCase();
       const oilModel=/\b(?:s115u?|g115|g125|g215|s125|oil|oel|öl|logano\s+g1)/i.test(description);
       const gasModel=/\b(?:gas|gaseous|logamax|gb172|gb192|gb125)\b/i.test(description);
       const oilSignal=item.evidence.some(e=>e.suffix==='oilpreheat');
       const fuel=oilModel||oilSignal?'oil_boiler':gasModel?'gas_boiler':'unknown';
+      // One definitive EMS-ESP oil boiler can be recognized even when it
+      // exposes only a heating-block status and no temperatures yet.
+      if(count<2 && !(item.marker&&fuel!=='unknown'&&item.evidence.length>0))continue;
+      if(!item.marker&&count<3)continue;
       output.push({
         id:item.group,name:item.description||'EMS-ESP Boiler',
         source:item.marker?'EMS-ESP':'MQTT (EMS-ESP möglicherweise)',
