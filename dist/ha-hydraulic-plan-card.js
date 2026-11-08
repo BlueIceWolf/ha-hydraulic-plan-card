@@ -7628,8 +7628,17 @@ const HPC_FREE = (function makeFreeHelpers() {
         ?{return_lift:n.options?.return_lift===true}
         :n.type==="wood_chip_boiler"
           ?{eta_model:["ehack","hack","hack_vr"].includes(n.options?.eta_model)?n.options.eta_model:"ehack"}
+        :n.type==="heating_circuit"
+          ?{emitter:HFC_EMITTERS.includes(n.options?.emitter)?n.options.emitter:"radiator"}
         :["oil_boiler","gas_boiler","pellet_boiler"].includes(n.type)
           ?{boiler_kind:["standard","low_temp","condensing"].includes(n.options?.boiler_kind)?n.options.boiler_kind:"standard"}
+          :n.type==="heat_pump"
+          // Keep the full outdoor-unit gallery from the original card.
+          ?{unit_style:HFC_UNIT_STYLES.includes(n.options?.unit_style)?n.options.unit_style:"auto",
+            // Empty defaults are deliberate: existing classic settings and
+            // model-dependent fan counts must remain usable after migration.
+            ...(HFC_UNIT_SIZES.includes(n.options?.unit_size)?{unit_size:n.options.unit_size}:{}),
+            ...(["air","brine","water"].includes(n.options?.source_type)?{source_type:n.options.source_type}:{})}
           :{};
       // Remember which HA device was imported. This is only a read-only
       // identity for duplicate detection, never a credential or gateway URL.
@@ -7669,6 +7678,60 @@ const HPC_FREE = (function makeFreeHelpers() {
     if(!ports(a.type).some(x=>x.id===fromPort)||!ports(b.type).some(x=>x.id===toPort))return false;
     if(portRole(a.type,fromPort)==="in"||portRole(b.type,toPort)==="out")return false;
     return !p.connections.some(e=>e.from===from&&e.from_port===fromPort&&e.to===to&&e.to_port===toPort);
+  }
+  // Connect ordinary heating components by their actual hydraulic ports.
+  // The two choices are components, not directional pipe ends: a complete
+  // heating circuit needs a hot supply AND a separate cooler return.
+  // This helper never guesses mixing-valve routes or plant safety logic.
+  function connectPair(input,firstId,secondId) {
+    const plan=normalize(input);
+    const first=plan.components.find(c=>c.id===firstId);
+    const second=plan.components.find(c=>c.id===secondId);
+    if(!first||!second||first.id===second.id)return plan;
+    const source=type=>byType[type]?.group==='source';
+    const pairs=[];
+    if(source(first.type)&&second.type==='buffer'){
+      pairs.push([first.id,'flow',second.id,'top_in'],
+        [second.id,'bottom_out',first.id,'return']);
+    }else if(source(first.type)&&second.type==='dhw_tank'){
+      pairs.push([first.id,first.type==='oil_boiler'?'dhw':'flow',second.id,'coil_in'],
+        [second.id,'coil_out',first.id,'return']);
+    }else if(first.type==='buffer'&&second.type==='buffer'){
+      pairs.push([first.id,'top_out',second.id,'top_in'],
+        [second.id,'bottom_out',first.id,'bottom_in']);
+    }else if((source(first.type)||first.type==='buffer')&&second.type==='heating_circuit'){
+      pairs.push([first.id,first.type==='buffer'?'top_out':'flow',second.id,'flow_in'],
+        [second.id,'return_out',first.id,first.type==='buffer'?'bottom_in':'return']);
+    }else if(first.type==='pump'){
+      if(second.type==='buffer')pairs.push([first.id,'out',second.id,'top_in']);
+      if(second.type==='dhw_tank')pairs.push([first.id,'out',second.id,'coil_in']);
+    }else if(source(first.type)&&second.type==='pump'){
+      pairs.push([first.id,first.type==='oil_boiler'?'dhw':'flow',second.id,'in']);
+    }
+    const existing=new Set(plan.connections.map(e=>[e.from,e.from_port,e.to,e.to_port].join('|')));
+    const ids=new Set(plan.connections.map(e=>e.id));
+    for(const [from,fromPort,to,toPort] of pairs){
+      const key=[from,fromPort,to,toPort].join('|');
+      if(existing.has(key)||!validConnection(plan,from,fromPort,to,toPort))continue;
+      const id=nextId('leitung',ids);
+      ids.add(id);existing.add(key);
+      plan.connections.push({id,from,from_port:fromPort,to,to_port:toPort,
+        flow_entity:'',temperature_entity:''});
+    }
+    return normalize(plan);
+  }
+  function connectionPairs(input) {
+    const p=normalize(input);
+    const choices=[];
+    for(const a of p.components)for(const b of p.components){
+      if(a.id===b.id)continue;
+      const proposed=connectPair(p,a.id,b.id);
+      if(proposed.connections.length<=p.connections.length)continue;
+      const both=proposed.connections.length-p.connections.length;
+      choices.push({from:a.id,to:b.id,label:a.name+' → '+b.name,
+        count:both});
+    }
+    return choices;
   }
   function connectBufferSeries(input) {
     const plan=normalize(input),buffers=plan.components.filter(c=>c.type==="buffer");
@@ -7916,8 +7979,8 @@ const HPC_FREE = (function makeFreeHelpers() {
     ${routes}${svgNodes}
   </svg>`;
 }
-  const css="\n  :host { display:block; --hpc-muted: var(--secondary-text-color, #7b8798); }\n  ha-card { background:var(--ha-card-background,var(--card-background-color,#fff)); padding:14px;overflow:hidden; }\n  .hpc-board {width:100%;overflow:auto;overscroll-behavior:contain;border-radius:12px;\n    border:1px solid var(--divider-color,rgba(110,125,145,.22));\n    background:var(--card-background-color,rgba(0,0,0,.02));}\n  #hpc-free-svg{min-width:650px;display:block;width:100%;height:auto;max-height:72vh;}\n  .hpc-appliance .hpc-unit-border{fill:var(--secondary-background-color,rgba(126,144,160,.1));\n    stroke:var(--divider-color,#9ca3af);stroke-width:2.3;}\n  .hpc-appliance.is-on .hpc-unit-border{stroke:var(--hfc-heat,#ca793e);}\n  .hpc-node.is-selected .hpc-unit-border,.hpc-node.is-selected .hpc-tank-shadow{\n    stroke:var(--primary-color,#2196f3);stroke-width:4;}\n  .hpc-unit-border,.hpc-tank-shadow,.hpc-tank-main{filter:drop-shadow(0 2px 3px rgba(0,0,0,.08))}\n  .hpc-component-icon{stroke:var(--hpc-muted);fill:none;stroke-width:2.8}\n  .hpc-component-icon.is-on{stroke:var(--hfc-hot,#b35b38)}\n  .hpc-component-icon circle,.hpc-component-icon rect{fill:var(--card-background-color,#fff)}\n  .hpc-node{cursor:pointer}.hpc-node:hover .hpc-unit-border{stroke:var(--primary-color,#2196f3)}\n  .hpc-label{font:600 16px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-name{font-size:15px}\n  .hpc-reading{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-reading{font:600 12px var(--ha-font-family-body,system-ui,sans-serif);\n    fill:#fff;stroke:rgba(29,46,62,.85);paint-order:stroke fill;stroke-width:3px;}\n  .hpc-detail{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--secondary-text-color,#7d8590);}\n  .hpc-tank-shadow{fill:var(--card-background-color,#fff);stroke:var(--divider-color,#8e9bab);stroke-width:2.4;}\n  .hpc-tank-main{stroke:var(--divider-color,rgba(70,90,110,.6));stroke-width:1.3}\n  .hpc-tank-shine{fill:none;stroke:rgba(255,255,255,.28);stroke-width:6;stroke-linecap:round}\n  .hpc-tank-tick{fill:none;stroke:rgba(255,255,255,.50);stroke-width:1.1;}\n  .hpc-port{fill:var(--card-background-color,#fff);stroke:var(--hfc-flow-hot,#ad584b);stroke-width:2}\n  .hpc-route{pointer-events:none;}\n  .hpc-pipe-outline{fill:none;stroke:var(--divider-color,rgba(110,125,145,.5));\n    stroke-width:13;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-pipe{fill:none;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-arrow{fill:var(--primary-text-color,#516274);}\n  .hpc-pulse{fill:none;stroke:rgba(255,255,255,.9);stroke-width:3;stroke-dasharray:5 13;\n    animation:hpc-motion 1.35s linear infinite;}\n  @keyframes hpc-motion{to{stroke-dashoffset:-36}}\n  @media(prefers-reduced-motion:reduce){.hpc-pulse{animation:none;}}\n  .hpc-note{font-size:.82em;color:var(--secondary-text-color,#7d8590);margin:10px 3px 4px;}\n  .hpc-editor{font-family:var(--ha-font-family-body,inherit);color:var(--primary-text-color,inherit);}\n  .hpc-editor h3{font-size:1.02em;font-weight:600;margin:18px 0 9px;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding-bottom:6px}\n  .hpc-editor p{font-size:.88em;line-height:1.5;color:var(--secondary-text-color,#7d8590)}\n  .hpc-actions,.hpc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:9px 0}\n  .hpc-editor button,.hpc-editor select,.hpc-editor input{\n    box-sizing:border-box;font:inherit;border-radius:10px;\n    border:1px solid var(--divider-color,rgba(127,127,127,.34));\n    padding:10px 12px;color:var(--primary-text-color,inherit);\n    background:var(--card-background-color,#fff);max-width:100%;min-width:0}\n  .hpc-editor input:focus,.hpc-editor select:focus{outline:2px solid var(--primary-color,#03a9f4);outline-offset:1px}\n  .hpc-editor button{cursor:pointer;font-weight:500}\n  .hpc-editor button:hover{background:var(--secondary-background-color,rgba(127,127,127,.12))}\n  .hpc-editor button.hpc-primary{background:var(--primary-color,#03a9f4);color:#fff;border:0;}\n  .hpc-editor label{display:flex;flex-direction:column;gap:5px;font-size:.86em;font-weight:500;flex:1 1 170px;}\n  .hpc-editor .hpc-checkbox{display:flex;flex-direction:row;align-items:center;gap:11px;flex:1 1 100%;cursor:pointer;padding:11px 12px;border:1px solid var(--divider-color,rgba(127,127,127,.32));border-radius:10px;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-editor .hpc-checkbox input{width:19px;height:19px;margin:0;flex:0 0 auto;accent-color:var(--primary-color,#03a9f4);}\n  .hpc-editor .hpc-field{margin:6px 0;}\n  .hpc-editor .hpc-component-list{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}\n  .hpc-editor .hpc-pictogram{width:29px;height:29px;flex:none;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-add-preview{display:flex;align-items:center;justify-content:center;min-width:46px;min-height:46px;border-radius:12px;background:var(--secondary-background-color,rgba(127,127,127,.09))}\n  .hpc-editor .hpc-add-preview .hpc-pictogram{width:34px;height:34px;color:var(--primary-color,#03a9f4)}\n  .hpc-editor .hpc-config-title{display:flex;align-items:center;gap:9px}\n  .hpc-editor .hpc-config-title .hpc-pictogram{width:25px;height:25px}\n  .hpc-editor .hpc-component-list button{display:inline-flex;align-items:center;gap:8px;text-align:left}\n  .hpc-editor .hpc-component-list button span{display:flex;flex-direction:column;line-height:1.3}\n  .hpc-editor .hpc-component-list button small{font-size:.75em;font-weight:400;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-native-form{margin:8px 0 16px;--ha-form-grid-column-min-width:220px}\n  .hpc-editor .hpc-native-form ha-form{display:block}\n  .hpc-ems{border:1px solid var(--primary-color,#03a9f4);border-radius:12px;padding:8px 14px 14px;margin:14px 0;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-ems h3{margin-top:5px;}\n  .hpc-connection-warning{color:var(--error-color,#e16a42)!important;font-weight:600;}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
-  return {types,byType,ports,portRole,validConnection,connectBufferSeries,dimension,display,fieldLabel,icon,esc,normalize,newNode,sample,state,active,format,color,portXY,draw,css,text};
+  const css="\n  :host { display:block; --hpc-muted: var(--secondary-text-color, #7b8798); }\n  ha-card { background:var(--ha-card-background,var(--card-background-color,#fff)); padding:14px;overflow:hidden; }\n  .hpc-board {width:100%;overflow:auto;overscroll-behavior:contain;border-radius:12px;\n    border:1px solid var(--divider-color,rgba(110,125,145,.22));\n    background:var(--card-background-color,rgba(0,0,0,.02));}\n  #hpc-free-svg{min-width:650px;display:block;width:100%;height:auto;max-height:72vh;}\n  .hpc-appliance .hpc-unit-border{fill:var(--secondary-background-color,rgba(126,144,160,.1));\n    stroke:var(--divider-color,#9ca3af);stroke-width:2.3;}\n  .hpc-appliance.is-on .hpc-unit-border{stroke:var(--hfc-heat,#ca793e);}\n  .hpc-node.is-selected .hpc-unit-border,.hpc-node.is-selected .hpc-tank-shadow{\n    stroke:var(--primary-color,#2196f3);stroke-width:4;}\n  .hpc-unit-border,.hpc-tank-shadow,.hpc-tank-main{filter:drop-shadow(0 2px 3px rgba(0,0,0,.08))}\n  .hpc-component-icon{stroke:var(--hpc-muted);fill:none;stroke-width:2.8}\n  .hpc-component-icon.is-on{stroke:var(--hfc-hot,#b35b38)}\n  .hpc-component-icon circle,.hpc-component-icon rect{fill:var(--card-background-color,#fff)}\n  .hpc-node{cursor:pointer}.hpc-node:hover .hpc-unit-border{stroke:var(--primary-color,#2196f3)}\n  .hpc-label{font:600 16px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-name{font-size:15px}\n  .hpc-reading{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-reading{font:600 12px var(--ha-font-family-body,system-ui,sans-serif);\n    fill:#fff;stroke:rgba(29,46,62,.85);paint-order:stroke fill;stroke-width:3px;}\n  .hpc-detail{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--secondary-text-color,#7d8590);}\n  .hpc-tank-shadow{fill:var(--card-background-color,#fff);stroke:var(--divider-color,#8e9bab);stroke-width:2.4;}\n  .hpc-tank-main{stroke:var(--divider-color,rgba(70,90,110,.6));stroke-width:1.3}\n  .hpc-tank-shine{fill:none;stroke:rgba(255,255,255,.28);stroke-width:6;stroke-linecap:round}\n  .hpc-tank-tick{fill:none;stroke:rgba(255,255,255,.50);stroke-width:1.1;}\n  .hpc-port{fill:var(--card-background-color,#fff);stroke:var(--hfc-flow-hot,#ad584b);stroke-width:2}\n  .hpc-route{pointer-events:none;}\n  .hpc-pipe-outline{fill:none;stroke:var(--divider-color,rgba(110,125,145,.5));\n    stroke-width:13;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-pipe{fill:none;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-arrow{fill:var(--primary-text-color,#516274);}\n  .hpc-pulse{fill:none;stroke:rgba(255,255,255,.9);stroke-width:3;stroke-dasharray:5 13;\n    animation:hpc-motion 1.35s linear infinite;}\n  @keyframes hpc-motion{to{stroke-dashoffset:-36}}\n  @media(prefers-reduced-motion:reduce){.hpc-pulse{animation:none;}}\n  .hpc-note{font-size:.82em;color:var(--secondary-text-color,#7d8590);margin:10px 3px 4px;}\n  .hpc-editor{font-family:var(--ha-font-family-body,inherit);color:var(--primary-text-color,inherit);}\n  .hpc-editor h3{font-size:1.02em;font-weight:600;margin:18px 0 9px;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding-bottom:6px}\n  .hpc-editor p{font-size:.88em;line-height:1.5;color:var(--secondary-text-color,#7d8590)}\n  .hpc-actions,.hpc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:9px 0}\n  .hpc-editor button,.hpc-editor select,.hpc-editor input{\n    box-sizing:border-box;font:inherit;border-radius:10px;\n    border:1px solid var(--divider-color,rgba(127,127,127,.34));\n    padding:10px 12px;color:var(--primary-text-color,inherit);\n    background:var(--card-background-color,#fff);max-width:100%;min-width:0}\n  .hpc-editor input:focus,.hpc-editor select:focus{outline:2px solid var(--primary-color,#03a9f4);outline-offset:1px}\n  .hpc-editor button{cursor:pointer;font-weight:500}\n  .hpc-editor button:hover{background:var(--secondary-background-color,rgba(127,127,127,.12))}\n  .hpc-editor button.hpc-primary{background:var(--primary-color,#03a9f4);color:#fff;border:0;}\n  .hpc-editor label{display:flex;flex-direction:column;gap:5px;font-size:.86em;font-weight:500;flex:1 1 170px;}\n  .hpc-editor .hpc-checkbox{display:flex;flex-direction:row;align-items:center;gap:11px;flex:1 1 100%;cursor:pointer;padding:11px 12px;border:1px solid var(--divider-color,rgba(127,127,127,.32));border-radius:10px;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-editor .hpc-checkbox input{width:19px;height:19px;margin:0;flex:0 0 auto;accent-color:var(--primary-color,#03a9f4);}\n  .hpc-editor .hpc-field{margin:6px 0;}\n  .hpc-editor .hpc-component-list{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}\n  .hpc-editor .hpc-pictogram{width:29px;height:29px;flex:none;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-add-preview{display:flex;align-items:center;justify-content:center;min-width:46px;min-height:46px;border-radius:12px;background:var(--secondary-background-color,rgba(127,127,127,.09))}\n  .hpc-editor .hpc-add-preview .hpc-pictogram{width:34px;height:34px;color:var(--primary-color,#03a9f4)}\n  .hpc-editor .hpc-config-title{display:flex;align-items:center;gap:9px}\n  .hpc-editor .hpc-config-title .hpc-pictogram{width:25px;height:25px}\n  .hpc-editor .hpc-component-list button{display:inline-flex;align-items:center;gap:8px;text-align:left}\n  .hpc-editor .hpc-component-list button span{display:flex;flex-direction:column;line-height:1.3}\n  .hpc-editor .hpc-component-list button small{font-size:.75em;font-weight:400;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-native-form{margin:8px 0 16px;--ha-form-grid-column-min-width:220px}\n  .hpc-editor .hpc-native-form ha-form{display:block}\n  .hpc-ems{border:1px solid var(--primary-color,#03a9f4);border-radius:12px;padding:8px 14px 14px;margin:14px 0;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-ems h3{margin-top:5px;}\n  .hpc-connection-warning{color:var(--error-color,#e16a42)!important;font-weight:600;}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-quick-connect{margin:8px 0 4px}\n  .hpc-editor .hpc-quick-connect label{flex:1 1 260px}\n  .hpc-editor .hpc-connection-hint{margin:4px 0 14px;font-size:.82em}\n  .hpc-editor details summary{cursor:pointer;font-weight:600;padding:8px 2px}\n  .hpc-editor .hpc-advanced-pipes{border-top:1px solid var(--divider-color,rgba(127,127,127,.16));margin:13px 0}\n  .hpc-editor .hpc-pipe-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding:9px 0}\n  .hpc-editor .hpc-pipe-row>span{display:flex;flex:1 1 230px;flex-direction:column;font-weight:500;font-size:.9em;line-height:1.4}\n  .hpc-editor .hpc-pipe-row small{font-weight:400;font-size:.87em;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-pipe-row details{flex:1 1 100%;font-size:.85em}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
+  return {types,byType,ports,portRole,validConnection,connectPair,connectionPairs,connectBufferSeries,dimension,display,fieldLabel,icon,esc,normalize,newNode,sample,state,active,format,color,portXY,draw,css,text};
 })();
 
 // Additional heating components share the original Heat Pump Hydraulic Card SVG.
@@ -8033,6 +8096,18 @@ const HPC_INTEGRATED = (() => {
     if(p.components.length)derived.generator_type=src?types[src.type]:'heat_pump';
     else if(src)derived.generator_type=types[src.type];
     if(src&&src.type!=='heat_pump')derived.boiler_name=src.name;
+    if(src?.type==='heat_pump'){
+      // Original Heat Pump Hydraulic Card artwork renderer reads these exact
+      // top-level settings. The component editor exposes the entire gallery.
+      // Auto inherits a pre-existing classic setting when one is available.
+      const o=src.options||{};
+      if(o.unit_style&&o.unit_style!=='auto')derived.unit_style=o.unit_style;
+      else derived.unit_style=config.unit_style||'auto';
+      if(o.unit_size)derived.unit_size=o.unit_size;
+      else if(config.unit_size)derived.unit_size=config.unit_size;
+      else delete derived.unit_size;
+      derived.source_type=o.source_type||config.source_type||'air';
+    }
     if(p.components.length){
       // Free plan is authoritative: old dashboard role keys must not draw
       // tanks, hot-water branches or a different heat source.
@@ -8045,6 +8120,13 @@ const HPC_INTEGRATED = (() => {
       derived.series_buffer=false;
       derived.storage='separate';
       derived.hc_count=Math.max(1,circuits.length);
+      circuits.forEach((c,index)=>{
+        const key=index?'hc'+(index+1)+'_type':'hc_type';
+        // Use the original Heat Pump Hydraulic Card emitter artwork.
+        // Each heating circuit can independently display floor, panel or
+        // column radiators; existing choices remain unchanged if not set.
+        derived[key]=c.options?.emitter||config[key]||'radiator';
+      });
       derived.preset='none';
     }else derived.entities={...entities,...(config.entities||{})};
     derived.power_sources=derived.power_sources||'manual';
@@ -8102,51 +8184,97 @@ const HPC_INTEGRATED = (() => {
     return a.join('');
   }
   function flowStates(plan,hass) {
-    // A mixer position of 0% or 100% is NOT a flow sensor and is never used
-    // to disable circulation. Only an explicitly mapped pipe flow status or
-    // the state of an actual pump can activate animation.
+    // Pipe animation is a *circuit* state, not an independent property of
+    // every line. An off DHW charging pump closes the supply AND the return of
+    // its coil, even when an unrelated heating pump is running elsewhere.
     const nodes=Object.fromEntries(plan.components.map(c=>[c.id,c]));
     const adjacent=new Map(plan.components.map(c=>[c.id,[]]));
+    const incoming=new Map(plan.components.map(c=>[c.id,[]]));
+    const outgoing=new Map(plan.components.map(c=>[c.id,[]]));
     const flowing=new Set();
-    const mappedFlow=(edge)=>{
+    const mappedFlow=edge=>{
       if(!edge.flow_entity)return null;
-      // Explicit pipe-level state always overrides topology inference.
-      const status=HPC_FREE.state(hass,edge.flow_entity);
-      return status?HPC_FREE.active(status):null;
+      const state=HPC_FREE.state(hass,edge.flow_entity);
+      return state?HPC_FREE.active(state):null;
     };
     for(const edge of plan.connections){
       adjacent.get(edge.from)?.push({edge,neighbor:edge.to});
       adjacent.get(edge.to)?.push({edge,neighbor:edge.from});
-      if(mappedFlow(edge)===true)flowing.add(edge.id);
+      incoming.get(edge.to)?.push(edge);
+      outgoing.get(edge.from)?.push(edge);
     }
-    const pumpEntity=(node)=>{
+    const pumpEntity=node=>{
       if(node.type==='pump')return node.sensors.state||node.sensors.pump||node.sensors.volume;
       if(isSource(node)||node.type==='heating_circuit')return node.sensors.pump;
       return null;
     };
-    const pumpState=(node)=>{
+    const pumpState=node=>{
       const id=pumpEntity(node);
-      const status=id&&HPC_FREE.state(hass,id);
-      return status?HPC_FREE.active(status):null;
+      const state=id&&HPC_FREE.state(hass,id);
+      return state?HPC_FREE.active(state):null;
     };
-    const blocked=(node)=>pumpState(node)===false;
-    const sources=plan.components.filter(n=>pumpState(n)===true);
-    for(const pump of sources){
+    const blocked=node=>pumpState(node)===false;
+    const stoppedChargeCircuits=new Set();
+    const stoppedReturnEdges=new Set();
+
+    for(const tank of plan.components.filter(node=>node.type==='dhw_tank')){
+      // Inspect *directed supply* going into the heating coil. Never walk
+      // backwards through the DHW return to find an unrelated source pump.
+      const feeders=(incoming.get(tank.id)||[]).filter(e=>e.to_port==='coil_in');
+      const visited=new Set();
+      const hasStoppedFeed=id=>{
+        if(visited.has(id))return false;
+        visited.add(id);
+        const node=nodes[id];
+        if(!node||node.type==='dhw_tank')return false;
+        if(blocked(node))return true;
+        // Heat sources are the beginning of the charging route. Other
+        // circuits sharing a return manifold must not influence the feed.
+        if(isSource(node)||node.type==='heating_circuit')return false;
+        return (incoming.get(id)||[]).some(edge=>hasStoppedFeed(edge.from));
+      };
+      if(!feeders.some(edge=>hasStoppedFeed(edge.from)))continue;
+      stoppedChargeCircuits.add(tank.id);
+      // Suppress the return leg until it rejoins a larger circuit. Pipes
+      // after a shared manifold may still correctly animate for heating.
+      const traceReturn=(id,seen=new Set())=>{
+        if(seen.has(id))return;
+        seen.add(id);
+        for(const edge of outgoing.get(id)||[]){
+          if(id===tank.id&&edge.from_port!=='coil_out')continue;
+          const next=nodes[edge.to];
+          if(!next)continue;
+          stoppedReturnEdges.add(edge.id);
+          const branches=(adjacent.get(next.id)||[]).length;
+          if(!isSource(next)&&next.type!=='dhw_tank'&&
+            next.type!=='heating_circuit'&&branches<=2)traceReturn(next.id,seen);
+        }
+      };
+      traceReturn(tank.id);
+    }
+
+    for(const edge of plan.connections){
+      if(mappedFlow(edge)===true&&!stoppedReturnEdges.has(edge.id)&&
+        !stoppedChargeCircuits.has(edge.from)&&
+        !stoppedChargeCircuits.has(edge.to))flowing.add(edge.id);
+    }
+    const activePumps=plan.components.filter(node=>pumpState(node)===true);
+    for(const pump of activePumps){
       const queue=[pump.id],visited=new Set();
       while(queue.length){
         const id=queue.shift();
         if(visited.has(id))continue;
         visited.add(id);
         for(const {edge,neighbor} of adjacent.get(id)||[]){
-          const explicit=mappedFlow(edge);
-          if(explicit===false)continue;
+          if(mappedFlow(edge)===false||stoppedReturnEdges.has(edge.id)||
+            stoppedChargeCircuits.has(edge.from)||stoppedChargeCircuits.has(edge.to))continue;
           const next=nodes[neighbor];
           if(!next||blocked(next))continue;
           flowing.add(edge.id);
-          // Stop at an unmapped heat source / heating circuit instead of
-          // assuming a different, uninstrumented boiler branch is running.
+          // Avoid treating a different heat generator or heating zone as
+          // evidence that its whole branch is flowing.
           const unknownSource=(isSource(next)||next.type==='heating_circuit')
-            && pumpEntity(next)==null && next.id!==pump.id;
+            && pumpEntity(next)==null&&next.id!==pump.id;
           if(!unknownSource&&!visited.has(neighbor))queue.push(neighbor);
         }
       }
@@ -8310,7 +8438,7 @@ const HPC_INTEGRATED = (() => {
       const s=HPC_FREE.state(hass,edge.temperature_entity||inferred);
       const color=s?HPC_FREE.color(s):null;
       const on=flowing.has(edge.id);
-      return '<g class="hpi-link"><title>'+HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'
+      return '<g class="hpi-link" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"><title>'+HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'
         +'<path class="pipe'+(on?' on':'')+'" d="'+d+'"'+(color?' style="--pc:'+color+'"':'')+'/>'
         +'<path class="flow'+(on?' on':'')+'" d="'+d+'"/></g>';
     }).join('');
@@ -8875,13 +9003,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       if(this._free()||this._unconfigured())this._renderFlex();
       else {this._freeUi?.remove();this._freeUi=null;super._render();this._showFreeButton();}
     }
-    _save(config){
+    _save(config,{repaint=true}={}){
       this._config=config;
       this.dispatchEvent(new CustomEvent("config-changed",{detail:{config},bubbles:true,composed:true}));
-      // User action (not a HA data refresh) is the only reason to redraw the form.
-      this._render();
+      // A changed sensor value must not destroy the expanded native ha-form.
+      // Repaint only for changes that affect which controls exist.
+      if(repaint)this._render();
     }
-    _applyPlan(plan,extra={}){this._save({...this._config,...extra,plan:HPC_FREE.normalize(plan)});}
+    _applyPlan(plan,extra={},options={}){
+      this._save({...this._config,...extra,plan:HPC_FREE.normalize(plan)},options);
+    }
     _legacyPlan(){
       // Classic setups often already contain buffers, DHW and heat circuits.
       // Import ALL configured roles into editable components before the first
@@ -8926,6 +9057,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           pump:prefix+'pump',mixer:prefix+'mixer'};
         if(i<=count||Object.values(roles).some(role=>entities[role])){
           add('heating_circuit','Heizkreis '+i,roles);
+          const circuit=result.components.at(-1);
+          if(circuit?.type==='heating_circuit'){
+            const oldKey=i===1?'hc_type':'hc'+i+'_type';
+            circuit.options={emitter:HFC_EMITTERS.includes(c[oldKey])?c[oldKey]:'radiator'};
+          }
         }
       }
       // Legacy fixed SVG piping has no reliable per-port graph representation.
@@ -9040,6 +9176,32 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const from=p.components.find(c=>c.id===e.from),to=p.components.find(c=>c.id===e.to);
         return from?.type==="buffer"&&to?.type==="buffer"&&e.from_port==="bottom_out"&&e.to_port==="top_in";
       });
+      // Keep the complete original outdoor-unit illustration selector.
+      // The same familiar manufacturer and cabinet choices are available
+      // directly on each heat pump instead of buried in classic YAML fields.
+      const unitLabels={
+        auto:t('Automatisch','Automatic'),generic:t('Standardgerät','Generic unit'),
+        lambda:'Lambda',vaillant:'Vaillant',panasonic:'Panasonic Aquarea',
+        viessmann:'Viessmann',bosch:'Bosch / Buderus',saunier:'Saunier Duval',
+        samsung:'Samsung',wolf:'Wolf',kronoterm:'Kronoterm',
+        alpha_innotec:'alpha innotec',stiebel:'Stiebel Eltron'
+      };
+      const heatPumpChoices=selected?.type==='heat_pump'
+        ?`<h3>${t("Außengerät wie in der Originalkarte","Original outdoor-unit style")}</h3>
+          <div class="hpc-row">
+            <label class="hpc-field">${t("Darstellung des Außengeräts","Outdoor-unit appearance")}
+              <select data-wp-style="${esc(selected.id)}">
+                ${HFC_UNIT_STYLES.map(style=>`<option value="${style}" ${(selected.options?.unit_style||'auto')===style?'selected':''}>${esc(unitLabels[style]||style)}</option>`).join('')}
+              </select>
+            </label>
+            <label class="hpc-field">${t("Gerätegröße / Lüfter","Unit size / fans")}
+              <select data-wp-size="${esc(selected.id)}">
+                <option value="" ${!selected.options?.unit_size?'selected':''}>${t("Automatisch","Automatic")}</option>
+                ${[['small',t('Klein','Small')],['medium',t('Mittel','Medium')],['large',t('Groß / zwei Lüfter','Large / two fans')]]
+                  .map(([value,label])=>`<option value="${value}" ${selected.options?.unit_size===value?'selected':''}>${label}</option>`).join('')}
+              </select>
+            </label>
+          </div>`:'';
       const chosen=selected?`<h3 class="hpc-config-title">${HPC_FREE.icon(selected.type)} ${t("Bauteil konfigurieren","Configure component")}</h3>
         <div class="hpc-row"><label>${t("Bezeichnung","Name")}<input data-name="${esc(selected.id)}"
           maxlength="75" value="${esc(selected.name)}"/></label>
@@ -9059,11 +9221,19 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             ${[["standard",t("Standardkessel","Standard boiler")],["low_temp",t("Niedertemperaturkessel","Low-temperature boiler")],["condensing",t("Brennwertkessel","Condensing boiler")]]
              .map(([id,name])=>`<option value="${id}" ${(selected.options?.boiler_kind||"standard")===id?"selected":""}>${name}</option>`).join("")}
           </select></label>`:""}
+        ${selected.type==="heating_circuit"?`<label class="hpc-field">${t("Heizflächenart","Heat emitter")}
+          <select data-heating-emitter="${esc(selected.id)}">
+            ${[['underfloor',t('Fußboden- / Flächenheizung','Underfloor heating')],
+              ['radiator',t('Plattenheizkörper','Panel radiators')],
+              ['column',t('Gliederheizkörper','Column radiators')]]
+              .map(([id,label])=>`<option value="${id}" ${(selected.options?.emitter||'radiator')===id?'selected':''}>${label}</option>`).join('')}
+          </select></label>`:""}
         ${selected.type==="wood_chip_boiler"?`<label class="hpc-field">${t("ETA Kesselmodell","ETA boiler model")}
           <select data-eta-model="${esc(selected.id)}">
             ${[["ehack","ETA eHACK"],["hack","ETA HACK"],["hack_vr","ETA HACK VR"]]
               .map(([id,name])=>`<option value="${id}" ${(selected.options?.eta_model||"ehack")===id?"selected":""}>${name}</option>`).join("")}
           </select></label>`:""}
+        ${heatPumpChoices}
         ${useNativeForm?'<div class="hpc-native-form"><ha-form id="hpc-native-sensors"></ha-form></div>':activeFields.map(key=>sensorField(selected.id,key,selected.sensors[key])).join("")}
         ${isTank?`<h3>${t("Zusätzliche Temperaturfühler","Additional temperature sensors")}</h3>
           <p>${t("Ordne jeden Fühler seiner tatsächlichen Einbauhöhe zu. 0 % = oben, 100 % = unten.","Set each sensor to its real installation height. 0% = top, 100% = bottom.")}</p>
@@ -9071,12 +9241,31 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const connectionField=(edge,field,label)=>useNativePicker
         ? `<ha-entity-picker data-edge="${esc(edge.id)}" data-edge-field="${field}" data-label="${esc(label)}"></ha-entity-picker>`
         : `<label>${esc(label)}<input list="hpc-free-entities" data-edge="${esc(edge.id)}" data-edge-field="${field}" value="${esc(edge[field])}"/></label>`;
-      const connectionRows=p.connections.map(edge=>`<div class="hpc-row">
-        <span style="flex:1 1 250px;font-size:.85em">${esc((p.components.find(c=>c.id===edge.from)?.name||edge.from)+" – "+(portNames[edge.from_port]||edge.from_port)+" → "+(p.components.find(c=>c.id===edge.to)?.name||edge.to)+" – "+(portNames[edge.to_port]||edge.to_port))}</span>
-        <button type="button" data-action="remove-edge" data-edge-id="${esc(edge.id)}">${t("Entfernen","Remove")}</button>
-        ${connectionField(edge,'flow_entity',t('Pumpen-/Flussstatus (optional)','Pump/flow status (optional)'))}
-        ${connectionField(edge,'temperature_entity',t('Rohrtemperatur (optional)','Pipe temperature (optional)'))}
-        </div>`).join("");
+      // Selecting two components is easier than choosing four separate ports.
+      // A heat-source/tank pair creates its hot supply and matching return.
+      const suggestedPairs=HPC_FREE.connectionPairs(p);
+      const pairOptions=suggestedPairs.map(c=>
+        '<option value="'+esc(c.from+'|'+c.to)+'">'+esc(c.label)+' · '+
+        (c.count>1?t('Vorlauf + Rücklauf','Flow + return'):
+          t('Fehlende Leitung ergänzen','Add missing pipe'))+'</option>').join('');
+      const connectionRows=p.connections.map(edge=>{
+        const from=p.components.find(c=>c.id===edge.from);
+        const to=p.components.find(c=>c.id===edge.to);
+        const supply=['flow','dhw','top_out','mid_out','coil_in','flow_in','top_in'].includes(edge.from_port)||
+          ['coil_in','flow_in','top_in'].includes(edge.to_port);
+        const direction=supply?t('Vorlauf','Supply'):t('Rücklauf','Return');
+        return '<div class="hpc-pipe-row">'
+          +'<span>'+esc((from?.name||edge.from)+' → '+(to?.name||edge.to))
+          +'<small>'+direction+' · '+esc(portNames[edge.from_port]||edge.from_port)
+            +' → '+esc(portNames[edge.to_port]||edge.to_port)+'</small></span>'
+          +'<button type="button" data-action="remove-edge" data-edge-id="'+esc(edge.id)+'">'
+            +t('Entfernen','Remove')+'</button>'
+          +'<details><summary>'+t('Messwerte für diese Leitung (optional)','Values for this pipe (optional)')
+            +'</summary><div class="hpc-row">'
+            +connectionField(edge,'flow_entity',t('Pumpen-/Flussstatus','Pump or flow state'))
+            +connectionField(edge,'temperature_entity',t('Rohrtemperatur','Pipe temperature'))
+            +'</div></details></div>';
+      }).join("");
       const html=`<style>${HPC_FREE.css}</style><div class="hpc-editor">
         ${!configured?`<h3>${t("Deine Heizungsanlage","Your heating system")}</h3>
           <p>${t("Wähle selbst, welche Wärmeerzeuger, Speicher und Heizkreise du hast und wie sie verbunden sind. Eine Wärmepumpe ist nicht erforderlich.","Choose your own heat generators, tanks, heating circuits and connections. No heat-pump integration required.")}</p>
@@ -9096,17 +9285,29 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <h3>${t("Hydraulikschema","Hydraulic schematic")}</h3>
           <p>${t("Die Bauteile werden passend zu ihren Anschlüssen automatisch im ursprünglichen Hydraulikplan angeordnet. Du musst keine Positionen eingeben. Die Live-Vorschau siehst du im Dashboard.","Components are automatically arranged in the original hydraulic schematic. No manual coordinates are required. The dashboard shows the live preview.")}</p>
           ${chosen}
-          <h3>${t("Rohrverbindungen","Pipe connections")}</h3>
+          <h3>${t("Bauteile verbinden","Connect components")}</h3>
+          <div class="hpc-row hpc-quick-connect">
+            <label class="hpc-field">${t("Was soll verbunden werden?","What should be connected?")}
+              <select id="hpc-pair"><option value="">${t("Verbindung wählen","Choose connection")}</option>${pairOptions}</select>
+            </label>
+            <button type="button" data-action="connect-pair" class="hpc-primary" ${suggestedPairs.length?"":"disabled"}>${t("Verbinden","Connect")}</button>
+          </div>
+          <p class="hpc-connection-hint">${t("Vorlauf und Rücklauf werden gemeinsam angeschlossen. Beim Holzvergaser führt der Rücklauf vom Speicher zurück zum Kessel.","Supply and return are connected together. For wood gasifiers the return leads from the tank back to the boiler.")}</p>
           ${bufferList.length>=2?`<div class="hpc-ems">
             <strong>${t("Pufferspeicher verbinden","Connect buffer tanks")}</strong>
             <p>${t("Reihenschaltung: Vorlauf jeweils oben zum nächsten Puffer, Rücklauf unten zurück zum vorherigen. Bereits vorhandene Verbindungen bleiben erhalten; prüfe die tatsächliche Verrohrung.","Series layout: hot flow at the top to the next buffer, cooler return at the bottom to the previous. Existing connections are retained; check your actual pipework.")}</p>
             <button type="button" data-action="buffer-series">${t("Puffer in Reihe verbinden","Connect buffers in series")}</button>
           </div>`:""}
           ${misplacedBufferEdges.length?`<p class="hpc-connection-warning">${t("Achtung: Eine Pufferleitung ist von unten nach oben verbunden. Bitte prüfen, ob das der tatsächlichen Verrohrung entspricht.","Warning: a buffer pipe links bottom to top. Verify this corresponds to the actual installation.")}</p>`:""}
-          <div class="hpc-row"><label>${t("Von Anschluss","From port")}<select id="hpc-from">
-            <option value="">–</option>${portOptions("from")}</select></label>
-            <label>${t("Zu Anschluss","To port")}<select id="hpc-to"><option value="">–</option></select></label>
-            <button type="button" data-action="connect" class="hpc-primary">${t("Verbinden","Connect")}</button></div>
+          <details class="hpc-advanced-pipes">
+            <summary>${t("Spezielle Anschlüsse einzeln verbinden","Connect individual ports (advanced)")}</summary>
+            <div class="hpc-row"><label>${t("Ausgang","From port")}<select id="hpc-from">
+              <option value="">–</option>${portOptions("from")}</select></label>
+              <label>${t("Eingang","To port")}<select id="hpc-to"><option value="">–</option></select></label>
+              <button type="button" data-action="connect">${t("Einzelne Leitung hinzufügen","Add individual pipe")}</button>
+            </div>
+          </details>
+          <h3>${t("Vorhandene Leitungen","Configured pipes")}</h3>
           ${connectionRows||`<p>${t("Noch keine Rohrverbindungen eingerichtet. Das Schema nimmt keine echte Verrohrung an.","No pipe connections configured. The diagram does not infer pipework.")}</p>`}
           <p>${t("Die Leitungen werden bei aktivem Pumpen- oder Flusssignal animiert. 0 % und 100 % Mischerstellung verhindern die Animation nicht. Ohne zugeordneten Pumpenstatus ist der Durchfluss unbekannt. Bitte die tatsächliche Hydraulik prüfen.","Pipes animate when an assigned pump or flow signal is active. Mixer positions of 0% or 100% do not disable circulation. Without a pump signal, flow is unknown. Verify actual pipework.")}</p>`}
         ${dataList}
@@ -9118,7 +9319,14 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       this._freeUi.innerHTML=html;
       this._freeUi.scrollTop=oldY;
       const root=this._freeUi;
-      const changePlan=(fn)=>{const next=HPC_FREE.normalize(p);fn(next);this._applyPlan(next);};
+      // Always edit the latest plan, not the snapshot used to render this form.
+      // Multiple sensor selections can otherwise overwrite each other when
+      // the form intentionally stays mounted between changes.
+      const changePlan=(fn,options={})=>{
+        const next=HPC_FREE.normalize(this._config.plan);
+        fn(next);
+        this._applyPlan(next,{},options);
+      };
       const settingsForm=root.querySelector('#hpc-native-settings');
       if(settingsForm){
         const choice=(name,options)=>({name,selector:{select:{mode:'dropdown',
@@ -9157,7 +9365,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           for(const key of ['title','layout','theme','animations','fullscreen','diagnostic','controls']){
             if(Object.hasOwn(values,key))changed[key]=values[key];
           }
-          if(Object.keys(changed).length)this._save({...this._config,...changed});
+          // Keep the appearance section and its current focus open, too.
+          if(Object.keys(changed).length)this._save({...this._config,...changed},{repaint:false});
         });
       }
       const chosenForm=root.querySelector('#hpc-native-sensors');
@@ -9166,6 +9375,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const entityField=key=>({name:key,selector:{entity:{}}});
         chosenForm.hass=this._hass;
         chosenForm.schema=[{type:'expandable',name:'sensors',title:t('Sensoren und Messwerte','Sensors and measurements'),
+          expanded:true,
           schema:[...coreFields.map(entityField),
             ...(moreFields.length?[{type:'expandable',name:'more',flatten:true,
               title:t('Weitere Felder','More fields'),expanded:moreFields.some(key=>!!selected.sensors[key]),
@@ -9181,10 +9391,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             const node=next.components.find(c=>c.id===selected.id);
             if(!node)return;
             for(const key of activeFields){
+              // ha-form may emit partial values. Missing keys are not a
+              // request to clear another already assigned sensor.
+              if(!Object.hasOwn(values,key))continue;
               if(values[key])node.sensors[key]=values[key];
               else delete node.sensors[key];
             }
-          });
+          },{repaint:false});
         });
       }
       const typePicker=root.querySelector('#hpc-free-type');
@@ -9203,7 +9416,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           changePlan(next=>{
             const row=next.connections.find(c=>c.id===picker.dataset.edge);
             if(row)row[picker.dataset.edgeField]=event.detail?.value||'';
-          });
+          },{repaint:false});
         });
       });
       // Allow an uncertain boiler model to be selected before importing.
@@ -9292,6 +9505,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           return this._applyPlan({components:p.components.filter(c=>c.id!==selected.id),
             connections:p.connections.filter(c=>c.from!==selected.id&&c.to!==selected.id)});
         }
+        if(action==="connect-pair"){
+          const [from,to]=(root.querySelector('#hpc-pair')?.value||'').split('|');
+          if(!from||!to)return;
+          const next=HPC_FREE.connectPair(this._config.plan,from,to);
+          if(next.connections.length===this._config.plan.connections.length)return;
+          return this._applyPlan(next);
+        }
         if(action==="connect"){
           const [from,from_port]=(root.querySelector("#hpc-from")?.value||"").split("|");
           const [to,to_port]=(root.querySelector("#hpc-to")?.value||"").split("|");
@@ -9343,9 +9563,25 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         node.options={boiler_kind:node.options?.boiler_kind||'standard'};
         // Shared flow/return ports and existing sensor assignments survive.
       });
+      fieldUpdate('[data-wp-style]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.wpStyle);
+        if(node?.type==='heat_pump')node.options={...node.options,unit_style:el.value};
+      });
+      fieldUpdate('[data-wp-size]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.wpSize);
+        if(node?.type!=='heat_pump')return;
+        node.options={...node.options};
+        if(el.value)node.options.unit_size=el.value;
+        else delete node.options.unit_size;
+      });
       fieldUpdate("[data-boiler-kind]",(plan,el)=>{
         const c=plan.components.find(x=>x.id===el.dataset.boilerKind);
         if(c)c.options={...c.options,boiler_kind:el.value};
+      });
+      fieldUpdate('[data-heating-emitter]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.heatingEmitter);
+        if(node?.type==='heating_circuit'&&HFC_EMITTERS.includes(el.value))
+          node.options={...node.options,emitter:el.value};
       });
       fieldUpdate('[data-eta-model]',(plan,el)=>{
         const node=plan.components.find(c=>c.id===el.dataset.etaModel);
