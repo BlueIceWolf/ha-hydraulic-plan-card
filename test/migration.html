@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="de"><meta charset="utf-8"><title>Migration regression</title>
+<pre id="result">RUNNING</pre><pre id="log"></pre>
+<script>const HFC_EMITTERS=['radiator','underfloor','column'];</script>
+<script src="../src/flexible-plan.js"></script>
+<script src="../src/migration.js"></script>
+<script>
+const log=[],check=(ok,title)=>{log.push((ok?'OK ':'FAIL ')+title);return !!ok};
+let pass=true;
+const original={type:'custom:hydraulic-plan-card',title:'Altbestand',plan:{
+ components:[
+  {id:'puffer_1',type:'buffer',name:'Puffer',sensors:{top:'sensor.puffer_top'}},
+  {id:'ww_1',type:'dhw_tank',name:'Warmwasser',options:{connection_style:'branch'},sensors:{top:'sensor.ww_top'}},
+  {id:'lade_1',type:'pump',name:'Ladepumpe',sensors:{state:'switch.ww_ladepumpe'},discovery:{provider:'eta-system',id:'buffer:eta:1'}}
+ ],
+ connections:[{id:'leitung_1',from:'ww_1',from_port:'coil_out',to:'puffer_1',to_port:'return_in',
+  flow_entity:'switch.ww_ladepumpe',temperature_entity:'sensor.ww_return'}]}};
+const before=JSON.stringify(original);
+const migrated=HPC_MIGRATION.upgrade(original);
+pass=check(migrated.changed&&migrated.config.hpc_schema_version===2,'versions migration')&&pass;
+pass=check(JSON.stringify(original)===before,'source is not mutated')&&pass;
+pass=check(migrated.config.plan.components[2].discovery?.provider==='eta-system','ETA discovery retained')&&pass;
+pass=check(migrated.config.plan.connections[0].to_port==='bottom_in','legacy return mapped left')&&pass;
+pass=check(migrated.config.plan.connections[0].flow_entity==='switch.ww_ladepumpe','pipe signal retained')&&pass;
+pass=check(migrated.config.plan.connections[0].temperature_entity==='sensor.ww_return','pipe temperature retained')&&pass;
+pass=check(!HPC_MIGRATION.upgrade(migrated.config).changed,'idempotence')&&pass;
+const restored=HPC_MIGRATION.restore(migrated.config);
+pass=check(restored.hpc_migration_skip_auto&&restored.plan.connections[0].to_port==='return_in','rollback restores old graph')&&pass;
+pass=check(!HPC_MIGRATION.upgrade(restored).changed,'restored graph not immediately overwritten')&&pass;
+const unknown=structuredClone(original);unknown.plan.components.push({id:'unknown_1',type:'future_pump'});
+pass=check(HPC_MIGRATION.upgrade(unknown).blocked,'unknown types block')&&pass;
+const tooMany=structuredClone(original);tooMany.plan.components[0].level_sensors=Array.from({length:25},(_,i)=>({position:i,entity:'sensor.level'}));
+pass=check(HPC_MIGRATION.upgrade(tooMany).blocked,'too many sensors block')&&pass;
+const classic=HPC_MIGRATION.upgrade({generator_type:'oil',hc_count:2,
+ entities:{boiler_flow:'sensor.oel_vl',buffer_top:'sensor.puffer_top',hc_pump:'switch.hk1'}},{classic:true});
+pass=check(classic.changed&&classic.config.plan.components.some(c=>c.type==='oil_boiler'),'classic boiler import')&&pass;
+pass=check(classic.config.plan.components.filter(c=>c.type==='heating_circuit').length===2,'classic circuits import')&&pass;
+pass=check(classic.config.plan.connections.length===0&&classic.warnings.length>0,'no invented pipes')&&pass;
+pass=check(!!classic.config.hpc_migration_backup,'classic snapshot exists')&&pass;
+document.querySelector('#result').textContent=pass?'PASS':'FAIL';
+document.querySelector('#log').textContent=log.join('\n');
+</script></html>

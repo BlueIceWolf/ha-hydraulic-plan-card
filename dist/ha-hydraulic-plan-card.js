@@ -7659,7 +7659,7 @@ const HPC_FREE = (function makeFreeHelpers() {
       // Remember which HA device was imported. This is only a read-only
       // identity for duplicate detection, never a credential or gateway URL.
       const discovery=typeof n.discovery?.id==="string"&&
-        ["ems-esp","eta"].includes(n.discovery?.provider)&&
+        ["ems-esp","eta","eta-system"].includes(n.discovery?.provider)&&
         /^[a-zA-Z0-9._:\/-]{1,150}$/.test(n.discovery.id)
         ?{provider:n.discovery.provider,id:n.discovery.id}:undefined;
       components.push({id:n.id,type:n.type,name:String(n.name||display(n.type)).slice(0,75),
