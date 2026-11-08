@@ -589,7 +589,7 @@ const HPC_INTEGRATED = (() => {
       :'';
     const firstBuffer=plan.components.find(c=>c.type==='buffer');
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank');
-    return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+primaryChip+primaryOil+primaryGas+'</g>',
+    return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+manualMixers+primaryChip+primaryOil+primaryGas+'</g>',
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
   return {layout,coreConfig,svg,tankPoints,flowStates,isSource};
