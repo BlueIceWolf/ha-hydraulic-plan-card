@@ -8111,8 +8111,20 @@ const HPC_INTEGRATED = (() => {
       points.set(node.id,{x:680+(index%2)*160,
         y:40+Math.floor(index/2)*220,w:120,h:200,type:node.type});
     });
+    // WW charging devices sit next to their coil, not in a disconnected
+    // column at the other end of the schematic. They are still real
+    // components and keep their own pump/valve entity.
+    const chargeControls=byGroup.control.filter(n=>
+      p.connections.some(e=>e.from===n.id&&
+        p.components.some(t=>t.id===e.to&&t.type==='dhw_tank'&&e.to_port==='coil_in')));
+    chargeControls.forEach((node,index)=>{
+      const [w,h]=HPC_FREE.dimension(node.type);
+      points.set(node.id,{x:320,y:72+index*242,w,h,type:node.type});
+    });
     const controlStart=Math.max(1190,storageStart+530);
-    const controlEnd=placeColumn(byGroup.control,controlStart,90,265,260);
+    const controlEnd=placeColumn(
+      byGroup.control.filter(n=>!chargeControls.includes(n)),
+      controlStart,90,265,260);
     // Tall standalone separator uses the same native-sized container as the
     // other pieces of equipment without colliding with a following control.
     for(const node of byGroup.control.filter(c=>c.type==='particle_separator')){
@@ -8496,6 +8508,35 @@ const HPC_INTEGRATED = (() => {
       e.to_port==='coil_in'&&branchTankIds.has(e.to)).map(e=>e.id));
     const branchReturnEdges=new Set(plan.connections.filter(e=>
       e.from_port==='coil_out'&&branchTankIds.has(e.from)).map(e=>e.id));
+    // For each coil, reuse the EXISTING heating-circuit supply/return
+    // headers if the same storage/source already feeds a heating circuit.
+    // Do not manufacture a shared header when no heating circuit is wired.
+    const supplyTees=new Map(),returnTees=new Map();
+    for(const tankId of branchTankIds){
+      const coilFeed=plan.connections.find(e=>e.to===tankId&&e.to_port==='coil_in');
+      const coilReturn=plan.connections.find(e=>e.from===tankId&&e.from_port==='coil_out');
+      if(!coilFeed||!coilReturn)continue;
+      const prior=plan.connections.find(e=>e.to===coilFeed.from&&e.to_port==='in')||
+        plan.connections.find(e=>e.to===coilFeed.from&&e.to_port==='ab');
+      const supply=prior||coilFeed;
+      const sourceId=supply.from;
+      if(coilReturn.to!==sourceId)continue;
+      const heatFeed=plan.connections.find(e=>e.from===sourceId&&
+        all[e.to]?.type==='heating_circuit'&&e.to_port==='flow_in');
+      const heatReturn=plan.connections.find(e=>e.to===sourceId&&
+        all[e.from]?.type==='heating_circuit'&&e.from_port==='return_out');
+      if(!heatFeed||!heatReturn)continue;
+      const sourceShape=loc(sourceId);
+      const source=all[sourceId];
+      if(!sourceShape||!source)continue;
+      const hot=port(source,sourceShape,supply.from_port);
+      const cold=port(source,sourceShape,coilReturn.to_port);
+      const hx=loc(heatFeed.to);
+      if(!hx)continue;
+      const teeX=Math.min(hx.x-55,Math.max(sourceShape.x+sourceShape.w+55,735));
+      supplyTees.set(supply.id,{x:teeX,y:hot.y});
+      returnTees.set(coilReturn.id,{x:teeX,y:cold.y});
+    }
     const links=plan.connections.map(edge=>{
       // Original heating circuits own their valve, emitter and shared risers.
       // Do not draw duplicate pipes over those native routes. Connections to
@@ -8525,6 +8566,23 @@ const HPC_INTEGRATED = (() => {
         const mid=(p.x+q.x)/2;
         d='M'+p.x+' '+p.y+' H'+mid+' V'+q.y+' H'+q.x;
       }
+      // Take the WW branch off the common header at a T fitting, just
+      // like another heating circuit. The coil inlet/outlet remain on the
+      // left; no pipe may cross the tank or create a second parallel header.
+      const supplyTee=supplyTees.get(edge.id);
+      const returnTee=returnTees.get(edge.id);
+      if(supplyTee){
+        const entryX=q.x-34;
+        const above=Math.min(20,q.y-42);
+        d='M'+supplyTee.x+' '+supplyTee.y+' V'+above+
+          ' H'+entryX+' V'+q.y+' H'+q.x;
+      }else if(returnTee){
+        // From the LEFT side of the coil, travel around the storage bank
+        // before joining the heating return header, never through the tank.
+        const exitX=p.x-70,below=Math.max(555,fromShape.y+fromShape.h+35);
+        d='M'+p.x+' '+p.y+' H'+exitX+' V'+below+
+          ' H'+returnTee.x+' V'+returnTee.y;
+      }
       const inferred=(()=>{
         const node=all[edge.from],field=edge.from_port;
         if(field==="flow")return node.sensors.flow;
@@ -8540,7 +8598,8 @@ const HPC_INTEGRATED = (() => {
       // of the heating distribution. Do not animate it independently:
       // the edge flow state still controls both legs.
       const branch=branchFeedEdges.has(edge.id)||branchReturnEdges.has(edge.id);
-      const tee=branch?'<circle class="hpi-coil-branch" cx="'+(branchFeedEdges.has(edge.id)?p.x:q.x)+'" cy="'+(branchFeedEdges.has(edge.id)?p.y:q.y)+'" r="5" fill="var(--card-background-color,#fff)" stroke="'+(on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+'" stroke-width="2"/>':'';
+      const junction=supplyTee||returnTee;
+      const tee=branch||junction?'<circle class="hpi-coil-branch" cx="'+(junction?.x??(branchFeedEdges.has(edge.id)?p.x:q.x))+'" cy="'+(junction?.y??(branchFeedEdges.has(edge.id)?p.y:q.y))+'" r="5" fill="var(--card-background-color,#fff)" stroke="'+(on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+'" stroke-width="2"/>':'';
       return '<g class="hpi-link" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"><title>'+HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'
         +'<path class="pipe'+(on?' on':'')+'" d="'+d+'"'+(color?' style="--pc:'+color+'"':'')+'/>'
         +'<path class="flow'+(on?' on':'')+'" d="'+d+'"/>'+tee+'</g>';
