@@ -227,6 +227,29 @@
       'Automatic layout puts the additional boiler below the existing source');
     compact.remove();
 
+    const legacyWithTanks=document.createElement('hydraulic-plan-card-editor');
+    legacyWithTanks.setConfig({type:'custom:hydraulic-plan-card',
+      generator_type:'wood_gasifier',buffer:true,hc_count:2,
+      entities:{boiler_state:ids.burning,buffer_top:ids.bufTop,
+        buffer_bottom:ids.bufBottom,dhw_top:ids.bufTop,hc_flow:ids.flow,
+        hc2_flow:ids.flow},
+      plan:{components:[],connections:[]}});
+    document.body.append(legacyWithTanks);legacyWithTanks.hass=hassFree;
+    let importedConfig;
+    legacyWithTanks.addEventListener('config-changed',e=>importedConfig=e.detail.config);
+    const classicSelect=legacyWithTanks.querySelector('#hpc-free-type');
+    if(classicSelect)classicSelect.value='oil_boiler';
+    legacyWithTanks.querySelector('[data-action="add-component"]')?.click();
+    check(importedConfig?.plan.components.filter(c=>c.type==='buffer').length===1 &&
+      importedConfig.plan.components.filter(c=>c.type==='dhw_tank').length===1 &&
+      importedConfig.plan.components.filter(c=>c.type==='heating_circuit').length===2 &&
+      importedConfig.plan.components.filter(c=>c.type==='wood_gasifier').length===1 &&
+      importedConfig.plan.components.filter(c=>c.type==='oil_boiler').length===1,
+      'Migrating a classic plan keeps its buffer, hot water and two heating circuits');
+    check(importedConfig?.plan.components.find(c=>c.type==='buffer')?.sensors.top===ids.bufTop,
+      'Classic buffer temperature entities survive migration');
+    legacyWithTanks.remove();
+
     const legacyEditor=document.createElement('hydraulic-plan-card-editor');
     legacyEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
       generator_type:'wood_gasifier',boiler_name:'Fröling S3 Turbo',
