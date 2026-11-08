@@ -2,7 +2,7 @@
 // The first heat source, first buffer, first DHW tank and up to six heating circuits
 // reuse their original renderer. All other components are ADDED to that same SVG.
 const HPC_INTEGRATED = (() => {
-  const sources = new Set(['wood_gasifier','oil_boiler','pellet_boiler','gas_boiler','heat_pump']);
+  const sources = new Set(['wood_gasifier','oil_boiler','pellet_boiler','wood_chip_boiler','gas_boiler','heat_pump']);
   const isSource = (node) => sources.has(node.type);
   const isTank = node => node.type==='buffer'||node.type==='dhw_tank';
   function layout(plan, hcCount=1) {
@@ -35,7 +35,7 @@ const HPC_INTEGRATED = (() => {
     // Additional heat sources stay below the original generator, not far outside
     // the visible diagram. The first extra boiler is visible immediately.
     for(const [index,node] of byGroup.source.entries()){
-      const [width,height]=node.type==='oil_boiler'?[240,195]:[240,165];
+      const [width,height]=['oil_boiler','wood_chip_boiler'].includes(node.type)?[240,195]:[240,165];
       points.set(node.id,{x:50+Math.floor(index/4)*265,
         y:475+(index%4)*218,w:width,h:height,type:node.type});
     }
@@ -86,7 +86,7 @@ const HPC_INTEGRATED = (() => {
     const buffer=p.components.find(c=>c.type==='buffer');
     const dhw=p.components.find(c=>c.type==='dhw_tank');
     const circuits=p.components.filter(c=>c.type==='heating_circuit').slice(0,6);
-    const types={wood_gasifier:'wood_gasifier',oil_boiler:'oil',pellet_boiler:'pellet',
+    const types={wood_gasifier:'wood_gasifier',oil_boiler:'oil',pellet_boiler:'pellet',wood_chip_boiler:'pellet',
       gas_boiler:'gas',heat_pump:'heat_pump'};
     const entities={};
     const set=(target,source,key)=>{if(source?.sensors?.[key])entities[target]=source.sensors[key];};
@@ -95,7 +95,8 @@ const HPC_INTEGRATED = (() => {
         [['flow','flow'],['return','return'],['power','power'],['state','mode']].forEach(([from,to])=>set(to,src,from));
       }else {
         [['state','boiler_state'],['flow','boiler_flow'],['return','boiler_return'],['power','boiler_power'],
-        ['exhaust','boiler_exhaust'],['oxygen','boiler_o2'],['fan','boiler_fan'],['pump','boiler_pump']].forEach(([from,to])=>set(to,src,from));
+        ['exhaust','boiler_exhaust'],['oxygen','boiler_o2'],['fan','boiler_fan'],['pump','boiler_pump'],
+        ['fuel_level','boiler_fuel_level']].forEach(([from,to])=>set(to,src,from));
       }
     }
     if(src?.type==='wood_gasifier'&&src.options?.return_lift)set('boiler_mixer',src,'mixer');
@@ -232,11 +233,38 @@ const HPC_INTEGRATED = (() => {
     return flowing;
   }
 
+
+  // SVG artwork in the same coordinates and visual language as the original
+  // heat-source/puffer drawings. All geometry is our own, no ETA image assets.
+  function chipArt(x,y,width,height,node,on) {
+    const d=(v)=>Math.round(v*10)/10;
+    const frontX=d(x+width*.29),frontW=d(width*.65);
+    const frontY=d(y+height*.085),frontH=d(height*.78);
+    const feedY=d(y+height*.72);
+    const model={ehack:'eHACK',hack:'HACK',hack_vr:'HACK VR'}[node.options?.eta_model]||'eHACK';
+    const primary=width<160;
+    return '<g class="hpi-chip-art'+(on?' on':'')+'">'
+      +'<rect class="hpi-chip-body" x="'+x+'" y="'+y+'" width="'+width+'" height="'+height+'" rx="11"/>'
+      +'<rect class="hpi-chip-face" x="'+frontX+'" y="'+frontY+'" width="'+frontW+'" height="'+frontH+'" rx="5"/>'
+      +'<rect class="hpi-chip-plinth" x="'+(x+3)+'" y="'+d(y+height*.86)+'" width="'+(width-6)+'" height="'+d(height*.12)+'" rx="3"/>'
+      // Side-mounted fuel auger is the distinguishing sign of a chip boiler.
+      +'<path class="hpi-chip-feed" d="M'+(x-26)+' '+feedY+' L'+(x+15)+' '+d(feedY-7)+' L'+(x+21)+' '+d(feedY+4)+' L'+(x-23)+' '+d(feedY+12)+' Z"/>'
+      +'<path class="hpi-chip-screw" d="M'+(x-20)+' '+d(feedY+3)+' l9 -8 l9 7 l9 -8 l8 6"/>'
+      +'<circle class="hpi-chip-motor" cx="'+(x-26)+'" cy="'+d(feedY+6)+'" r="6"/>'
+      +'<rect class="hpi-chip-screen" x="'+(x+6)+'" y="'+d(y+height*.16)+'" width="'+d(width*.20)+'" height="'+d(height*.19)+'" rx="3"/>'
+      +'<path class="hpi-chip-divider" d="M'+frontX+' '+d(y+height*.18)+' v'+d(height*.56)+'"/>'
+      +'<text class="hpi-chip-brand" x="'+d(frontX+frontW*.5)+'" y="'+d(y+height*.37)+'" text-anchor="middle">ETA</text>'
+      +'<text class="hpi-chip-model'+(primary?' is-compact':'')+'" x="'+d(frontX+frontW*.5)+'" y="'+d(y+height*.62)+'" text-anchor="middle">'+HPC_FREE.esc(model)+'</text>'
+      +'<circle class="hpi-chip-light" cx="'+d(x+width*.15)+'" cy="'+d(y+height*.57)+'" r="4"/>'
+      +'</g>';
+  }
+
   // The existing heat pump, hot-water and buffer drawings remain in the upstream
   // SVG. These original-style outlines extend its vocabulary for further
   // heating sources instead of displaying a generic flame in an empty box.
-  function additionalSourceArt(type, box, on) {
+  function additionalSourceArt(type, box, on, node) {
     const x=box.x+35, y=box.y+43;
+    if(type==='wood_chip_boiler')return chipArt(x,y,170,89,node,on);
     const casing='<rect class="hpi-source-case" x="'+x+'" y="'+y+'" width="170" height="89" rx="12"/>';
     const panel='<rect class="hpi-source-panel" x="'+(x+126)+'" y="'+(y+12)+'" width="33" height="59" rx="5"/>'
       +'<rect class="hpi-source-display" x="'+(x+132)+'" y="'+(y+19)+'" width="21" height="13" rx="3"/>'
@@ -377,7 +405,7 @@ const HPC_INTEGRATED = (() => {
           +'<text class="hpi-oil-reading" x="'+cx+'" y="'+(b.y+184)+'" text-anchor="middle">'+label('Rücklauf','Return')+': '+val('return')+'</text>'
           +'</g>';
       }
-      const icon=isSource(node)?additionalSourceArt(type,b,on):
+      const icon=isSource(node)?additionalSourceArt(type,b,on,node):
         type==='pump'?'<circle class="pump" cx="'+cx+'" cy="'+cy+'" r="23"/><path class="imp" d="M'+(cx-7)+' '+(cy-12)+' L'+(cx+12)+' '+cy+' L'+(cx-7)+' '+(cy+12)+'Z"/>':
         type==='mixer'||type==='diverter'?'<circle class="valve" cx="'+cx+'" cy="'+cy+'" r="21"/><path class="valve-arrow" d="M'+(cx-13)+' '+(cy-9)+' L'+cx+' '+(cy+7)+' L'+(cx+13)+' '+(cy-9)+'"/>':
         type==='electric_heater'?'<path class="heater" d="M'+(cx-26)+' '+cy+' h12 l10 -15 l11 30 l10 -15 h12"/>':
@@ -423,9 +451,15 @@ const HPC_INTEGRATED = (() => {
           +'<text class="hpi-rla-label" x="'+(valveX+20)+'" y="'+(returnY-10)+'">'+HPC_FREE.esc(label+percentage)+'</text>'
           +'</g>';
       }).join('');
+    const firstSource=plan.components.find(isSource);
+    const sourceStatus=firstSource&&HPC_FREE.state(hass,firstSource.sensors.state);
+    const primaryChip=firstSource?.type==='wood_chip_boiler'
+      ?'<g class="tap hpi-chip-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
+        +chipArt(92,238,156,102,firstSource,HPC_FREE.active(sourceStatus))+'</g>'
+      :'';
     const firstBuffer=plan.components.find(c=>c.type==='buffer');
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank');
-    return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+'</g>',
+    return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+primaryChip+'</g>',
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
   return {layout,coreConfig,svg,tankPoints,flowStates,isSource};
