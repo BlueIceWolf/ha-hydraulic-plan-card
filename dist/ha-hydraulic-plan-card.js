@@ -7629,7 +7629,8 @@ const HPC_FREE = (function makeFreeHelpers() {
         :n.type==="wood_chip_boiler"
           ?{eta_model:["ehack","hack","hack_vr"].includes(n.options?.eta_model)?n.options.eta_model:"ehack"}
         :n.type==="heating_circuit"
-          ?{emitter:HFC_EMITTERS.includes(n.options?.emitter)?n.options.emitter:"radiator"}
+          ?{emitter:HFC_EMITTERS.includes(n.options?.emitter)?n.options.emitter:"radiator",
+            mixed:typeof n.options?.mixed==="boolean"?n.options.mixed:!!n.sensors?.mixer}
         :["oil_boiler","gas_boiler","pellet_boiler"].includes(n.type)
           ?{boiler_kind:["standard","low_temp","condensing"].includes(n.options?.boiler_kind)?n.options.boiler_kind:"standard"}
           :n.type==="heat_pump"
@@ -8088,7 +8089,10 @@ const HPC_INTEGRATED = (() => {
       for(const key of ['top','middle','bottom'])set(prefix+'_'+key,node,key);
     circuits.forEach((node,index)=>{
       const prefix=index?'hc'+(index+1)+'_':'hc_';
-      for(const key of ['flow','return','target','pump','mixer'])set(prefix+ (key==='target'?'setpoint':key),node,key);
+      for(const key of ['flow','return','target','pump','mixer']){
+        if(key==='mixer'&&node.options?.mixed===false)continue;
+        set(prefix+(key==='target'?'setpoint':key),node,key);
+      }
     });
     // Legacy entities intentionally win over auto-mappings; existing heat pump
     // users retain precisely their previous presets/overrides.
@@ -8506,6 +8510,20 @@ const HPC_INTEGRATED = (() => {
         +'<text class="unit-title" x="'+cx+'" y="'+(b.y+27)+'" text-anchor="middle">'+title+'</text>'
         +icon+(stateLabel?'<text class="unit-status hpi-source-status" x="'+cx+'" y="'+(b.y+176)+'" text-anchor="middle">'+HPC_FREE.esc(stateLabel)+'</text>':'')+labels+'</g>';
     }).join('');
+    // A mixing circuit is a real physical configuration even if no position
+    // sensor is available. The native card already draws the mixer whenever
+    // hc_mixer is configured. With no entity, show the same schematic valve
+    // (without a fictitious position or animated flow).
+    const manualMixers=plan.components.filter(c=>c.type==='heating_circuit'&&
+      c.options?.mixed&&!c.sensors.mixer).slice(0,6).map(c=>{
+      const index=plan.components.filter(p=>p.type==='heating_circuit').indexOf(c);
+      const dy=index*250;
+      const x=760,y=360+dy;
+      return '<g class="hpi-manual-mixer" data-hpi-mixer="'+HPC_FREE.esc(c.id)+'">'
+        +'<path class="pipe mix-bypass" d="M'+x+' '+(y+135)+' V'+(y+14)+'"/>'
+        +'<path class="valve mix-body" d="M748 '+(y-8)+' L760 '+y+' L748 '+(y+8)+' Z M772 '+(y-8)+' L760 '+y+' L772 '+(y+8)+' Z M752 '+(y+14)+' L760 '+y+' L768 '+(y+14)+' Z"/>'
+        +'</g>';
+    }).join('');
     const lift=plan.components.filter(node=>node.type==='wood_gasifier'&&node.options?.return_lift)
       .map(node=>{
         const b=loc(node.id);
@@ -8557,7 +8575,7 @@ const HPC_INTEGRATED = (() => {
       :'';
     const firstBuffer=plan.components.find(c=>c.type==='buffer');
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank');
-    return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+primaryChip+primaryOil+primaryGas+'</g>',
+    return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+manualMixers+primaryChip+primaryOil+primaryGas+'</g>',
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
   return {layout,coreConfig,svg,tankPoints,flowStates,isSource};
@@ -9121,7 +9139,14 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // Native Home Assistant ha-form matches the original card's entity setup.
       const useNativeForm=!!globalThis.customElements?.get('ha-form');
       const useNativePicker=!!globalThis.customElements?.get('ha-entity-picker');
-      const activeFields=selected ? HPC_FREE.byType[selected.type].fields.filter(key=>key!=='mixer'||selected.options?.return_lift) : [];
+      const hcMixed=selected?.type==='heating_circuit'
+        ?(typeof selected.options?.mixed==='boolean'?selected.options.mixed:!!selected.sensors.mixer)
+        :false;
+      // Mixer measurement is always available on a mixed heating circuit.
+      // Only a wood-gasifier return-lift mixer belongs behind a separate toggle.
+      const activeFields=selected?HPC_FREE.byType[selected.type].fields.filter(key=>
+        key!=='mixer'||selected.type==='heating_circuit'&&hcMixed||
+        selected.type==='wood_gasifier'&&selected.options?.return_lift):[];
       const mainFields={wood_gasifier:['state','flow','return','pump'],oil_boiler:['state','flow','return','pump'],
         pellet_boiler:['state','flow','return','pump'],gas_boiler:['state','flow','return','pump'],
         heat_pump:['state','flow','return','power'],buffer:['top','middle','bottom'],
@@ -9221,6 +9246,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             ${[["standard",t("Standardkessel","Standard boiler")],["low_temp",t("Niedertemperaturkessel","Low-temperature boiler")],["condensing",t("Brennwertkessel","Condensing boiler")]]
              .map(([id,name])=>`<option value="${id}" ${(selected.options?.boiler_kind||"standard")===id?"selected":""}>${name}</option>`).join("")}
           </select></label>`:""}
+        ${selected.type==="heating_circuit"?`<label class="hpc-checkbox">
+          <input type="checkbox" data-hc-mixer="${esc(selected.id)}" ${hcMixed?'checked':''}/>
+          <span>${t("Heizkreis mit Mischer","Heating circuit with mixing valve")}</span>
+        </label>
+        ${hcMixed?`<p>${t("Mischerstellung als Entität unter Messwerte zuordnen. Ohne Messwert wird der Mischer nur als Bauteil angezeigt.","Assign the mixer position under measured values. Without a value, only the mixing valve symbol is shown.")}</p>`:''}`:""}
         ${selected.type==="heating_circuit"?`<label class="hpc-field">${t("Heizflächenart","Heat emitter")}
           <select data-heating-emitter="${esc(selected.id)}">
             ${[['underfloor',t('Fußboden- / Flächenheizung','Underfloor heating')],
@@ -9578,6 +9608,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const c=plan.components.find(x=>x.id===el.dataset.boilerKind);
         if(c)c.options={...c.options,boiler_kind:el.value};
       });
+      root.querySelectorAll('[data-hc-mixer]').forEach(el=>el.addEventListener('change',()=>changePlan(plan=>{
+        const node=plan.components.find(c=>c.id===el.dataset.hcMixer);
+        if(node?.type!=='heating_circuit')return;
+        node.options={...node.options,mixed:el.checked};
+        // Keep an existing sensor for a future re-enable. The renderer and
+        // sensor form both honor mixed:false without deleting it.
+      })));
       fieldUpdate('[data-heating-emitter]',(plan,el)=>{
         const node=plan.components.find(c=>c.id===el.dataset.heatingEmitter);
         if(node?.type==='heating_circuit'&&HFC_EMITTERS.includes(el.value))
