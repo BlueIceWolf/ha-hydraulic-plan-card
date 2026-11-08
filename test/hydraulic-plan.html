@@ -279,6 +279,21 @@
       'Mixer position can be assigned when return-temperature lift is enabled');
     woodEditor.remove();
 
+    // Explicit graph mode must not carry inherited legacy hot-water sensors
+    // or silently skip links between the original source and original tank.
+    const graph=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      generator_type:'oil',entities:{dhw_top:ids.bufTop,buffer_top:ids.bufTop},
+      plan:{components:[{id:'wood',type:'wood_gasifier',name:'Holzvergaser',sensors:{}},
+        {id:'tank',type:'buffer',name:'Puffer 1',sensors:{}}],
+        connections:[{id:'wood_tank',from:'wood',from_port:'flow',to:'tank',to_port:'top_in'}]}},hassOf());
+    check(graph._config.generator_type==='wood_gasifier' &&
+      !graph._config.entities.dhw_top,'Explicit source overrides legacy fuel and hot-water mapping');
+    check(graph.shadowRoot.querySelectorAll('g.hpi-link').length===1,
+      'Explicit connection between original source and original buffer is visible');
+    check([...graph.shadowRoot.querySelectorAll('path[id^="p-"]')].every(el=>el.style.display==='none'),
+      'Unconfigured original fixed pipes are hidden');
+    graph.remove();
+
     const editor=document.createElement('hydraulic-plan-card-editor');
     editor.setConfig({type:'custom:hydraulic-plan-card',plan:{components:sample,connections:edges}});
     document.body.appendChild(editor);editor.hass=hassFree;
