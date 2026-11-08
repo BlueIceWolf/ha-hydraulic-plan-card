@@ -244,6 +244,41 @@
       'Adding to a classic boiler schematic preserves the existing wood gasifier');
     legacyEditor.remove();
 
+    // The oil boiler must not be shown as a generic wood-fire icon.
+    check(!!oil.shadowRoot.getElementById('primary-boiler-art')?.querySelector('.hpi-primary-oil-burner'),
+      'Primary oil boiler displays its own burner and control cabinet');
+    const addedOil=free.shadowRoot.querySelector('[data-hpi-node="oel"]');
+    check(!!addedOil?.querySelector('.hpi-oil-casing') &&
+      !!addedOil?.querySelector('.hpi-oil-control'),
+      'Additional oil boiler has a full-size cabinet, burner, and controls');
+    const liftCard=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[{id:'wood',type:'wood_gasifier',name:'Holzvergaser',
+        options:{return_lift:true},
+        sensors:{state:ids.burning,flow:ids.flow,return:ids.ret,pump:ids.pump,
+          mixer:'sensor.boiler_mixer_position'}}],connections:[]}},hassOf());
+    check(!!liftCard.shadowRoot.querySelector('[data-hpi-rla="wood"]') &&
+      !!liftCard.shadowRoot.querySelector('[data-hpi-rla="wood"] .hpi-rla-flow'),
+      'Checked return-temperature lift attaches to the wood gasifier and animates on pump signal');
+    liftCard.hass=hassOf({[ids.pump]:state(ids.pump,'off')});
+    check(!!liftCard.shadowRoot.querySelector('[data-hpi-rla="wood"]') &&
+      !liftCard.shadowRoot.querySelector('[data-hpi-rla="wood"] .hpi-rla-flow'),
+      'Return-temperature lift remains visible but stops animating when loading pump is off');
+    liftCard.remove();
+    const woodEditor=document.createElement('hydraulic-plan-card-editor');
+    woodEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[{id:'wood',type:'wood_gasifier',name:'Holzvergaser',sensors:{}}],connections:[]}});
+    document.body.append(woodEditor);
+    woodEditor.hass=hassOf();
+    const checkBox=woodEditor.querySelector('input[data-return-lift="wood"]');
+    let checkedConfig;
+    woodEditor.addEventListener('config-changed',ev=>checkedConfig=ev.detail.config);
+    if(checkBox){checkBox.checked=true;checkBox.dispatchEvent(new Event('change',{bubbles:true}));}
+    check(!!checkBox && checkedConfig?.plan.components[0].options.return_lift===true,
+      'Wood gasifier return-temperature lift checkbox persists in YAML configuration');
+    check(!!woodEditor.querySelector('input[data-sensor="wood"][data-field="mixer"]'),
+      'Mixer position can be assigned when return-temperature lift is enabled');
+    woodEditor.remove();
+
     const editor=document.createElement('hydraulic-plan-card-editor');
     editor.setConfig({type:'custom:hydraulic-plan-card',plan:{components:sample,connections:edges}});
     document.body.appendChild(editor);editor.hass=hassFree;

@@ -4090,6 +4090,18 @@ class HeatpumpFlowCard extends HTMLElement {
   }
 
   _primaryBoilerSvg() {
+    if (this._config.generator_type === 'oil') {
+      return '<g id="primary-boiler-art" class="boiler primary-boiler hpi-oil-primary">'
+        +'<rect class="boiler-box hpi-primary-oil-casing" x="92" y="238" width="156" height="102" rx="14"/>'
+        +'<rect class="hpi-primary-oil-door" x="101" y="247" width="104" height="84" rx="10"/>'
+        +'<rect class="hpi-primary-oil-burner" x="123" y="268" width="61" height="41" rx="9"/>'
+        +'<circle class="hpi-primary-oil-fan" cx="137" cy="289" r="10"/>'
+        +'<path class="boiler-flame" d="M166 306 C149 296 157 285 165 276 C164 290 183 293 174 304 Q171 307 166 306Z"/>'
+        +'<rect class="hpi-primary-oil-panel" x="213" y="252" width="26" height="58" rx="5"/>'
+        +'<rect class="hpi-primary-oil-screen" x="218" y="259" width="16" height="12" rx="2"/>'
+        +'<circle class="hpi-primary-oil-led" cx="226" cy="289" r="4"/>'
+        +'</g>';
+    }
     // Sensors only select what is drawn. The symbols do not infer mixing direction.
     return '<g id="primary-boiler-art" class="boiler primary-boiler">'
       + '<rect class="boiler-box" x="92" y="238" width="156" height="99" rx="14"/>'
@@ -6972,6 +6984,14 @@ HeatpumpFlowCard.styles = `
   .boiler.on .boiler-box { stroke: ${hfcVar('heat')}; }
   .boiler.on .boiler-water { stroke: ${hfcVar('heat')}; }
   .boiler.on .boiler-flame { fill: ${hfcVar('hot')}; filter: url(#glow); }
+  .hpi-primary-oil-casing { fill: var(--secondary-background-color, rgba(127,127,127,.10)); stroke-width: 2.5; }
+  .hpi-primary-oil-door { fill: var(--card-background-color,#222); stroke: var(--divider-color,rgba(127,127,127,.5)); stroke-width: 2; }
+  .hpi-primary-oil-burner { fill: var(--secondary-background-color,#333); stroke: var(--hfc-muted,#80909a); stroke-width: 2; }
+  .hpi-primary-oil-fan { fill: var(--card-background-color,#222); stroke: var(--hfc-muted,#80909a); stroke-width: 2; }
+  .hpi-primary-oil-panel { fill: var(--card-background-color,#222); stroke: var(--divider-color,rgba(127,127,127,.5)); stroke-width: 1.5; }
+  .hpi-primary-oil-screen { fill: #405765; stroke: #8197a0; stroke-width: 1; }
+  .hpi-primary-oil-led { fill: var(--disabled-text-color,#797979); }
+  .hpi-oil-primary.on .hpi-primary-oil-led { fill: var(--hfc-good,#30b66a); }
   .ground { fill: none; stroke: ${hfcVar('ground')}; stroke-width: 3; stroke-dasharray: 10 5; opacity: .7; }
   .well { fill: none; stroke: var(--divider-color, rgba(127,127,127,.5)); stroke-width: 2; }
   .water { fill: none; stroke: ${hfcVar('cool')}; stroke-width: 2; }
@@ -7519,7 +7539,7 @@ class HeatpumpFlowCardEditor extends HTMLElement {
 // Free hydraulic plan: component graph, SVG rendering and editor, isolated from legacy mode.
 const HPC_FREE = (function makeFreeHelpers() {
   const types = [
-    {type:"wood_gasifier",de:"Holzvergaser",en:"Wood gasifier",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"wood_gasifier",de:"Holzvergaser",en:"Wood gasifier",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","mixer"],ports:["flow:R:.25","return:L:.75"]},
     {type:"oil_boiler",de:"Ölkessel",en:"Oil boiler",group:"source",fields:["state","flow","return","power","pump","starts"],ports:["flow:R:.25","return:L:.75","dhw:R:.56"]},
     {type:"pellet_boiler",de:"Pelletkessel",en:"Pellet boiler",group:"source",fields:["state","flow","return","exhaust","pump"],ports:["flow:R:.25","return:L:.75"]},
     {type:"gas_boiler",de:"Gaskessel",en:"Gas boiler",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
@@ -7581,8 +7601,11 @@ const HPC_FREE = (function makeFreeHelpers() {
         }
         level_sensors.sort((a,b)=>a.position-b.position);
       }
+      const options=n.type==="wood_gasifier"
+        ?{return_lift:n.options?.return_lift===true}
+        :{};
       components.push({id:n.id,type:n.type,name:String(n.name||display(n.type)).slice(0,75),
-        x:coord(n.x,defaults[group]),y:coord(n.y,70+index*(group==="storage"?240:180)),sensors,level_sensors});
+        x:coord(n.x,defaults[group]),y:coord(n.y,70+index*(group==="storage"?240:180)),sensors,level_sensors,options});
     }
     const byId=Object.fromEntries(components.map(c=>[c.id,c]));
     const connections=[], edgeIds=new Set();
@@ -7607,7 +7630,7 @@ const HPC_FREE = (function makeFreeHelpers() {
       buffer:"puffer",dhw_tank:"warmwasser",heating_circuit:"heizkreis",pump:"pumpe",mixer:"mischer",diverter:"ventil",
       electric_heater:"heizstab",manifold:"verteiler"}[type];
     return {id:nextId(prefix,new Set(nodes.map(c=>c.id))),type,name:display(type),x:{source:75,control:365,storage:635,load:910}[group],
-      y:70+index*(group==="storage"?240:180),sensors:{}};
+      y:70+index*(group==="storage"?240:180),sensors:{},options:{}};
   }
   const sample = () => {
     const cs=[
@@ -7821,7 +7844,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     ${routes}${svgNodes}
   </svg>`;
 }
-  const css="\n  :host { display:block; --hpc-muted: var(--secondary-text-color, #7b8798); }\n  ha-card { background:var(--ha-card-background,var(--card-background-color,#fff)); padding:14px;overflow:hidden; }\n  .hpc-board {width:100%;overflow:auto;overscroll-behavior:contain;border-radius:12px;\n    border:1px solid var(--divider-color,rgba(110,125,145,.22));\n    background:var(--card-background-color,rgba(0,0,0,.02));}\n  #hpc-free-svg{min-width:650px;display:block;width:100%;height:auto;max-height:72vh;}\n  .hpc-appliance .hpc-unit-border{fill:var(--secondary-background-color,rgba(126,144,160,.1));\n    stroke:var(--divider-color,#9ca3af);stroke-width:2.3;}\n  .hpc-appliance.is-on .hpc-unit-border{stroke:var(--hfc-heat,#ca793e);}\n  .hpc-node.is-selected .hpc-unit-border,.hpc-node.is-selected .hpc-tank-shadow{\n    stroke:var(--primary-color,#2196f3);stroke-width:4;}\n  .hpc-unit-border,.hpc-tank-shadow,.hpc-tank-main{filter:drop-shadow(0 2px 3px rgba(0,0,0,.08))}\n  .hpc-component-icon{stroke:var(--hpc-muted);fill:none;stroke-width:2.8}\n  .hpc-component-icon.is-on{stroke:var(--hfc-hot,#b35b38)}\n  .hpc-component-icon circle,.hpc-component-icon rect{fill:var(--card-background-color,#fff)}\n  .hpc-node{cursor:pointer}.hpc-node:hover .hpc-unit-border{stroke:var(--primary-color,#2196f3)}\n  .hpc-label{font:600 16px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-name{font-size:15px}\n  .hpc-reading{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-reading{font:600 12px var(--ha-font-family-body,system-ui,sans-serif);\n    fill:#fff;stroke:rgba(29,46,62,.85);paint-order:stroke fill;stroke-width:3px;}\n  .hpc-detail{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--secondary-text-color,#7d8590);}\n  .hpc-tank-shadow{fill:var(--card-background-color,#fff);stroke:var(--divider-color,#8e9bab);stroke-width:2.4;}\n  .hpc-tank-main{stroke:var(--divider-color,rgba(70,90,110,.6));stroke-width:1.3}\n  .hpc-tank-shine{fill:none;stroke:rgba(255,255,255,.28);stroke-width:6;stroke-linecap:round}\n  .hpc-tank-tick{fill:none;stroke:rgba(255,255,255,.50);stroke-width:1.1;}\n  .hpc-port{fill:var(--card-background-color,#fff);stroke:var(--hfc-flow-hot,#ad584b);stroke-width:2}\n  .hpc-route{pointer-events:none;}\n  .hpc-pipe-outline{fill:none;stroke:var(--divider-color,rgba(110,125,145,.5));\n    stroke-width:13;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-pipe{fill:none;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-arrow{fill:var(--primary-text-color,#516274);}\n  .hpc-pulse{fill:none;stroke:rgba(255,255,255,.9);stroke-width:3;stroke-dasharray:5 13;\n    animation:hpc-motion 1.35s linear infinite;}\n  @keyframes hpc-motion{to{stroke-dashoffset:-36}}\n  @media(prefers-reduced-motion:reduce){.hpc-pulse{animation:none;}}\n  .hpc-note{font-size:.82em;color:var(--secondary-text-color,#7d8590);margin:10px 3px 4px;}\n  .hpc-editor{font-family:var(--ha-font-family-body,inherit);color:var(--primary-text-color,inherit);}\n  .hpc-editor h3{font-size:1.02em;font-weight:600;margin:18px 0 9px;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding-bottom:6px}\n  .hpc-editor p{font-size:.88em;line-height:1.5;color:var(--secondary-text-color,#7d8590)}\n  .hpc-actions,.hpc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:9px 0}\n  .hpc-editor button,.hpc-editor select,.hpc-editor input{\n    box-sizing:border-box;font:inherit;border-radius:10px;\n    border:1px solid var(--divider-color,rgba(127,127,127,.34));\n    padding:10px 12px;color:var(--primary-text-color,inherit);\n    background:var(--card-background-color,#fff);max-width:100%;min-width:0}\n  .hpc-editor input:focus,.hpc-editor select:focus{outline:2px solid var(--primary-color,#03a9f4);outline-offset:1px}\n  .hpc-editor button{cursor:pointer;font-weight:500}\n  .hpc-editor button:hover{background:var(--secondary-background-color,rgba(127,127,127,.12))}\n  .hpc-editor button.hpc-primary{background:var(--primary-color,#03a9f4);color:#fff;border:0;}\n  .hpc-editor label{display:flex;flex-direction:column;gap:5px;font-size:.86em;font-weight:500;flex:1 1 170px;}\n  .hpc-editor .hpc-field{margin:6px 0;}\n  .hpc-editor .hpc-component-list{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
+  const css="\n  :host { display:block; --hpc-muted: var(--secondary-text-color, #7b8798); }\n  ha-card { background:var(--ha-card-background,var(--card-background-color,#fff)); padding:14px;overflow:hidden; }\n  .hpc-board {width:100%;overflow:auto;overscroll-behavior:contain;border-radius:12px;\n    border:1px solid var(--divider-color,rgba(110,125,145,.22));\n    background:var(--card-background-color,rgba(0,0,0,.02));}\n  #hpc-free-svg{min-width:650px;display:block;width:100%;height:auto;max-height:72vh;}\n  .hpc-appliance .hpc-unit-border{fill:var(--secondary-background-color,rgba(126,144,160,.1));\n    stroke:var(--divider-color,#9ca3af);stroke-width:2.3;}\n  .hpc-appliance.is-on .hpc-unit-border{stroke:var(--hfc-heat,#ca793e);}\n  .hpc-node.is-selected .hpc-unit-border,.hpc-node.is-selected .hpc-tank-shadow{\n    stroke:var(--primary-color,#2196f3);stroke-width:4;}\n  .hpc-unit-border,.hpc-tank-shadow,.hpc-tank-main{filter:drop-shadow(0 2px 3px rgba(0,0,0,.08))}\n  .hpc-component-icon{stroke:var(--hpc-muted);fill:none;stroke-width:2.8}\n  .hpc-component-icon.is-on{stroke:var(--hfc-hot,#b35b38)}\n  .hpc-component-icon circle,.hpc-component-icon rect{fill:var(--card-background-color,#fff)}\n  .hpc-node{cursor:pointer}.hpc-node:hover .hpc-unit-border{stroke:var(--primary-color,#2196f3)}\n  .hpc-label{font:600 16px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-name{font-size:15px}\n  .hpc-reading{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-reading{font:600 12px var(--ha-font-family-body,system-ui,sans-serif);\n    fill:#fff;stroke:rgba(29,46,62,.85);paint-order:stroke fill;stroke-width:3px;}\n  .hpc-detail{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--secondary-text-color,#7d8590);}\n  .hpc-tank-shadow{fill:var(--card-background-color,#fff);stroke:var(--divider-color,#8e9bab);stroke-width:2.4;}\n  .hpc-tank-main{stroke:var(--divider-color,rgba(70,90,110,.6));stroke-width:1.3}\n  .hpc-tank-shine{fill:none;stroke:rgba(255,255,255,.28);stroke-width:6;stroke-linecap:round}\n  .hpc-tank-tick{fill:none;stroke:rgba(255,255,255,.50);stroke-width:1.1;}\n  .hpc-port{fill:var(--card-background-color,#fff);stroke:var(--hfc-flow-hot,#ad584b);stroke-width:2}\n  .hpc-route{pointer-events:none;}\n  .hpc-pipe-outline{fill:none;stroke:var(--divider-color,rgba(110,125,145,.5));\n    stroke-width:13;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-pipe{fill:none;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-arrow{fill:var(--primary-text-color,#516274);}\n  .hpc-pulse{fill:none;stroke:rgba(255,255,255,.9);stroke-width:3;stroke-dasharray:5 13;\n    animation:hpc-motion 1.35s linear infinite;}\n  @keyframes hpc-motion{to{stroke-dashoffset:-36}}\n  @media(prefers-reduced-motion:reduce){.hpc-pulse{animation:none;}}\n  .hpc-note{font-size:.82em;color:var(--secondary-text-color,#7d8590);margin:10px 3px 4px;}\n  .hpc-editor{font-family:var(--ha-font-family-body,inherit);color:var(--primary-text-color,inherit);}\n  .hpc-editor h3{font-size:1.02em;font-weight:600;margin:18px 0 9px;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding-bottom:6px}\n  .hpc-editor p{font-size:.88em;line-height:1.5;color:var(--secondary-text-color,#7d8590)}\n  .hpc-actions,.hpc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:9px 0}\n  .hpc-editor button,.hpc-editor select,.hpc-editor input{\n    box-sizing:border-box;font:inherit;border-radius:10px;\n    border:1px solid var(--divider-color,rgba(127,127,127,.34));\n    padding:10px 12px;color:var(--primary-text-color,inherit);\n    background:var(--card-background-color,#fff);max-width:100%;min-width:0}\n  .hpc-editor input:focus,.hpc-editor select:focus{outline:2px solid var(--primary-color,#03a9f4);outline-offset:1px}\n  .hpc-editor button{cursor:pointer;font-weight:500}\n  .hpc-editor button:hover{background:var(--secondary-background-color,rgba(127,127,127,.12))}\n  .hpc-editor button.hpc-primary{background:var(--primary-color,#03a9f4);color:#fff;border:0;}\n  .hpc-editor label{display:flex;flex-direction:column;gap:5px;font-size:.86em;font-weight:500;flex:1 1 170px;}\n  .hpc-editor .hpc-checkbox{display:flex;flex-direction:row;align-items:center;gap:11px;flex:1 1 100%;cursor:pointer;padding:11px 12px;border:1px solid var(--divider-color,rgba(127,127,127,.32));border-radius:10px;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-editor .hpc-checkbox input{width:19px;height:19px;margin:0;flex:0 0 auto;accent-color:var(--primary-color,#03a9f4);}\n  .hpc-editor .hpc-field{margin:6px 0;}\n  .hpc-editor .hpc-component-list{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
   return {types,byType,ports,dimension,display,fieldLabel,esc,normalize,newNode,sample,state,active,format,color,portXY,draw,css,text};
 })();
 
@@ -7861,7 +7884,11 @@ const HPC_INTEGRATED = (() => {
     };
     // Additional heat sources stay below the original generator, not far outside
     // the visible diagram. The first extra boiler is visible immediately.
-    placeColumn(byGroup.source,50,475,245,160);
+    for(const [index,node] of byGroup.source.entries()){
+      const [width,height]=node.type==='oil_boiler'?[240,195]:[240,165];
+      points.set(node.id,{x:50+Math.floor(index/4)*265,
+        y:475+(index%4)*218,w:width,h:height,type:node.type});
+    }
     // Discover the buffer sequence from the user's directed pipe connections.
     // This works regardless of the order in which buffers were added.
     const orderedBuffers=byGroup.storage.filter(c=>c.type==='buffer');
@@ -7920,6 +7947,7 @@ const HPC_INTEGRATED = (() => {
         ['exhaust','boiler_exhaust'],['oxygen','boiler_o2'],['fan','boiler_fan'],['pump','boiler_pump']].forEach(([from,to])=>set(to,src,from));
       }
     }
+    if(src?.type==='wood_gasifier'&&src.options?.return_lift)set('boiler_mixer',src,'mixer');
     for(const [node,prefix] of [[buffer,'buffer'],[dhw,'dhw']])
       for(const key of ['top','middle','bottom'])set(prefix+'_'+key,node,key);
     circuits.forEach((node,index)=>{
@@ -8066,6 +8094,33 @@ const HPC_INTEGRATED = (() => {
       }
       const cx=b.x+b.w/2,cy=b.y+b.h*.53;
       const type=node.type;
+      if(type==='oil_boiler'){
+        const burner=HPC_FREE.state(hass,node.sensors.state);
+        const running=HPC_FREE.active(burner);
+        const label=(de,en)=>String(hass?.locale?.language||'de').startsWith('de')?de:en;
+        const status=burner?(running?label('Brenner läuft','Burner running'):label('Brenner aus','Burner off'))
+          :label('Status unbekannt','Status unknown');
+        const val=key=>HPC_FREE.esc(HPC_FREE.format(HPC_FREE.state(hass,node.sensors[key])));
+        const bx=b.x+35,by=b.y+43;
+        const top=b.y+23;
+        return '<g class="tap hpi-component hpi-oil'+(running?' on':'')+'" data-hpi-node="'+node.id+'" data-entity="'+HPC_FREE.esc(node.sensors.state||node.sensors.flow||'')+'">'
+          +'<title>'+title+'</title>'
+          +'<rect class="unit'+(running?' on':'')+'" x="'+b.x+'" y="'+b.y+'" width="'+b.w+'" height="'+b.h+'" rx="20"/>'
+          +'<text class="unit-title" x="'+cx+'" y="'+top+'" text-anchor="middle">'+title+'</text>'
+          +'<rect class="hpi-oil-casing" x="'+bx+'" y="'+by+'" width="170" height="89" rx="13"/>'
+          +'<rect class="hpi-oil-front" x="'+(bx+10)+'" y="'+(by+11)+'" width="102" height="67" rx="9"/>'
+          +'<path class="hpi-oil-seam" d="M'+(bx+18)+' '+(by+61)+' h86"/>'
+          +'<rect class="hpi-oil-burner" x="'+(bx+32)+'" y="'+(by+23)+'" width="62" height="30" rx="10"/>'
+          +'<circle class="hpi-oil-fan" cx="'+(bx+42)+'" cy="'+(by+38)+'" r="8"/>'
+          +'<path class="hpi-oil-flame" d="M'+(bx+76)+' '+(by+47)+' c-14 -12 -5 -22 1 -28 c-2 12 16 13 8 25 q-3 5 -9 3Z"/>'
+          +'<rect class="hpi-oil-control" x="'+(bx+124)+'" y="'+(by+15)+'" width="35" height="49" rx="5"/>'
+          +'<rect class="hpi-oil-display" x="'+(bx+130)+'" y="'+(by+23)+'" width="23" height="15" rx="3"/>'
+          +'<circle class="hpi-oil-led" cx="'+(bx+141.5)+'" cy="'+(by+51)+'" r="4"/>'
+          +'<text class="hpi-oil-status" x="'+cx+'" y="'+(b.y+148)+'" text-anchor="middle">'+HPC_FREE.esc(status)+'</text>'
+          +'<text class="hpi-oil-reading" x="'+cx+'" y="'+(b.y+168)+'" text-anchor="middle">'+label('Vorlauf','Flow')+': '+val('flow')+'</text>'
+          +'<text class="hpi-oil-reading" x="'+cx+'" y="'+(b.y+184)+'" text-anchor="middle">'+label('Rücklauf','Return')+': '+val('return')+'</text>'
+          +'</g>';
+      }
       const icon=type==='pump'?'<circle class="pump" cx="'+cx+'" cy="'+cy+'" r="23"/><path class="imp" d="M'+(cx-7)+' '+(cy-12)+' L'+(cx+12)+' '+cy+' L'+(cx-7)+' '+(cy+12)+'Z"/>':
         type==='mixer'||type==='diverter'?'<circle class="valve" cx="'+cx+'" cy="'+cy+'" r="21"/><path class="valve-arrow" d="M'+(cx-13)+' '+(cy-9)+' L'+cx+' '+(cy+7)+' L'+(cx+13)+' '+(cy-9)+'"/>':
         type==='electric_heater'?'<path class="heater" d="M'+(cx-26)+' '+cy+' h12 l10 -15 l11 30 l10 -15 h12"/>':
@@ -8079,9 +8134,36 @@ const HPC_INTEGRATED = (() => {
         +'<text class="unit-title" x="'+cx+'" y="'+(b.y+24)+'" text-anchor="middle">'+title+'</text>'
         +icon+labels+'</g>';
     }).join('');
+    const lift=plan.components.filter(node=>node.type==='wood_gasifier'&&node.options?.return_lift)
+      .map(node=>{
+        const b=loc(node.id);
+        if(!b)return '';
+        const isCore=anchored.has(node.id);
+        const outletX=b.x+b.w;
+        const supplyY=isCore?250:b.y+57;
+        const returnY=isCore?380:b.y+b.h-34;
+        const valveX=outletX+42;
+        const fromX=outletX+8;
+        const stemY=supplyY+24;
+        const bypass='M'+fromX+' '+supplyY+' H'+valveX+' V'+returnY;
+        const state=HPC_FREE.state(hass,node.sensors.pump);
+        const flowing=state!==null&&HPC_FREE.active(state);
+        const position=HPC_FREE.state(hass,node.sensors.mixer);
+        const percentage=position?.number!==null&&Number.isFinite(position?.number)
+          ?' '+Math.round(position.number)+' %':'';
+        const label=String(hass?.locale?.language||'de').startsWith('de')?'RLA':'RLT';
+        return '<g class="hpi-rla" data-hpi-rla="'+HPC_FREE.esc(node.id)+'">'
+          +'<title>'+HPC_FREE.esc('Rücklaufanhebung / Return-temperature lift – '+node.name)+'</title>'
+          +'<path class="hpi-rla-bypass" d="'+bypass+'"/>'
+          +(flowing?'<path class="hpi-rla-flow" d="'+bypass+'"/>':'')
+          +'<circle class="hpi-rla-valve" cx="'+valveX+'" cy="'+returnY+'" r="14"/>'
+          +'<path class="hpi-rla-symbol" d="M'+(valveX-8)+' '+(returnY-7)+' L'+valveX+' '+returnY+' L'+(valveX+8)+' '+(returnY-7)+' M'+valveX+' '+returnY+' v10"/>'
+          +'<text class="hpi-rla-label" x="'+(valveX+20)+'" y="'+(returnY-10)+'">'+HPC_FREE.esc(label+percentage)+'</text>'
+          +'</g>';
+      }).join('');
     const firstBuffer=plan.components.find(c=>c.type==='buffer');
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank');
-    return {defs,body:'<g id="hpc-integrated">'+links+nodes+'</g>',
+    return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+'</g>',
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
   return {layout,coreConfig,svg,tankPoints,flowStates};
@@ -8204,7 +8286,28 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-component .tap{cursor:pointer}.hpi-component .tank-title{font-size:16px}'
           +'.hpi-component .unit-title{font-size:15px}.hpi-component .small{font-size:13px}'
           +'.hpi-component .heater{fill:none;stroke:var(--hfc-heat,#c8783d);stroke-width:5;stroke-linecap:round}'
-          +'.hpi-component .rib{fill:none;stroke:var(--hfc-muted,#94a3b8);stroke-width:8;stroke-linecap:round}';
+          +'.hpi-component .rib{fill:none;stroke:var(--hfc-muted,#94a3b8);stroke-width:8;stroke-linecap:round}'
+          +'.hpi-oil-casing{fill:var(--secondary-background-color,#29303a);stroke:var(--divider-color,#66717b);stroke-width:2.5;}'
+          +'.hpi-oil-front{fill:var(--card-background-color,#202124);stroke:var(--divider-color,#66717b);stroke-width:1.5;}'
+          +'.hpi-oil-seam{fill:none;stroke:var(--hfc-muted,#77838b);stroke-width:2;}'
+          +'.hpi-oil-burner{fill:var(--secondary-background-color,#343941);stroke:var(--hfc-muted,#77838b);stroke-width:2;}'
+          +'.hpi-oil-fan{fill:var(--card-background-color,#202124);stroke:var(--hfc-muted,#77838b);stroke-width:2;}'
+          +'.hpi-oil-flame{fill:var(--disabled-text-color,#7b7b7b);transition:fill .25s;}'
+          +'.hpi-oil.on .hpi-oil-flame{fill:var(--hfc-hot,#ff7043);filter:url(#glow);}'
+          +'.hpi-oil-control{fill:var(--card-background-color,#202124);stroke:var(--divider-color,#66717b);stroke-width:1.5;}'
+          +'.hpi-oil-display{fill:#405765;stroke:#8197a0;stroke-width:1;}'
+          +'.hpi-oil-led{fill:var(--disabled-text-color,#737373);}'
+          +'.hpi-oil.on .hpi-oil-led{fill:var(--hfc-good,#29a85e);}'
+          +'.hpi-oil-status{font-size:13px;font-weight:600;fill:var(--secondary-text-color,#8a949c);}'
+          +'.hpi-oil.on .hpi-oil-status{fill:var(--hfc-good,#32b46b);}'
+          +'.hpi-oil-reading{font-size:13px;fill:var(--primary-text-color);}'
+          +'.hpi-rla-bypass{fill:none;stroke:var(--hfc-heat,#d4783b);stroke-width:5;stroke-linecap:round;stroke-linejoin:round;}'
+          +'.hpi-rla-flow{fill:none;stroke:#fff;stroke-width:2;stroke-dasharray:4 10;animation:hpc-rla-motion 1.4s linear infinite;pointer-events:none;}'
+          +'@keyframes hpc-rla-motion{to{stroke-dashoffset:-28}}'
+          +'@media (prefers-reduced-motion:reduce){.hpi-rla-flow{animation:none;}}'
+          +'.hpi-rla-valve{fill:var(--card-background-color,#202124);stroke:var(--hfc-heat,#e7853d);stroke-width:3;}'
+          +'.hpi-rla-symbol{fill:none;stroke:var(--hfc-muted,#9ca3af);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;}'
+          +'.hpi-rla-label{font-size:12px;font-weight:700;fill:var(--primary-text-color);}';
         root.append(style);
       }
       this._integratedSig=signature;
@@ -8323,7 +8426,12 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         <div class="hpc-row"><label>${t("Bezeichnung","Name")}<input data-name="${esc(selected.id)}"
           maxlength="75" value="${esc(selected.name)}"/></label>
           <button type="button" data-action="remove-component">${t("Entfernen","Remove")}</button></div>
-        ${HPC_FREE.byType[selected.type].fields.map(key=>sensorField(selected.id,key,selected.sensors[key])).join("")}
+        ${selected.type==="wood_gasifier"?`<label class="hpc-checkbox">
+          <input type="checkbox" data-return-lift="${esc(selected.id)}" ${selected.options?.return_lift?"checked":""}/>
+          <span>${t("Rücklaufanhebung am Holzvergaser","Return-temperature lift at wood gasifier")}</span>
+        </label>
+        <p>${t("Die Rücklaufanhebung wird direkt hinter dem Kessel eingezeichnet. Ein zusätzlicher Mischer ist dafür nicht erforderlich. Den Pumpenstatus und die Mischerstellung kannst du unten zuordnen.","The return-temperature lift is drawn behind the boiler. No separate mixer component is needed. You can map its pump state and mixer position below.")}</p>`:""}
+        ${HPC_FREE.byType[selected.type].fields.filter(key=>key!=="mixer"||selected.options?.return_lift).map(key=>sensorField(selected.id,key,selected.sensors[key])).join("")}
         ${isTank?`<h3>${t("Zusätzliche Temperaturfühler","Additional temperature sensors")}</h3>
           <p>${t("Ordne jeden Fühler seiner tatsächlichen Einbauhöhe zu. 0 % = oben, 100 % = unten.","Set each sensor to its real installation height. 0% = top, 100% = bottom.")}</p>
           ${extraRows}<button type="button" data-action="add-level">${t("Weiteren Fühler hinzufügen","Add temperature sensor")}</button>`:""}`:"";
@@ -8415,6 +8523,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       }));
       root.querySelectorAll("[data-select]").forEach(b=>b.addEventListener("click",()=>{this._selectedId=b.dataset.select;this._renderFlex();}));
       const fieldUpdate=(selector,fn)=>root.querySelectorAll(selector).forEach(el=>el.addEventListener("change",()=>changePlan(plan=>fn(plan,el))));
+      root.querySelectorAll("[data-return-lift]").forEach(el=>el.addEventListener("change",()=>changePlan(plan=>{
+        const c=plan.components.find(x=>x.id===el.dataset.returnLift);
+        if(c?.type==="wood_gasifier")c.options={...c.options,return_lift:el.checked};
+      })));
       fieldUpdate("[data-name]",(plan,el)=>{const c=plan.components.find(x=>x.id===el.dataset.name);if(c)c.name=el.value.slice(0,75);});
       fieldUpdate("[data-sensor]",(plan,el)=>{const c=plan.components.find(x=>x.id===el.dataset.sensor);if(c){
         if(el.value)c.sensors[el.dataset.field]=el.value;else delete c.sensors[el.dataset.field];

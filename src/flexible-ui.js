@@ -115,7 +115,28 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-component .tap{cursor:pointer}.hpi-component .tank-title{font-size:16px}'
           +'.hpi-component .unit-title{font-size:15px}.hpi-component .small{font-size:13px}'
           +'.hpi-component .heater{fill:none;stroke:var(--hfc-heat,#c8783d);stroke-width:5;stroke-linecap:round}'
-          +'.hpi-component .rib{fill:none;stroke:var(--hfc-muted,#94a3b8);stroke-width:8;stroke-linecap:round}';
+          +'.hpi-component .rib{fill:none;stroke:var(--hfc-muted,#94a3b8);stroke-width:8;stroke-linecap:round}'
+          +'.hpi-oil-casing{fill:var(--secondary-background-color,#29303a);stroke:var(--divider-color,#66717b);stroke-width:2.5;}'
+          +'.hpi-oil-front{fill:var(--card-background-color,#202124);stroke:var(--divider-color,#66717b);stroke-width:1.5;}'
+          +'.hpi-oil-seam{fill:none;stroke:var(--hfc-muted,#77838b);stroke-width:2;}'
+          +'.hpi-oil-burner{fill:var(--secondary-background-color,#343941);stroke:var(--hfc-muted,#77838b);stroke-width:2;}'
+          +'.hpi-oil-fan{fill:var(--card-background-color,#202124);stroke:var(--hfc-muted,#77838b);stroke-width:2;}'
+          +'.hpi-oil-flame{fill:var(--disabled-text-color,#7b7b7b);transition:fill .25s;}'
+          +'.hpi-oil.on .hpi-oil-flame{fill:var(--hfc-hot,#ff7043);filter:url(#glow);}'
+          +'.hpi-oil-control{fill:var(--card-background-color,#202124);stroke:var(--divider-color,#66717b);stroke-width:1.5;}'
+          +'.hpi-oil-display{fill:#405765;stroke:#8197a0;stroke-width:1;}'
+          +'.hpi-oil-led{fill:var(--disabled-text-color,#737373);}'
+          +'.hpi-oil.on .hpi-oil-led{fill:var(--hfc-good,#29a85e);}'
+          +'.hpi-oil-status{font-size:13px;font-weight:600;fill:var(--secondary-text-color,#8a949c);}'
+          +'.hpi-oil.on .hpi-oil-status{fill:var(--hfc-good,#32b46b);}'
+          +'.hpi-oil-reading{font-size:13px;fill:var(--primary-text-color);}'
+          +'.hpi-rla-bypass{fill:none;stroke:var(--hfc-heat,#d4783b);stroke-width:5;stroke-linecap:round;stroke-linejoin:round;}'
+          +'.hpi-rla-flow{fill:none;stroke:#fff;stroke-width:2;stroke-dasharray:4 10;animation:hpc-rla-motion 1.4s linear infinite;pointer-events:none;}'
+          +'@keyframes hpc-rla-motion{to{stroke-dashoffset:-28}}'
+          +'@media (prefers-reduced-motion:reduce){.hpi-rla-flow{animation:none;}}'
+          +'.hpi-rla-valve{fill:var(--card-background-color,#202124);stroke:var(--hfc-heat,#e7853d);stroke-width:3;}'
+          +'.hpi-rla-symbol{fill:none;stroke:var(--hfc-muted,#9ca3af);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;}'
+          +'.hpi-rla-label{font-size:12px;font-weight:700;fill:var(--primary-text-color);}';
         root.append(style);
       }
       this._integratedSig=signature;
@@ -234,7 +255,12 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         <div class="hpc-row"><label>${t("Bezeichnung","Name")}<input data-name="${esc(selected.id)}"
           maxlength="75" value="${esc(selected.name)}"/></label>
           <button type="button" data-action="remove-component">${t("Entfernen","Remove")}</button></div>
-        ${HPC_FREE.byType[selected.type].fields.map(key=>sensorField(selected.id,key,selected.sensors[key])).join("")}
+        ${selected.type==="wood_gasifier"?`<label class="hpc-checkbox">
+          <input type="checkbox" data-return-lift="${esc(selected.id)}" ${selected.options?.return_lift?"checked":""}/>
+          <span>${t("Rücklaufanhebung am Holzvergaser","Return-temperature lift at wood gasifier")}</span>
+        </label>
+        <p>${t("Die Rücklaufanhebung wird direkt hinter dem Kessel eingezeichnet. Ein zusätzlicher Mischer ist dafür nicht erforderlich. Den Pumpenstatus und die Mischerstellung kannst du unten zuordnen.","The return-temperature lift is drawn behind the boiler. No separate mixer component is needed. You can map its pump state and mixer position below.")}</p>`:""}
+        ${HPC_FREE.byType[selected.type].fields.filter(key=>key!=="mixer"||selected.options?.return_lift).map(key=>sensorField(selected.id,key,selected.sensors[key])).join("")}
         ${isTank?`<h3>${t("Zusätzliche Temperaturfühler","Additional temperature sensors")}</h3>
           <p>${t("Ordne jeden Fühler seiner tatsächlichen Einbauhöhe zu. 0 % = oben, 100 % = unten.","Set each sensor to its real installation height. 0% = top, 100% = bottom.")}</p>
           ${extraRows}<button type="button" data-action="add-level">${t("Weiteren Fühler hinzufügen","Add temperature sensor")}</button>`:""}`:"";
@@ -326,6 +352,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       }));
       root.querySelectorAll("[data-select]").forEach(b=>b.addEventListener("click",()=>{this._selectedId=b.dataset.select;this._renderFlex();}));
       const fieldUpdate=(selector,fn)=>root.querySelectorAll(selector).forEach(el=>el.addEventListener("change",()=>changePlan(plan=>fn(plan,el))));
+      root.querySelectorAll("[data-return-lift]").forEach(el=>el.addEventListener("change",()=>changePlan(plan=>{
+        const c=plan.components.find(x=>x.id===el.dataset.returnLift);
+        if(c?.type==="wood_gasifier")c.options={...c.options,return_lift:el.checked};
+      })));
       fieldUpdate("[data-name]",(plan,el)=>{const c=plan.components.find(x=>x.id===el.dataset.name);if(c)c.name=el.value.slice(0,75);});
       fieldUpdate("[data-sensor]",(plan,el)=>{const c=plan.components.find(x=>x.id===el.dataset.sensor);if(c){
         if(el.value)c.sensors[el.dataset.field]=el.value;else delete c.sensors[el.dataset.field];

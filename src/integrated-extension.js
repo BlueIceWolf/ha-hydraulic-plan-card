@@ -34,7 +34,11 @@ const HPC_INTEGRATED = (() => {
     };
     // Additional heat sources stay below the original generator, not far outside
     // the visible diagram. The first extra boiler is visible immediately.
-    placeColumn(byGroup.source,50,475,245,160);
+    for(const [index,node] of byGroup.source.entries()){
+      const [width,height]=node.type==='oil_boiler'?[240,195]:[240,165];
+      points.set(node.id,{x:50+Math.floor(index/4)*265,
+        y:475+(index%4)*218,w:width,h:height,type:node.type});
+    }
     // Discover the buffer sequence from the user's directed pipe connections.
     // This works regardless of the order in which buffers were added.
     const orderedBuffers=byGroup.storage.filter(c=>c.type==='buffer');
@@ -93,6 +97,7 @@ const HPC_INTEGRATED = (() => {
         ['exhaust','boiler_exhaust'],['oxygen','boiler_o2'],['fan','boiler_fan'],['pump','boiler_pump']].forEach(([from,to])=>set(to,src,from));
       }
     }
+    if(src?.type==='wood_gasifier'&&src.options?.return_lift)set('boiler_mixer',src,'mixer');
     for(const [node,prefix] of [[buffer,'buffer'],[dhw,'dhw']])
       for(const key of ['top','middle','bottom'])set(prefix+'_'+key,node,key);
     circuits.forEach((node,index)=>{
@@ -239,6 +244,33 @@ const HPC_INTEGRATED = (() => {
       }
       const cx=b.x+b.w/2,cy=b.y+b.h*.53;
       const type=node.type;
+      if(type==='oil_boiler'){
+        const burner=HPC_FREE.state(hass,node.sensors.state);
+        const running=HPC_FREE.active(burner);
+        const label=(de,en)=>String(hass?.locale?.language||'de').startsWith('de')?de:en;
+        const status=burner?(running?label('Brenner läuft','Burner running'):label('Brenner aus','Burner off'))
+          :label('Status unbekannt','Status unknown');
+        const val=key=>HPC_FREE.esc(HPC_FREE.format(HPC_FREE.state(hass,node.sensors[key])));
+        const bx=b.x+35,by=b.y+43;
+        const top=b.y+23;
+        return '<g class="tap hpi-component hpi-oil'+(running?' on':'')+'" data-hpi-node="'+node.id+'" data-entity="'+HPC_FREE.esc(node.sensors.state||node.sensors.flow||'')+'">'
+          +'<title>'+title+'</title>'
+          +'<rect class="unit'+(running?' on':'')+'" x="'+b.x+'" y="'+b.y+'" width="'+b.w+'" height="'+b.h+'" rx="20"/>'
+          +'<text class="unit-title" x="'+cx+'" y="'+top+'" text-anchor="middle">'+title+'</text>'
+          +'<rect class="hpi-oil-casing" x="'+bx+'" y="'+by+'" width="170" height="89" rx="13"/>'
+          +'<rect class="hpi-oil-front" x="'+(bx+10)+'" y="'+(by+11)+'" width="102" height="67" rx="9"/>'
+          +'<path class="hpi-oil-seam" d="M'+(bx+18)+' '+(by+61)+' h86"/>'
+          +'<rect class="hpi-oil-burner" x="'+(bx+32)+'" y="'+(by+23)+'" width="62" height="30" rx="10"/>'
+          +'<circle class="hpi-oil-fan" cx="'+(bx+42)+'" cy="'+(by+38)+'" r="8"/>'
+          +'<path class="hpi-oil-flame" d="M'+(bx+76)+' '+(by+47)+' c-14 -12 -5 -22 1 -28 c-2 12 16 13 8 25 q-3 5 -9 3Z"/>'
+          +'<rect class="hpi-oil-control" x="'+(bx+124)+'" y="'+(by+15)+'" width="35" height="49" rx="5"/>'
+          +'<rect class="hpi-oil-display" x="'+(bx+130)+'" y="'+(by+23)+'" width="23" height="15" rx="3"/>'
+          +'<circle class="hpi-oil-led" cx="'+(bx+141.5)+'" cy="'+(by+51)+'" r="4"/>'
+          +'<text class="hpi-oil-status" x="'+cx+'" y="'+(b.y+148)+'" text-anchor="middle">'+HPC_FREE.esc(status)+'</text>'
+          +'<text class="hpi-oil-reading" x="'+cx+'" y="'+(b.y+168)+'" text-anchor="middle">'+label('Vorlauf','Flow')+': '+val('flow')+'</text>'
+          +'<text class="hpi-oil-reading" x="'+cx+'" y="'+(b.y+184)+'" text-anchor="middle">'+label('Rücklauf','Return')+': '+val('return')+'</text>'
+          +'</g>';
+      }
       const icon=type==='pump'?'<circle class="pump" cx="'+cx+'" cy="'+cy+'" r="23"/><path class="imp" d="M'+(cx-7)+' '+(cy-12)+' L'+(cx+12)+' '+cy+' L'+(cx-7)+' '+(cy+12)+'Z"/>':
         type==='mixer'||type==='diverter'?'<circle class="valve" cx="'+cx+'" cy="'+cy+'" r="21"/><path class="valve-arrow" d="M'+(cx-13)+' '+(cy-9)+' L'+cx+' '+(cy+7)+' L'+(cx+13)+' '+(cy-9)+'"/>':
         type==='electric_heater'?'<path class="heater" d="M'+(cx-26)+' '+cy+' h12 l10 -15 l11 30 l10 -15 h12"/>':
@@ -252,9 +284,36 @@ const HPC_INTEGRATED = (() => {
         +'<text class="unit-title" x="'+cx+'" y="'+(b.y+24)+'" text-anchor="middle">'+title+'</text>'
         +icon+labels+'</g>';
     }).join('');
+    const lift=plan.components.filter(node=>node.type==='wood_gasifier'&&node.options?.return_lift)
+      .map(node=>{
+        const b=loc(node.id);
+        if(!b)return '';
+        const isCore=anchored.has(node.id);
+        const outletX=b.x+b.w;
+        const supplyY=isCore?250:b.y+57;
+        const returnY=isCore?380:b.y+b.h-34;
+        const valveX=outletX+42;
+        const fromX=outletX+8;
+        const stemY=supplyY+24;
+        const bypass='M'+fromX+' '+supplyY+' H'+valveX+' V'+returnY;
+        const state=HPC_FREE.state(hass,node.sensors.pump);
+        const flowing=state!==null&&HPC_FREE.active(state);
+        const position=HPC_FREE.state(hass,node.sensors.mixer);
+        const percentage=position?.number!==null&&Number.isFinite(position?.number)
+          ?' '+Math.round(position.number)+' %':'';
+        const label=String(hass?.locale?.language||'de').startsWith('de')?'RLA':'RLT';
+        return '<g class="hpi-rla" data-hpi-rla="'+HPC_FREE.esc(node.id)+'">'
+          +'<title>'+HPC_FREE.esc('Rücklaufanhebung / Return-temperature lift – '+node.name)+'</title>'
+          +'<path class="hpi-rla-bypass" d="'+bypass+'"/>'
+          +(flowing?'<path class="hpi-rla-flow" d="'+bypass+'"/>':'')
+          +'<circle class="hpi-rla-valve" cx="'+valveX+'" cy="'+returnY+'" r="14"/>'
+          +'<path class="hpi-rla-symbol" d="M'+(valveX-8)+' '+(returnY-7)+' L'+valveX+' '+returnY+' L'+(valveX+8)+' '+(returnY-7)+' M'+valveX+' '+returnY+' v10"/>'
+          +'<text class="hpi-rla-label" x="'+(valveX+20)+'" y="'+(returnY-10)+'">'+HPC_FREE.esc(label+percentage)+'</text>'
+          +'</g>';
+      }).join('');
     const firstBuffer=plan.components.find(c=>c.type==='buffer');
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank');
-    return {defs,body:'<g id="hpc-integrated">'+links+nodes+'</g>',
+    return {defs,body:'<g id="hpc-integrated">'+links+nodes+lift+'</g>',
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
   return {layout,coreConfig,svg,tankPoints,flowStates};
