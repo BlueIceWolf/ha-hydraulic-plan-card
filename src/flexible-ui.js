@@ -293,6 +293,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       if(selected)this._selectedId=selected.id;
       // Native Home Assistant ha-form matches the original card's entity setup.
       const useNativeForm=!!globalThis.customElements?.get('ha-form');
+      const useNativePicker=!!globalThis.customElements?.get('ha-entity-picker');
       const activeFields=selected ? HPC_FREE.byType[selected.type].fields.filter(key=>key!=='mixer'||selected.options?.return_lift) : [];
       const mainFields={wood_gasifier:['state','flow','return','pump'],oil_boiler:['state','flow','return','pump'],
         pellet_boiler:['state','flow','return','pump'],gas_boiler:['state','flow','return','pump'],
@@ -366,13 +367,14 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         ${isTank?`<h3>${t("Zusätzliche Temperaturfühler","Additional temperature sensors")}</h3>
           <p>${t("Ordne jeden Fühler seiner tatsächlichen Einbauhöhe zu. 0 % = oben, 100 % = unten.","Set each sensor to its real installation height. 0% = top, 100% = bottom.")}</p>
           ${extraRows}<button type="button" data-action="add-level">${t("Weiteren Fühler hinzufügen","Add temperature sensor")}</button>`:""}`:"";
+      const connectionField=(edge,field,label)=>useNativePicker
+        ? `<ha-entity-picker data-edge="${esc(edge.id)}" data-edge-field="${field}" data-label="${esc(label)}"></ha-entity-picker>`
+        : `<label>${esc(label)}<input list="hpc-free-entities" data-edge="${esc(edge.id)}" data-edge-field="${field}" value="${esc(edge[field])}"/></label>`;
       const connectionRows=p.connections.map(edge=>`<div class="hpc-row">
         <span style="flex:1 1 250px;font-size:.85em">${esc((p.components.find(c=>c.id===edge.from)?.name||edge.from)+" – "+(portNames[edge.from_port]||edge.from_port)+" → "+(p.components.find(c=>c.id===edge.to)?.name||edge.to)+" – "+(portNames[edge.to_port]||edge.to_port))}</span>
         <button type="button" data-action="remove-edge" data-edge-id="${esc(edge.id)}">${t("Entfernen","Remove")}</button>
-        <label>${t("Pumpen-/Flussstatus (optional)","Pump/flow status (optional)")}
-        <input list="hpc-free-entities" data-edge="${esc(edge.id)}" data-edge-field="flow_entity" value="${esc(edge.flow_entity)}"/></label>
-        <label>${t("Rohrtemperatur (optional)","Pipe temperature (optional)")}
-        <input list="hpc-free-entities" data-edge="${esc(edge.id)}" data-edge-field="temperature_entity" value="${esc(edge.temperature_entity)}"/></label>
+        ${connectionField(edge,'flow_entity',t('Pumpen-/Flussstatus (optional)','Pump/flow status (optional)'))}
+        ${connectionField(edge,'temperature_entity',t('Rohrtemperatur (optional)','Pipe temperature (optional)'))}
         </div>`).join("");
       const html=`<style>${HPC_FREE.css}</style><div class="hpc-editor">
         ${!configured?`<h3>${t("Deine Heizungsanlage","Your heating system")}</h3>
@@ -445,6 +447,20 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       typePicker?.addEventListener('change',()=>{
         const box=root.querySelector('#hpc-free-icon');
         if(box)box.innerHTML=HPC_FREE.icon(typePicker.value);
+      });
+      root.querySelectorAll('ha-entity-picker[data-edge]').forEach(picker=>{
+        const edge=p.connections.find(c=>c.id===picker.dataset.edge);
+        picker.hass=this._hass;
+        picker.label=picker.dataset.label;
+        picker.value=edge?.[picker.dataset.edgeField]||'';
+        picker.allowCustomEntity=true;
+        picker.addEventListener('value-changed',event=>{
+          event.stopPropagation();
+          changePlan(next=>{
+            const row=next.connections.find(c=>c.id===picker.dataset.edge);
+            if(row)row[picker.dataset.edgeField]=event.detail?.value||'';
+          });
+        });
       });
       root.querySelectorAll("[data-action]").forEach(button=>button.addEventListener("click",()=>{
         const action=button.dataset.action;
@@ -538,7 +554,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       fieldUpdate("[data-sensor]",(plan,el)=>{const c=plan.components.find(x=>x.id===el.dataset.sensor);if(c){
         if(el.value)c.sensors[el.dataset.field]=el.value;else delete c.sensors[el.dataset.field];
       }});
-      fieldUpdate("[data-edge]",(plan,el)=>{const c=plan.connections.find(x=>x.id===el.dataset.edge);if(c)c[el.dataset.edgeField]=el.value;});
+      fieldUpdate("input[data-edge]",(plan,el)=>{const c=plan.connections.find(x=>x.id===el.dataset.edge);if(c)c[el.dataset.edgeField]=el.value;});
       fieldUpdate("[data-level-pos]",(plan,el)=>{const c=plan.components.find(x=>x.id===el.dataset.levelPos);
         if(c?.level_sensors?.[Number(el.dataset.levelIndex)])c.level_sensors[Number(el.dataset.levelIndex)].position=Number(el.value);
       });
