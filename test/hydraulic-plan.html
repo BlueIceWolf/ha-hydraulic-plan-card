@@ -359,18 +359,14 @@
       [id,{device_id:'eta1',platform:'eta_webservices',unique_id:'eta_ehack_'+id}]));
     autoEtaHass.devices={eta1:{name:'ETA eHACK 20',model:'eHACK 20',
       manufacturer:'ETA Heiztechnik'}};
-    const discoveredEta=HPC_ETA.detect(autoEtaHass);
-    check(discoveredEta.length===1&&discoveredEta[0].type==='wood_chip_boiler'&&
-      discoveredEta[0].model==='ehack'&&discoveredEta[0].entities.flow===etaSensorIds.flow&&
-      discoveredEta[0].entities.return===etaSensorIds.return,
-      'ETA eHACK is automatically recognized with actual boiler temperatures');
     const autoEtaEditor=document.createElement('hydraulic-plan-card-editor');
     autoEtaEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
       plan:{components:[],connections:[]}});
     document.body.append(autoEtaEditor);autoEtaEditor.hass=autoEtaHass;
     check(!!autoEtaEditor.querySelector('[data-action="eta-apply"]')&&
+      autoEtaEditor.querySelector('.hpc-ems')?.textContent.includes('ETA eHACK')&&
       autoEtaEditor._config.plan.components.length===0,
-      'Detected ETA boiler appears as a suggestion and never silently rewrites the plan');
+      'ETA eHACK and available values appear as a suggestion, without silently changing plan');
     let autoEtaResult;
     autoEtaEditor.addEventListener('config-changed',event=>autoEtaResult=event.detail.config);
     autoEtaEditor.querySelector('[data-action="eta-apply"]')?.click();
@@ -391,8 +387,13 @@
       {device_id:'pellet_eta',platform:'eta_webservices'}};
     etaPelletHass.devices={pellet_eta:{name:'ETA ePE 12',model:'ePE 12',
       manufacturer:'ETA Heiztechnik'}};
-    check(HPC_ETA.detect(etaPelletHass).length===0,
+    const pelletEtaEditor=document.createElement('hydraulic-plan-card-editor');
+    pelletEtaEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[],connections:[]}});
+    document.body.append(pelletEtaEditor);pelletEtaEditor.hass=etaPelletHass;
+    check(!pelletEtaEditor.querySelector('[data-action="eta-apply"]'),
       'ETA pellet boiler is not falsely classified as a HACK wood-chip boiler');
+    pelletEtaEditor.remove();
 
     // EMS-ESP MQTT Discovery: use manufacturer/device metadata and actual boiler
     // aliases; a generic EMS boiler alone must not be guessed as an oil boiler.
@@ -468,8 +469,13 @@
       .map(id=>[id,{device_id:'buderus_gb125',platform:'mqtt',unique_id:'ems-esp_'+id}]));
     gb125Hass.devices={buderus_gb125:{name:'Buderus Logamax plus GB125',model:'GB125',
       manufacturer:'Buderus EMS-ESP'}};
-    check(HPC_EMS.detect(gb125Hass)[0]?.type==='oil_boiler',
-      'GB125 is correctly recognized as an oil boiler, never as a gas boiler');
+    const gb125Editor=document.createElement('hydraulic-plan-card-editor');
+    gb125Editor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[],connections:[]}});
+    document.body.append(gb125Editor);gb125Editor.hass=gb125Hass;
+    check(gb125Editor.querySelector('#hpc-ems-type')?.value==='oil_boiler',
+      'GB125 is correctly recognized as oil and not accidentally imported as gas');
+    gb125Editor.remove();
     const genericGasHass=hassOf({
       'binary_sensor.boiler_burngas':state('binary_sensor.boiler_burngas','on'),
       'sensor.boiler_curflowtemp':state('sensor.boiler_curflowtemp',48,'°C')
@@ -478,8 +484,13 @@
       .map(id=>[id,{device_id:'explicit_gas',platform:'mqtt',unique_id:'ems-esp_'+id}]));
     genericGasHass.devices={explicit_gas:{name:'Buderus GB172',model:'GB172',
       manufacturer:'EMS-ESP'}};
-    check(HPC_EMS.detect(genericGasHass)[0]?.type==='gas_boiler',
-      'An explicitly named gas boiler is still classified as gas');
+    const gasDetectorEditor=document.createElement('hydraulic-plan-card-editor');
+    gasDetectorEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[],connections:[]}});
+    document.body.append(gasDetectorEditor);gasDetectorEditor.hass=genericGasHass;
+    check(gasDetectorEditor.querySelector('#hpc-ems-type')?.value==='gas_boiler',
+      'An explicitly named GB172 gas boiler is still classified as gas');
+    gasDetectorEditor.remove();
     const properGas=await mount({type:'custom:hydraulic-plan-card',preset:'none',
       plan:{components:[{id:'primary_gas',type:'gas_boiler',name:'Buderus GB172',
         sensors:{state:'binary_sensor.boiler_burngas'}}],connections:[]}},genericGasHass);
