@@ -7545,7 +7545,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     {type:"wood_chip_boiler",de:"ETA Hackschnitzelkessel",en:"ETA Wood-chip boiler",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","fuel_feed","ash_removal","fuel_level"],ports:["flow:R:.25","return:L:.75"]},
     {type:"gas_boiler",de:"Gaskessel",en:"Gas boiler",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
     {type:"heat_pump",de:"Wärmepumpe",en:"Heat pump",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
-    {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:L:.8","bottom_out:R:.8"]},
+    {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:L:.8","return_in:R:.8","bottom_out:R:.8"]},
     {type:"dhw_tank",de:"Warmwasserspeicher",en:"Hot-water tank",group:"storage",fields:["top","middle","bottom"],ports:["coil_in:L:.28","coil_out:L:.74","hot_out:R:.24","cold_in:R:.78"]},
     {type:"heating_circuit",de:"Heizkreis (gemischt/ungemischt)",en:"Heating circuit",group:"load",fields:["flow","return","target","pump","mixer","mixer_opening","mixer_closing"],ports:["flow_in:L:.25","return_out:L:.75"]},
     {type:"pump",de:"Umwälzpumpe",en:"Circulation pump",group:"control",fields:["state","power","volume"],ports:["in:L:.5","out:R:.5"]},
@@ -7663,10 +7663,17 @@ const HPC_FREE = (function makeFreeHelpers() {
     const connections=[], edgeIds=new Set();
     for(const e of (Array.isArray(raw.connections)?raw.connections:[]).slice(0,180)){
       if(!e||!isId(e.id)||edgeIds.has(e.id)||!byId[e.from]||!byId[e.to])continue;
+      // Upgrade existing DHW/heating consumer returns to the right-hand
+      // collector port. Left-hand bottom_in remains available for generators
+      // and serial buffer connections, preserving real hydraulic topology.
+      const toPort=byId[e.to].type==='buffer'&&e.to_port==='bottom_in'&&
+        (byId[e.from].type==='dhw_tank'&&e.from_port==='coil_out'||
+         byId[e.from].type==='heating_circuit'&&e.from_port==='return_out')
+        ?'return_in':e.to_port;
       if(e.from===e.to||!ports(byId[e.from].type).some(p=>p.id===e.from_port)||
-         !ports(byId[e.to].type).some(p=>p.id===e.to_port))continue;
+         !ports(byId[e.to].type).some(p=>p.id===toPort))continue;
       edgeIds.add(e.id);
-      connections.push({id:e.id,from:e.from,from_port:e.from_port,to:e.to,to_port:e.to_port,
+      connections.push({id:e.id,from:e.from,from_port:e.from_port,to:e.to,to_port:toPort,
         flow_entity:entityRx.test(e.flow_entity||"")?e.flow_entity:"",
         temperature_entity:entityRx.test(e.temperature_entity||"")?e.temperature_entity:""});
     }
@@ -7677,7 +7684,7 @@ const HPC_FREE = (function makeFreeHelpers() {
   function portRole(type,key) {
     if(["mixer","diverter","manifold"].includes(type))return "both";
     if(["flow","dhw","top_out","mid_out","bottom_out","coil_out","hot_out","return_out","out"].includes(key))return "out";
-    if(["return","top_in","mid_in","bottom_in","coil_in","cold_in","flow_in","in"].includes(key))return "in";
+    if(["return","top_in","mid_in","bottom_in","return_in","coil_in","cold_in","flow_in","in"].includes(key))return "in";
     return "both";
   }
   function validConnection(plan,from,fromPort,to,toPort) {
@@ -7710,7 +7717,7 @@ const HPC_FREE = (function makeFreeHelpers() {
         [second.id,'bottom_out',first.id,'bottom_in']);
     }else if((source(first.type)||first.type==='buffer')&&second.type==='heating_circuit'){
       pairs.push([first.id,first.type==='buffer'?'top_out':'flow',second.id,'flow_in'],
-        [second.id,'return_out',first.id,first.type==='buffer'?'bottom_in':'return']);
+        [second.id,'return_out',first.id,first.type==='buffer'?'return_in':'return']);
     }else if(first.type==='pump'){
       if(second.type==='buffer')pairs.push([first.id,'out',second.id,'top_in']);
       if(second.type==='dhw_tank')pairs.push([first.id,'out',second.id,'coil_in']);
@@ -7753,7 +7760,7 @@ const HPC_FREE = (function makeFreeHelpers() {
       plan.components.push(newNode);
     }
     const supplyPort=source.type==='buffer'?'top_out':source.type==='oil_boiler'?'dhw':'flow';
-    const returnPort=source.type==='buffer'?'bottom_in':'return';
+    const returnPort=source.type==='buffer'?'return_in':'return';
     const specs=newNode
       ?[[source.id,supplyPort,newNode.id,kind==='pump'?'in':'ab'],
         [newNode.id,kind==='pump'?'out':'a',tank.id,'coil_in'],
@@ -8226,8 +8233,12 @@ const HPC_INTEGRATED = (() => {
       return{x:290,y:250};
     }
     if(shape.type==='buffer'){
-      const y=key.includes('bottom')?495:key.includes('mid')?428:360;
-      return{x:key.includes('out')?640:520,y};
+      // The boiler/storage charge enters from the LEFT; all heating loads
+      // take their flow and return from the RIGHT of the buffer tank.
+      const y=shape.y+shape.h*(key.includes('bottom')||key==='return_in'?.875:
+        key.includes('mid')?.54:.20);
+      const right=key.includes('out')||key==='return_in';
+      return{x:shape.x+(right?shape.w:0),y};
     }
     if(shape.type==='dhw_tank'){
       // The heat-exchanger circuit is on the LEFT. Domestic hot and cold
@@ -8244,7 +8255,7 @@ const HPC_INTEGRATED = (() => {
   }
   function portSide(node,shape,key) {
     if(shape.type==='source')return 'R';
-    if(shape.type==='buffer')return key.endsWith('_out')?'R':'L';
+    if(shape.type==='buffer')return key.endsWith('_out')||key==='return_in'?'R':'L';
     if(shape.type==='dhw_tank')return key.startsWith('coil_')?'L':'R';
     if(shape.type==='heating_circuit')return 'L';
     return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'R';
@@ -8629,8 +8640,8 @@ const HPC_INTEGRATED = (() => {
         // The pump has the same centreline as the pipe's in/out ports.
         return '<g class="tap hpi-inline-pump" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.state||'')+'">'
           +'<title>'+title+'</title>'
-          +'<circle cx="'+cx+'" cy="'+cy+'" r="20" fill="var(--card-background-color,#202124)" stroke="var(--primary-text-color,#b0b0b0)" stroke-width="3"/>'
-          +'<path d="M'+(cx-7)+' '+(cy-11)+' L'+(cx+11)+' '+cy+' L'+(cx-7)+' '+(cy+11)+'Z" fill="'+(on?'var(--hfc-hot,#ff7043)':'var(--primary-text-color,#b0b0b0)')+'"/>'
+          +'<circle class="pump" cx="'+cx+'" cy="'+cy+'" r="20"/>'
+          +'<path class="imp" d="M'+(cx-7)+' '+(cy-11)+' L'+(cx+11)+' '+cy+' L'+(cx-7)+' '+(cy+11)+'Z"/>'
           +'</g>';
       }
       const isStore=isTank(node);

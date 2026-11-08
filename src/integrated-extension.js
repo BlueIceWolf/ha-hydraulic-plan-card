@@ -188,8 +188,12 @@ const HPC_INTEGRATED = (() => {
       return{x:290,y:250};
     }
     if(shape.type==='buffer'){
-      const y=key.includes('bottom')?495:key.includes('mid')?428:360;
-      return{x:key.includes('out')?640:520,y};
+      // The boiler/storage charge enters from the LEFT; all heating loads
+      // take their flow and return from the RIGHT of the buffer tank.
+      const y=shape.y+shape.h*(key.includes('bottom')||key==='return_in'?.875:
+        key.includes('mid')?.54:.20);
+      const right=key.includes('out')||key==='return_in';
+      return{x:shape.x+(right?shape.w:0),y};
     }
     if(shape.type==='dhw_tank'){
       // The heat-exchanger circuit is on the LEFT. Domestic hot and cold
@@ -206,7 +210,7 @@ const HPC_INTEGRATED = (() => {
   }
   function portSide(node,shape,key) {
     if(shape.type==='source')return 'R';
-    if(shape.type==='buffer')return key.endsWith('_out')?'R':'L';
+    if(shape.type==='buffer')return key.endsWith('_out')||key==='return_in'?'R':'L';
     if(shape.type==='dhw_tank')return key.startsWith('coil_')?'L':'R';
     if(shape.type==='heating_circuit')return 'L';
     return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'R';
@@ -591,8 +595,8 @@ const HPC_INTEGRATED = (() => {
         // The pump has the same centreline as the pipe's in/out ports.
         return '<g class="tap hpi-inline-pump" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.state||'')+'">'
           +'<title>'+title+'</title>'
-          +'<circle cx="'+cx+'" cy="'+cy+'" r="20" fill="var(--card-background-color,#202124)" stroke="var(--primary-text-color,#b0b0b0)" stroke-width="3"/>'
-          +'<path d="M'+(cx-7)+' '+(cy-11)+' L'+(cx+11)+' '+cy+' L'+(cx-7)+' '+(cy+11)+'Z" fill="'+(on?'var(--hfc-hot,#ff7043)':'var(--primary-text-color,#b0b0b0)')+'"/>'
+          +'<circle class="pump" cx="'+cx+'" cy="'+cy+'" r="20"/>'
+          +'<path class="imp" d="M'+(cx-7)+' '+(cy-11)+' L'+(cx+11)+' '+cy+' L'+(cx-7)+' '+(cy+11)+'Z"/>'
           +'</g>';
       }
       const isStore=isTank(node);
