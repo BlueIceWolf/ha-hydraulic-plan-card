@@ -442,7 +442,7 @@
     const chargeSvg=dual.shadowRoot.querySelector('#hpi-root');
     const lines=[...chargeSvg.querySelectorAll('g.hpi-link')].map(g=>g.querySelector('path.pipe')?.getAttribute('d'));
     check(lines[0]?.startsWith('M290 310') &&
-      lines[1]?.startsWith('M520 215'),
+      lines[1]?.startsWith('M520 215 H484'),
       'Hot-water charging supply and coil return use distinct real ports');
     dual.remove();
 

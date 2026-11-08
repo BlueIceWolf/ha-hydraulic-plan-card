@@ -151,6 +151,13 @@ const HPC_INTEGRATED = (() => {
     const def=HPC_FREE.ports(node.type).find(p=>p.id===key);
     return{x:shape.x+(def?.side==='R'?shape.w:0),y:shape.y+(def?.y??.5)*shape.h};
   }
+  function portSide(node,shape,key) {
+    if(shape.type==='source')return 'R';
+    if(shape.type==='buffer')return key.endsWith('_out')?'R':'L';
+    if(shape.type==='dhw_tank')return key.startsWith('coil_')?'L':'R';
+    if(shape.type==='heating_circuit')return 'L';
+    return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'R';
+  }
   function tankPoints(node,hass) {
     const points=[['top',0],['middle',50],['bottom',100]]
       .filter(([key])=>!!node.sensors[key]).map(([key,position])=>({position,entity:node.sensors[key]}));
@@ -238,10 +245,13 @@ const HPC_INTEGRATED = (() => {
       const p=port(all[edge.from],fromShape,edge.from_port);
       const q=port(all[edge.to],toShape,edge.to_port);
       let d;
-      if(p.x>q.x+8){
-        // Right-hand outlet feeding a left-hand inlet: route outside
-        // both components rather than crossing their interiors.
-        const farX=p.x+38,entryX=q.x-36;
+      const fromSide=portSide(all[edge.from],fromShape,edge.from_port);
+      const toSide=portSide(all[edge.to],toShape,edge.to_port);
+      if(p.x>q.x+8||fromSide==='L'||toSide==='R'){
+        // Always leave and enter a vessel on the physical port side.
+        // A heat-exchanger outlet on the LEFT must not traverse the tank.
+        const farX=p.x+(fromSide==='L'?-36:38);
+        const entryX=q.x+(toSide==='R'?36:-36);
         const laneY=p.y<q.y-120
           ?Math.max(fromShape.y+fromShape.h+32,toShape.y-32)
           :p.y>q.y+120
