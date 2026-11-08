@@ -782,6 +782,51 @@
       'Selected original Wolf outdoor unit appears in the original SVG illustration');
     wpCard.remove();wpEditor.remove();
 
+    // Restore the original heat-emitter options for each heating circuit.
+    const emitterEditor=document.createElement('hydraulic-plan-card-editor');
+    emitterEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[
+        {id:'hk_radiator',type:'heating_circuit',name:'Heizkreis 1',sensors:{}},
+        {id:'hk_floor',type:'heating_circuit',name:'Heizkreis 2',sensors:{}}
+      ],connections:[]}});
+    document.body.append(emitterEditor);emitterEditor.hass=hassOf();
+    const emitter=emitterEditor.querySelector('[data-heating-emitter="hk_radiator"]');
+    check(emitter?.options.length===3&&
+      Array.from(emitter.options).map(o=>o.value).join(',')==='underfloor,radiator,column',
+      'Original floor, panel radiator and column radiator heating types are selectable');
+    let emitterConfig;
+    emitterEditor.addEventListener('config-changed',ev=>emitterConfig=ev.detail.config);
+    if(emitter){emitter.value='column';emitter.dispatchEvent(new Event('change',{bubbles:true}));}
+    check(emitterConfig?.plan.components[0].options.emitter==='column',
+      'Selected emitter type is retained on its specific heating circuit');
+    const emitCard=await mount(emitterConfig||{type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[],connections:[]}},hassOf());
+    check(emitCard._hcTypes[0]==='column'&&emitCard._hcTypes[1]==='radiator',
+      'Original renderer receives individual heating emitter styles');
+    emitCard.remove();emitterEditor.remove();
+    // One quick-connect action must create a visible hot supply and separate
+    // return to a wood gasifier, rather than a dangling one-way pipe.
+    const pairEditor=document.createElement('hydraulic-plan-card-editor');
+    pairEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[
+        {id:'wood_return',type:'wood_gasifier',name:'Holzvergaser',sensors:{}},
+        {id:'tank_return',type:'buffer',name:'Pufferspeicher',sensors:{}}
+      ],connections:[]}});
+    document.body.append(pairEditor);pairEditor.hass=hassOf();
+    const pair=pairEditor.querySelector('#hpc-pair');
+    check(Array.from(pair?.options||[]).some(o=>o.value==='wood_return|tank_return'),
+      'The editor offers component-to-component connections instead of port jargon');
+    let pairResult;
+    pairEditor.addEventListener('config-changed',ev=>pairResult=ev.detail.config);
+    if(pair){pair.value='wood_return|tank_return';
+      pairEditor.querySelector('[data-action="connect-pair"]')?.click();}
+    check(pairResult?.plan.connections.some(e=>e.from==='wood_return'&&
+      e.from_port==='flow'&&e.to==='tank_return'&&e.to_port==='top_in')&&
+      pairResult?.plan.connections.some(e=>e.from==='tank_return'&&
+      e.from_port==='bottom_out'&&e.to==='wood_return'&&e.to_port==='return'),
+      'Wood gasifier quick-connect creates correct flow and return together');
+    pairEditor.remove();
+
     const etaNode={id:'eta1',type:'wood_chip_boiler',name:'ETA Hackgutheizung',
       sensors:{state:ids.burning,flow:ids.flow,pump:ids.pump},
       options:{eta_model:'hack_vr'}};
