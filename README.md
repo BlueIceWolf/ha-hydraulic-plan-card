@@ -1,6 +1,6 @@
 # Hydraulic Plan Card
 
-<img src="docs/logo.svg" alt="Hydraulic Plan Card" width="96" height="96" align="right" />
+![Hydraulic Plan Card – Projektlogo](https://raw.githubusercontent.com/BlueIceWolf/ha-hydraulic-plan-card/main/docs/marketplace-icon.svg)
 
 **Project description:** *Build and monitor real heating hydraulics in Home Assistant — wood, oil, gas, pellet and heat-pump generators, layered buffer tanks, mixers, electric heaters and live pipe flows.*
 
@@ -60,6 +60,20 @@ Die zuordenbaren Messwerte umfassen Betriebsstatus, Vorlauf, Rücklauf, Abgas, R
 - Manual mapping of Home Assistant entities through the card editor or YAML; no cloud service required.
 
 **Limits:** The integrated schematic extends the original topology with manually defined components and links; it does not compute hydraulic physics, valve routing or safety interlocks. A mapped pump/status signal may animate a pipe, but it is not a measured flow rate. Never use this visualization for safety-critical control.
+
+### Logo im Home Assistant Marketplace
+
+Das Projektlogo ist oben als **absoluter Bildlink** eingebunden, damit es auch in der
+README-Vorschau von HACS beziehungsweise **Einstellungen → Marketplace** geladen
+werden kann. Das kompakte SVG liegt in `docs/marketplace-icon.svg`; das
+hochauflösende Original liegt in `docs/logo.svg`.
+
+**Hinweis:** Die Marketplace-**Listenansicht** vergibt ihre Symbole selbst.
+Für Dashboard-Karten unterstützt `hacs.json` derzeit kein offizielles
+`icon`- oder `logo`-Feld. Das Projektlogo wird daher in der
+**Repository-Detailansicht/README**, nicht garantiert als eigenes
+Listen-Symbol angezeigt. Das Dashboard-Kartenauswahl-Icon ist unabhängig
+davon das konfigurierte `mdi:pipe-valve`-Symbol.
 
 ## Installation
 
