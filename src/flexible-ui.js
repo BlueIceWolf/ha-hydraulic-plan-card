@@ -404,6 +404,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const configured=true;
       const emsCandidates=HPC_EMS.detect(this._hass);
       const etaCandidates=HPC_ETA.detect(this._hass);
+      const etaParts=HPC_ETA_SYSTEM.detect(this._hass);
+      const chosenEtaPart=etaParts.find(c=>!p.components.some(n=>
+        n.discovery?.provider==='eta-system'&&n.discovery.id===c.id ||
+        Object.values(n.sensors||{}).some(id=>Object.values(c.entities).includes(id))));
       // An imported or manually configured boiler must not keep appearing as
       // "new". A second, genuinely different device is offered next.
       const chosenEms=emsCandidates.find(c=>!HPC_DISCOVERY.matchedNode(p,c,'ems-esp',emsCandidates));
@@ -431,6 +435,12 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         <p><strong>${esc(chosenEta.name)}</strong> · ${esc(etaLabel)} · ${esc(chosenEta.source)}</p>
         <p>${chosenEta.count} ${t("Messwerte aus Home Assistant erkannt. Du kannst die Zuordnung vor dem Speichern prüfen. Es werden keine Kesselbefehle gesendet.","Home Assistant values detected. Review assignments after adding. No boiler commands are sent.")}</p>
         <button type="button" data-action="eta-apply">${t("ETA-Kessel und Sensoren übernehmen","Add ETA boiler and sensors")}</button>
+      </section>`:'';
+      const etaPartInfo=chosenEtaPart?`<section class="hpc-ems">
+        <h3>${t("ETA-Anlagenbauteil erkannt","ETA system component detected")}</h3>
+        <p><strong>${esc(chosenEtaPart.name)}</strong> · ${chosenEtaPart.count} ${t("Messwerte","values")}</p>
+        <p>${t("Nur eindeutig benannte Bauteile werden übernommen. Hydraulische Leitungen werden nicht geraten. Bestehende Einstellungen bleiben erhalten.","Only clearly named components are imported. Hydraulic connections are not guessed. Existing settings are preserved.")}</p>
+        <button type="button" data-action="eta-part-apply">${t("Bauteil und Messwerte übernehmen","Add component and values")}</button>
       </section>`:'';
       const selected=p.components.find(c=>c.id===this._selectedId)||p.components[0];
       if(selected)this._selectedId=selected.id;
@@ -564,6 +574,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             ${[["ehack","ETA eHACK"],["hack","ETA HACK"],["hack_vr","ETA HACK VR"]]
               .map(([id,name])=>`<option value="${id}" ${(selected.options?.eta_model||"ehack")===id?"selected":""}>${name}</option>`).join("")}
           </select></label>`:""}
+        ${selected.type==="wood_chip_boiler"?`<label class="hpc-checkbox">
+          <input type="checkbox" data-eta-particle="${esc(selected.id)}" ${selected.options?.particle_separator?'checked':''}/>
+          <span>${t("Partikelabscheider am Hackgutautomaten","Particle separator on wood-chip boiler")}</span>
+        </label>
+        <p>${t("Teil der Abgasführung, ohne eigene Vor- oder Rücklaufleitung.","Part of the flue-gas path, without hydraulic connections.")}</p>`:""}
         ${heatPumpChoices}
         ${useNativeForm?'<div class="hpc-native-form"><ha-form id="hpc-native-sensors"></ha-form></div>':activeFields.map(key=>sensorField(selected.id,key,selected.sensors[key])).join("")}
         ${isTank?`<h3>${t("Zusätzliche Temperaturfühler","Additional temperature sensors")}</h3>
@@ -608,6 +623,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <div class="hpc-actions"><button type="button" data-action="example">${t("Beispielanlage laden (ersetzt Plan)","Load example (replaces plan)")}</button></div>
           ${emsInfo}
           ${etaInfo}
+          ${etaPartInfo}
           <h3>${t("Bauteil hinzufügen","Add component")}</h3>
           <div class="hpc-row"><div class="hpc-add-preview" id="hpc-free-icon">${HPC_FREE.icon("wood_gasifier")}</div><label>${t("Art","Type")}<select id="hpc-free-type">${typeOptions}</select></label>
             <button type="button" class="hpc-primary" data-action="add-component">${t("Hinzufügen","Add")}</button></div>
@@ -758,6 +774,21 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       });
       root.querySelectorAll("[data-action]").forEach(button=>button.addEventListener("click",()=>{
         const action=button.dataset.action;
+        if(action==="eta-part-apply"&&chosenEtaPart){
+          const copy=HPC_FREE.normalize(p);
+          const node=HPC_FREE.newNode(chosenEtaPart.type,copy);
+          if(!node)return;
+          node.name=chosenEtaPart.name;
+          node.discovery={provider:'eta-system',id:String(chosenEtaPart.id)};
+          for(const [key,id] of Object.entries(chosenEtaPart.entities)){
+            if(HPC_FREE.byType[node.type].fields.includes(key))node.sensors[key]=id;
+          }
+          if(node.type==='heating_circuit'&&node.sensors.mixer)
+            node.options={...node.options,mixed:true};
+          copy.components.push(node);
+          this._selectedId=node.id;
+          return this._applyPlan(copy,{hpc_legacy_imported:true});
+        }
         if(action==="eta-apply"&&chosenEta){
           // Reuse the exact detected device. Never merge an ETA installation
           // into an unrelated wood-chip boiler or overwrite manual choices.
@@ -921,6 +952,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(node?.type==='heating_circuit'&&HFC_EMITTERS.includes(el.value))
           node.options={...node.options,emitter:el.value};
       });
+      root.querySelectorAll('[data-eta-particle]').forEach(el=>el.addEventListener('change',()=>changePlan(plan=>{
+        const node=plan.components.find(c=>c.id===el.dataset.etaParticle);
+        if(node?.type==='wood_chip_boiler')node.options={...node.options,particle_separator:el.checked};
+      })));
       fieldUpdate('[data-eta-model]',(plan,el)=>{
         const node=plan.components.find(c=>c.id===el.dataset.etaModel);
         if(node?.type==='wood_chip_boiler')node.options={...node.options,eta_model:el.value};

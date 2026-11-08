@@ -333,6 +333,9 @@ const HPC_INTEGRATED = (() => {
       +'<text class="hpi-chip-brand" x="146" y="22" text-anchor="middle">ETA</text>'
       +'<text class="hpi-chip-model" x="126" y="94" text-anchor="middle">'+HPC_FREE.esc(model)+'</text>'
       +'<circle class="hpi-chip-light" cx="67" cy="44" r="3"/>'
+      +(node.options?.particle_separator?
+        '<path class="hpi-particle-duct" d="M161 36H173V28"/>'
+        +particleArt(151,0,29,39,false):'')
       +'</g>';
   }
 

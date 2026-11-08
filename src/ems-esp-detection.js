@@ -160,6 +160,79 @@ const HPC_ETA = (() => {
 })();
 
 
+
+/*
+ * ETA systems: identify only components that are explicit in ETA's published
+ * Home Assistant entity/menu names. The REST API is NOT called from Lovelace.
+ * This is read-only and cannot infer physical pipes or tank interconnections.
+ */
+const HPC_ETA_SYSTEM = (() => {
+  const norm = value => String(value ?? '').toLowerCase()
+    .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[.\-\s/]+/g, '_').replace(/_+/g, '_');
+  const kinds = [
+    ['buffer', /(?:^|_)(puffer(?:speicher)?|buffer)(?:_|$)/],
+    ['dhw_tank', /(?:^|_)(warmwasserspeicher|warmwasser|brauchwasserspeicher|dhw)(?:_|$)/],
+    ['heating_circuit', /(?:^|_)(heizkreis|heating_circuit|heizkreisregelung)(?:_|$)/]
+  ];
+  const roles = {
+    buffer: [
+      ['top',/(?:^|_)(oben|top|fuehler_oben|temp_oben)(?:_|$)/],
+      ['bottom',/(?:^|_)(unten|bottom|fuehler_unten|temp_unten)(?:_|$)/],
+      ['middle',/(?:^|_)(mitte|middle)(?:_|$)/]
+    ],
+    dhw_tank: [
+      ['top',/(?:^|_)(oben|top|speichertemperatur|boilertemperatur|ww_temperatur)(?:_|$)/],
+      ['bottom',/(?:^|_)(unten|bottom)(?:_|$)/]
+    ],
+    heating_circuit: [
+      ['flow',/(?:^|_)(vorlauf|vorlauftemperatur|flow|supply)(?:_|$)/],
+      ['return',/(?:^|_)(ruecklauf|rucklauf|return)(?:_|$)/],
+      ['pump',/(?:^|_)(pumpe|heizkreispumpe|pump)(?:_|$)/],
+      ['mixer',/(?:^|_)(mischerstellung|mischer_position|mixer_position|mischer)(?:_|$)/]
+    ]
+  };
+  function detect(hass) {
+    const groups = new Map();
+    for (const [id,state] of Object.entries(hass?.states || {})) {
+      if (!/^(sensor|binary_sensor|switch|number)\./.test(id)) continue;
+      const registry = hass?.entities?.[id] || {};
+      // nigl/homeassistant_eta_integration uses sensor.eta_* and platform eta.
+      if (registry.platform !== 'eta' && !/^sensor\.eta_/.test(id)) continue;
+      const raw = norm(id.split('.').slice(1).join('.')).replace(/^eta_/, '');
+      const label = norm(state?.attributes?.friendly_name);
+      const kind = kinds.find(([,test])=>test.test(raw)) ||
+        kinds.find(([,test])=>test.test(label));
+      if (!kind) continue;
+      const [type,pattern] = kind;
+      const match = raw.match(pattern) || label.match(pattern);
+      if (!match) continue;
+      const index = match.index + match[0].length;
+      const rest = (raw.match(/^(.*?)(?:puffer(?:speicher)?|buffer|warmwasserspeicher|warmwasser|brauchwasserspeicher|dhw|heizkreis|heating_circuit|heizkreisregelung)_?(\d*)/) || []);
+      const number = rest[2] || ((raw.slice(index).match(/^(\d+)(?:_|$)/)||[])[1]) || '';
+      const prefix = (rest[1] || '').replace(/_+$/,'').slice(0,50);
+      const key = [type,prefix,number].join(':');
+      const measurement = [raw,label].join('_');
+      const role = (roles[type] || []).find(([,test])=>test.test(measurement))?.[0];
+      if (!role) continue;
+      // A top/bottom temperature needs a temperature entity, not a similarly
+      // named actuator or target value.
+      if (['top','middle','bottom','flow','return'].includes(role) &&
+          id.split('.')[0] !== 'sensor') continue;
+      if (!groups.has(key)) groups.set(key,{
+        id:key,type,name:type==='buffer'?'ETA Pufferspeicher':
+          type==='dhw_tank'?'ETA Warmwasserspeicher':'ETA Heizkreis',
+        entities:{},count:0,source:'ETA (Home Assistant)'});
+      const c = groups.get(key);
+      if (number) c.name += ' '+number;
+      if (!c.entities[role]) c.entities[role] = id;
+    }
+    return [...groups.values()].map(c=>({...c,count:Object.keys(c.entities).length}))
+      .sort((a,b)=>a.type.localeCompare(b.type)||a.id.localeCompare(b.id));
+  }
+  return {detect};
+})();
+
 // Only genuinely new boilers are suggested in the editor. Persisting a
 // discovery identity also makes repeat imports idempotent across HA reloads.
 const HPC_DISCOVERY = (() => {

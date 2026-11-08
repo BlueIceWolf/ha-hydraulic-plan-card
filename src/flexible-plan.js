@@ -92,7 +92,8 @@ const HPC_FREE = (function makeFreeHelpers() {
       const options=n.type==="wood_gasifier"
         ?{return_lift:n.options?.return_lift===true}
         :n.type==="wood_chip_boiler"
-          ?{eta_model:["ehack","hack","hack_vr"].includes(n.options?.eta_model)?n.options.eta_model:"ehack"}
+          ?{eta_model:["ehack","hack","hack_vr"].includes(n.options?.eta_model)?n.options.eta_model:"ehack",
+            particle_separator:n.options?.particle_separator===true}
         :n.type==="heating_circuit"
           ?{emitter:HFC_EMITTERS.includes(n.options?.emitter)?n.options.emitter:"radiator",
             mixed:typeof n.options?.mixed==="boolean"?n.options.mixed:
