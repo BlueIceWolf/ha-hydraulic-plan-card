@@ -88,10 +88,12 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const group=svg.querySelector('#hpi-buffer-couplings')||
         document.createElementNS('http://www.w3.org/2000/svg','g');
       group.id='hpi-buffer-couplings';
+      // Only show actual connections; heating circuits alone do not imply
+      // that a buffer was plumbed into the system.
       const hot=plan.connections.some(e=>e.from===bufferId&&
-        ['top_out','mid_out'].includes(e.from_port))||heaterCount>0;
+        ['top_out','mid_out'].includes(e.from_port));
       const cold=plan.connections.some(e=>e.to===bufferId&&
-        ['bottom_in','mid_in'].includes(e.to_port))||heaterCount>0;
+        ['bottom_in','mid_in'].includes(e.to_port));
       group.innerHTML=(hot?'<circle cx="640" cy="360" r="5" class="hpi-buffer-port hpi-buffer-hot"/>':'')
         +(cold?'<circle cx="640" cy="495" r="5" class="hpi-buffer-port hpi-buffer-cold"/>':'');
       tank.parentNode.appendChild(group);
