@@ -323,18 +323,27 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const p=HPC_FREE.normalize(this._config.plan);
       const configured=true;
       const emsCandidates=HPC_EMS.detect(this._hass);
-      const chosenEms=emsCandidates[0];
       const etaCandidates=HPC_ETA.detect(this._hass);
-      const chosenEta=etaCandidates[0];
+      // An imported or manually configured boiler must not keep appearing as
+      // "new". A second, genuinely different device is offered next.
+      const chosenEms=emsCandidates.find(c=>!HPC_DISCOVERY.matchedNode(p,c,'ems-esp',emsCandidates));
+      const chosenEta=etaCandidates.find(c=>!HPC_DISCOVERY.matchedNode(p,c,'eta',etaCandidates));
       const emsTypeLabel=(type)=>type==="oil_boiler"?t("Ölkessel","Oil boiler"):
         type==="gas_boiler"?t("Gaskessel","Gas boiler"):t("Kessel (Brennstoff prüfen)","Boiler (verify fuel)");
       const emsInfo=chosenEms?`<section class="hpc-ems">
         <h3>${t("Heizung über EMS-ESP erkannt","Heating device detected via EMS-ESP")}</h3>
-        <p><strong>${esc(chosenEms.name)}</strong> · ${esc(chosenEms.source)} · ${emsTypeLabel(chosenEms.type)}</p>
+        <p class="hpc-row">${HPC_FREE.icon(chosenEms.type==="unknown"?"manifold":chosenEms.type)}<strong>${esc(chosenEms.name)}</strong> · ${esc(chosenEms.source)}</p>
+        <label class="hpc-field">${t("Kesseltyp prüfen","Verify boiler type")}
+          <select id="hpc-ems-type">
+            <option value="" ${chosenEms.type==="unknown"?"selected":""}>${t("Bitte Kesseltyp wählen","Select boiler type")}</option>
+            ${[["oil_boiler",t("Ölkessel","Oil boiler")],["gas_boiler",t("Gaskessel","Gas boiler")],
+              ["pellet_boiler",t("Pelletkessel","Pellet boiler")],["wood_gasifier",t("Holzvergaser","Wood gasifier")]]
+              .map(([id,name])=>`<option value="${id}" ${chosenEms.type===id?"selected":""}>${name}</option>`).join("")}
+          </select></label>
         <p>${chosenEms.count} ${t("zuordenbare Messwerte gefunden. Die Erkennung liest nur Home-Assistant-Entitäten und verändert deine Heizung nicht.","assignable values found. Detection only reads Home Assistant entities and never changes heating controls.")}</p>
         ${chosenEms.count===0?`<p>${t("Das Gerät ist erkannt, stellt aber noch keine passenden Messwerte bereit. Bitte die EMS-ESP-Veröffentlichung prüfen.","Device recognized, but no matching measured values are available yet. Check EMS-ESP publishing settings.")}</p>`:""}
         ${chosenEms.type==="unknown"?`<p>${t("Der Brennstoff lässt sich aus den verfügbaren Geräten nicht sicher erkennen. Bitte den richtigen Kesseltyp auswählen.","Fuel type cannot be reliably inferred. Select the proper boiler type first.")}</p>`:""}
-        <button type="button" data-action="ems-apply">${chosenEms.count?t("Kessel übernehmen und Messwerte zuordnen","Add boiler and assign values"):t("Erkannten Kessel hinzufügen","Add detected boiler")}</button>
+        <button type="button" data-action="ems-apply" ${chosenEms.type==="unknown"?"disabled":""}>${chosenEms.count?t("Kessel übernehmen und Messwerte zuordnen","Add boiler and assign values"):t("Erkannten Kessel hinzufügen","Add detected boiler")}</button>
       </section>`:"";
       const etaLabel=chosenEta?({ehack:'ETA eHACK',hack:'ETA HACK',hack_vr:'ETA HACK VR'}[chosenEta.model]||'ETA Hackschnitzelkessel'):'';
       const etaInfo=chosenEta?`<section class="hpc-ems">
@@ -563,6 +572,12 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             if(row)row[picker.dataset.edgeField]=event.detail?.value||'';
           });
         });
+      });
+      // Allow an uncertain boiler model to be selected before importing.
+      const emsTypePicker=root.querySelector('#hpc-ems-type');
+      emsTypePicker?.addEventListener('change',()=>{
+        const apply=root.querySelector('[data-action="ems-apply"]');
+        if(apply)apply.disabled=!emsTypePicker.value;
       });
       root.querySelectorAll("[data-action]").forEach(button=>button.addEventListener("click",()=>{
         const action=button.dataset.action;
