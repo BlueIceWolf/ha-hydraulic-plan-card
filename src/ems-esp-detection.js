@@ -13,8 +13,7 @@ const HPC_EMS = (() => {
     oxygen: ['o2','oxygen','residualoxygen'],
     power: ['boilerpowerw','heatingpowerw','outputpowerw']
   };
-  const allAliases = new Set(Object.values(roles).flat());
-  const isBoilerEntity = id => /(?:^|_)boiler_/.test(id);
+    const isBoilerEntity = id => /(?:^|_)boiler_/.test(id);
   function detect(hass) {
     if(!hass?.states)return [];
     const found=new Map(), registrations=hass.entities||{}, devices=hass.devices||{};
@@ -27,7 +26,7 @@ const HPC_EMS = (() => {
       // Oil preheating is useful evidence of fuel type but not a burner status.
       // A heating block is NOT a flow temperature and must never be
       // automatically assigned as such. It can still identify the gateway.
-      if(!itemRole&&!['oilpreheat','heatingblock'].includes(suffix))continue;
+      if(!itemRole&&!['oilpreheat','heatingblock','gastype'].includes(suffix))continue;
       const registry=registrations[id]||{};
       const device=devices[registry.device_id]||{};
       const gateway=devices[device.via_device_id]||{};
@@ -52,10 +51,16 @@ const HPC_EMS = (() => {
     for(const item of found.values()){
       const count=Object.keys(item.entities).length;
       const description=item.description.toLowerCase();
-      const oilModel=/\b(?:s115u?|g115|g125|g215|s125|oil|oel|öl|logano\s+g1)/i.test(description);
-      const gasModel=/\b(?:gas|gaseous|logamax|gb172|gb192|gb125)\b/i.test(description);
+      // Classify the *boiler*, never the EMS gateway, from explicit boiler
+      // models or a real oil-preheater entity. "burngas" is the EMS generic
+      // burner signal, not evidence that the burner uses natural gas.
+      // In particular GB125 is an OIL condensing boiler, not a gas boiler.
+      const oilModel=/\b(?:s115u?|s115|s125|g115|g125|g215|gb125|gb135|logano\s+(?:plus\s+)?(?:s115u?|g115|g125|gb125)|oil|oel|öl|heizoel|heizöl|oil\s+boiler|ölkessel)\b/i.test(description);
+      // "Logamax" alone names an entire product family and is inconclusive.
+      const gasModel=/\b(?:gb172(?:i)?|gb192(?:i)?|gb162(?:i)?|gb122(?:i)?|gb132|gb142|gb212|gb402|gb272|kb192i|gasboiler|gaskessel|gas\s+boiler|gas\s+brennwertkessel)\b/i.test(description);
       const oilSignal=item.evidence.some(e=>e.suffix==='oilpreheat');
-      const fuel=oilModel||oilSignal?'oil_boiler':gasModel?'gas_boiler':'unknown';
+      const gasSignal=item.evidence.some(e=>e.suffix==='gastype');
+      const fuel=oilModel||oilSignal?'oil_boiler':gasModel||gasSignal?'gas_boiler':'unknown';
       // One definitive EMS-ESP oil boiler can be recognized even when it
       // exposes only a heating-block status and no temperatures yet.
       if(count<2 && !(item.marker&&fuel!=='unknown'&&item.evidence.length>0))continue;
@@ -151,4 +156,34 @@ const HPC_ETA = (() => {
     }).sort((a,b)=>b.count-a.count);
   }
   return {detect};
+})();
+
+
+// Only genuinely new boilers are suggested in the editor. Persisting a
+// discovery identity also makes repeat imports idempotent across HA reloads.
+const HPC_DISCOVERY = (() => {
+  const norm = value => String(value??'').toLowerCase()
+    .normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim();
+  const matchedNode = (plan,candidate,provider,peers=[]) => {
+    const sources=(plan.components||[]).filter(c=>
+      ['oil_boiler','gas_boiler','wood_chip_boiler','pellet_boiler','wood_gasifier','heat_pump'].includes(c.type));
+    const ids=new Set(Object.values(candidate.entities||{}).filter(Boolean));
+    if(sources.some(c=>c.discovery?.provider===provider&&
+      c.discovery.id===String(candidate.id)))return true;
+    // Manual configurations have no discovery metadata, but their assigned
+    // sensor IDs reliably identify a previously added device.
+    if(sources.some(c=>Object.values(c.sensors||{}).some(id=>ids.has(id))))return true;
+    // Name + same fuel is a safe fallback for imported older YAML.
+    if(sources.some(c=>c.type===candidate.type&&norm(c.name)===norm(candidate.name)))return true;
+    // One manually added oil boiler and one physically detected oil boiler:
+    // do not offer a second copy just because sensors were never assigned.
+    if(candidate.type!=='unknown'&&
+      sources.filter(c=>c.type===candidate.type).length===1&&
+      peers.filter(c=>c.type===candidate.type).length===1&&
+      sources.filter(c=>c.type===candidate.type)[0]?.discovery==null &&
+      !sources.some(c=>c.discovery?.provider===provider&&
+        c.discovery.id!==String(candidate.id)&&c.type===candidate.type))return true;
+    return false;
+  };
+  return {matchedNode};
 })();
