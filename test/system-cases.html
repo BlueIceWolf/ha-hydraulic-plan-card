@@ -116,7 +116,7 @@ for(const scenario of scenarios){
   const collisions=[];
   for(let i=0;i<entries.length;i++)for(let j=i+1;j<entries.length;j++){
     const [aId,a]=entries[i],[bId,b]=entries[j];
-    if(a.x<a.w+b.x-6&&a.x+a.w>b.x+6&&
+    if(a.x<b.x+b.w-6&&a.x+a.w>b.x+6&&
       a.y+a.h>b.y+6&&a.y<b.y+b.h-6)
       collisions.push(aId+' × '+bId);
   }
