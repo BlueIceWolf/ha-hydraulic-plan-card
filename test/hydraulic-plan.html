@@ -668,6 +668,9 @@
       !inlineValve.querySelector('rect.unit')&&
       inlineValve.textContent.includes('A'),
       'WW changeover is a small original-style valve directly on its pipe, with selected outlet');
+    check(!valveFeedCard.shadowRoot.querySelector('#valve-arrow')
+      ?.closest('g.tap')?.getClientRects().length,
+      'User-defined changeover replaces the original illustrative 3-way valve instead of duplicating it');
     valveFeedCard.hass=hassOf({
       'sensor.valve_position':state('sensor.valve_position','Heizen'),
       'switch.vpump':state('switch.vpump','on')});
