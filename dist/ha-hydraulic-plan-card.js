@@ -8620,6 +8620,19 @@ const HPC_NETWORK = (() => {
       const x=Math.max(p.x,q.x)+42;
       return 'M'+h(p.x,p.y)+' H'+x+' V'+q.y+' H'+q.x;
     }
+    // Keep the ORIGINAL mixer and radiator connectors exactly in the hot
+    // and return routes. Their artwork is retained, not an independent pipe.
+    if(fromNode.type==='heating_circuit'&&
+       fromShape.type==='heating_circuit'&&edge.from_port==='return_out'){
+      const bendX=fromShape.x-10;
+      const joinX=fromShape.x-55;
+      const joinY=fromShape.y+165;
+      let d='M'+h(p.x,p.y)+' H'+bendX+' V'+(p.y+20)+
+        ' H'+(bendX-20)+' V'+joinY+' H'+joinX;
+      if(Math.abs(q.y-joinY)<.01)return d+' H'+q.x;
+      const laneX=Math.min(joinX-35,q.x-35);
+      return d+' H'+laneX+' V'+q.y+' H'+q.x;
+    }
     let d;
     if (p.x > q.x + 8 || fromSide === 'L' || toSide === 'R') {
       const farX = p.x + (fromSide === 'L' ? -36 : 38);
