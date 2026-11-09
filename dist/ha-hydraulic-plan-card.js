@@ -8592,11 +8592,42 @@ const HPC_NETWORK = (() => {
     return result;
   }
 
+  // A checked return-temperature lift implies an internal boiler bypass.
+  // Represent that visible bypass as a virtual hydraulic edge, routed by the
+  // same graph/segment renderer as every other water pipe. Never persist
+  // synthetic plumbing and never overlay an explicitly connected mixer.
+  function auxiliaryEdges(plan,hass) {
+    const edges=[];
+    for(const node of plan.components){
+      if(node.type!=='wood_gasifier'||node.options?.return_lift!==true)continue;
+      if(plan.connections.some(edge=>
+        edge.to===node.id&&edge.to_port==='return'&&
+        plan.components.some(candidate=>candidate.id===edge.from&&
+          candidate.type==='mixer')))continue;
+      const pump=HPC_FREE.state(hass,node.sensors?.pump);
+      const volume=HPC_FREE.state(hass,node.sensors?.volume);
+      const stopped=volume?.number!==null&&volume?.number<=0||
+        pump?.text?.toLowerCase()==='off';
+      const active=!stopped&&(volume?.number>0||
+        pump!==null&&HPC_FREE.active(pump));
+      edges.push({
+        id:'rla_'+node.id,kind:'return_lift',
+        from:node.id,from_port:'flow',to:node.id,to_port:'return',
+        active,flow_entity:'',temperature_entity:''
+      });
+    }
+    return edges;
+  }
+
   // One orthogonal router for every non-native SVG pipe. It uses actual ports,
   // not the stored legacy X/Y values or assumptions based on a component name.
   function route({ edge, fromNode, toNode, fromShape, toShape, p, q,
                    fromSide, toSide, supplyTee = null, returnTee = null }) {
     const h = (x, y) => String(x) + ' ' + String(y);
+    if(edge.kind==='return_lift'){
+      const x=Math.max(p.x,q.x)+42;
+      return 'M'+h(p.x,p.y)+' H'+x+' V'+q.y+' H'+q.x;
+    }
     let d;
     if (p.x > q.x + 8 || fromSide === 'L' || toSide === 'R') {
       const farX = p.x + (fromSide === 'L' ? -36 : 38);
@@ -8736,7 +8767,7 @@ const HPC_NETWORK = (() => {
     }));
   }
 
-  return { graph, orderedBuffers, bufferTopology, diverterActivePort, flowStates, flowEvidence, route, mergeRoutes };
+  return { graph, orderedBuffers, bufferTopology, diverterActivePort, flowStates, flowEvidence, auxiliaryEdges, route, mergeRoutes };
 })();
 
 const HPC_INTEGRATED = (() => {
