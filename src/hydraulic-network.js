@@ -152,14 +152,54 @@ const HPC_NETWORK = (() => {
     for (const edge of plan.connections)
       if (mappedFlow(edge) === true && allowed(edge)) flowing.add(edge.id);
 
+    // A WW charging pump drives its own heating-coil loop. It is NOT proof
+    // that a parallel radiator without a running circuit pump also flows.
+    // Build the dedicated loop from the actual two coil ports, stopping at
+    // the reservoir/heat source instead of crossing into unrelated branches.
+    const chargingEdges = pump => {
+      if (pump.type !== 'pump') return null;
+      const out = outgoing.get(pump.id) || [];
+      const coils = out.filter(edge =>
+        edge.to_port === 'coil_in' && nodes.get(edge.to)?.type === 'dhw_tank');
+      if (!coils.length || coils.length !== out.length) return null;
+      const selected = new Set(coils.map(edge => edge.id));
+      const upstream = (id, seen = new Set()) => {
+        if (seen.has(id)) return;
+        seen.add(id);
+        for (const edge of incoming.get(id) || []) {
+          selected.add(edge.id);
+          const prev=nodes.get(edge.from);
+          if (prev && !isSource(prev) && prev.type !== 'buffer')
+            upstream(prev.id,seen);
+        }
+      };
+      const downstream = (id, seen = new Set()) => {
+        if (seen.has(id)) return;
+        seen.add(id);
+        for (const edge of outgoing.get(id) || []) {
+          if (id !== pump.id && nodes.get(id)?.type === 'dhw_tank' &&
+              edge.from_port !== 'coil_out') continue;
+          selected.add(edge.id);
+          const next=nodes.get(edge.to);
+          if (next && !isSource(next) && next.type !== 'buffer' &&
+              next.type !== 'dhw_tank')
+            downstream(next.id,seen);
+        }
+      };
+      upstream(pump.id);
+      for (const coil of coils) downstream(coil.to);
+      return selected;
+    };
+
     for (const pump of plan.components.filter(n => pumpState(n) === true)) {
       const queue = [pump.id], visited = new Set();
+      const dedicatedCircuit = chargingEdges(pump);
       while (queue.length) {
         const id = queue.shift();
         if (visited.has(id)) continue;
         visited.add(id);
         for (const { edge, neighbor } of adjacent.get(id) || []) {
-          if (!allowed(edge)) continue;
+          if (!allowed(edge) || dedicatedCircuit && !dedicatedCircuit.has(edge.id)) continue;
           const next = nodes.get(neighbor);
           if (!next || blocked(next)) continue;
           flowing.add(edge.id);
