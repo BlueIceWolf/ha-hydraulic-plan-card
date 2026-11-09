@@ -149,7 +149,7 @@ const HPC_MIGRATION = (() => {
     if(!classic&&Number(config.hpc_schema_version)>VERSION)
       return {changed:false,config,warnings:['Diese Konfiguration stammt aus einer neueren Version.']};
     if(!classic&&config.hpc_schema_version===VERSION)
-      return {changed:false,config,warnings:[]};
+      return {changed:false,config,warnings:check(config.plan)};
     const warnings=classic?[]:check(config.plan);
     if(warnings.length)return {changed:false,blocked:true,config,warnings};
     const result=classic?legacyPlan(config):{plan:HPC_FREE.normalize(config.plan),warnings:[]};
