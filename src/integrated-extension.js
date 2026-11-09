@@ -49,8 +49,9 @@ const HPC_INTEGRATED = (() => {
     // primary source. The diagram grows by rows, without custom-sized tiles
     // that looked like unrelated cards.
     for(const [index,node] of byGroup.source.entries()){
-      points.set(node.id,{x:50+Math.floor(index/4)*265,
-        y:475+(index%4)*260,w:240,h:235,type:node.type});
+      // All additional heat sources remain left of the buffer. A new
+      // column after source #5 would overlap the first native tank.
+      points.set(node.id,{x:50,y:475+index*260,w:240,h:235,type:node.type});
     }
     // Discover the buffer sequence from the user's directed pipe connections.
     // This works regardless of the order in which buffers were added.
@@ -70,12 +71,16 @@ const HPC_INTEGRATED = (() => {
     // Buffer-fed WW coils belong to the consumer column, just like a heating
     // circuit; all other tanks continue to use the original storage artwork.
     let consumerTanks=0,otherTanks=0;
+    const lastBufferRight=orderedBuffers.length
+      ?Math.max(...orderedBuffers.map(n=>points.get(n.id).x+120))
+      :firstBuffer?640:0;
+    const consumerX=Math.max(1040,lastBufferRight+80);
     extraDhw.forEach(node=>{
       const chargingFromBuffer=bufferFedTanks.has(node.id);
       const index=chargingFromBuffer?consumerTanks++:otherTanks++;
       points.set(node.id,chargingFromBuffer
-        ?{x:1040,y:300+index*225,w:120,h:200,type:node.type}
-        :{x:680+(index%2)*160,y:40+Math.floor(index/2)*220,w:120,h:200,type:node.type});
+        ?{x:consumerX,y:300+index*225,w:120,h:200,type:node.type}
+        :{x:680+index*160,y:40,w:120,h:200,type:node.type});
     });
     // WW charging devices sit next to their coil, not in a disconnected
     // column at the other end of the schematic. They are still real
@@ -100,12 +105,12 @@ const HPC_INTEGRATED = (() => {
           // Pick a distinct piece of the actual charging supply for each
           // tank. This also avoids placing two loading-pump icons on top of
           // each other when a buffer has multiple DHW charging branches.
-          const laneX=sourceBox
-            ?Math.min(tankBox.x-80,sourceBox.x+sourceBox.w+80)
-            :tankBox.x-80;
-          const laneY=sourceBox?.type==='buffer'
-            ?Math.max(sourceBox.y+sourceBox.h*.2-20,tankBox.y+20)
-            :tankBox.y+20;
+          const laneX=tankBox.x-70;
+          // Charge from the unobstructed shoulder just above each tank,
+          // instead of sending the loading pump through the original
+          // radiator/mixer column at y=330..470.
+          const laneY=bufferFedTanks.has(tank.id)
+            ?Math.max(50,tankBox.y-70):tankBox.y+20;
           points.set(node.id,{x:laneX,y:laneY,w:40,h:40,type:node.type,inline:true});
           return;
         }
@@ -113,7 +118,10 @@ const HPC_INTEGRATED = (() => {
       const [w,h]=HPC_FREE.dimension(node.type);
       points.set(node.id,{x:320,y:72+index*242,w,h,type:node.type});
     });
-    const controlStart=Math.max(1190,storageStart+530);
+    const directTankEnd=Math.max(0,...extraDhw.map(n=>
+      points.get(n.id).x+points.get(n.id).w));
+    const controlStart=Math.max(1190,storageStart+530,
+      lastBufferRight+70,consumerTanks?consumerX+200:0,directTankEnd+60);
     const controlEnd=placeColumn(
       byGroup.control.filter(n=>!chargeControls.includes(n)),
       controlStart,90,265,260);
