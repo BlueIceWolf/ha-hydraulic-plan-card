@@ -207,9 +207,12 @@
       secondBuffer?.getAttribute('height')===nativeBuffer?.getAttribute('height')&&
       thirdBuffer?.getAttribute('height')===nativeBuffer?.getAttribute('height'),
       'Added tanks use the original 120 x 200 tank proportions');
-    check(Number(secondBuffer?.getAttribute('y'))<650 &&
-      Number(thirdBuffer?.getAttribute('x'))<815,
-      'Storage is arranged compactly beside the original radiator column');
+    check(Number(secondBuffer?.getAttribute('x'))>640 &&
+      Number(thirdBuffer?.getAttribute('x'))>
+        Number(secondBuffer?.getAttribute('x'))+120 &&
+      secondBuffer?.getAttribute('y')===thirdBuffer?.getAttribute('y') &&
+      Number(secondBuffer?.getAttribute('y'))>=555,
+      'Series buffer inlets face prior buffer outlets, with no overlap of native radiators');
 
 
     const automaticBefore=freeSvg.querySelector('g[data-hpi-node="puffer2"] rect.tank')?.getAttribute('x');
