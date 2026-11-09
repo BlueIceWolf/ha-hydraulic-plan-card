@@ -8623,8 +8623,8 @@ const HPC_INTEGRATED = (() => {
       p.connections.some(e=>e.from===n.id&&
         p.components.some(t=>t.id===e.to&&t.type==='dhw_tank'&&e.to_port==='coil_in')));
     chargeControls.forEach((node,index)=>{
-      if(node.type==='pump'){
-        // A DHW charging pump belongs ON the coil supply pipe. Place its
+      if(['pump','diverter'].includes(node.type)){
+        // A DHW loading device belongs ON the coil supply pipe. Place its
         // 40px-wide symbol immediately before the coil inlet, not in a
         // separate 157×96px control tile overlapping the hot-water tank.
         const edge=p.connections.find(e=>e.from===node.id&&e.to_port==='coil_in');
@@ -8645,7 +8645,7 @@ const HPC_INTEGRATED = (() => {
           const laneY=sourceBox?.type==='buffer'
             ?Math.max(sourceBox.y+sourceBox.h*.2-20,tankBox.y+20)
             :tankBox.y+20;
-          points.set(node.id,{x:laneX,y:laneY,w:40,h:40,type:'pump',inline:true});
+          points.set(node.id,{x:laneX,y:laneY,w:40,h:40,type:node.type,inline:true});
           return;
         }
       }
@@ -9022,6 +9022,17 @@ const HPC_INTEGRATED = (() => {
       const s=HPC_FREE.state(hass,node.sensors.state||node.sensors.pump);
       const on=HPC_FREE.active(s);
       const title=HPC_FREE.esc(node.name);
+      if(node.type==='diverter'&&b.inline){
+        const cx=b.x+b.w/2,cy=b.y+b.h/2;
+        const outlet=HPC_NETWORK.diverterActivePort(node,hass);
+        const label=outlet?outlet.toUpperCase():'?';
+        return '<g class="tap hpi-inline-diverter" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.position||'')+'">'
+          +'<title>'+title+'</title>'
+          +'<circle class="valve" cx="'+cx+'" cy="'+cy+'" r="20"/>'
+          +'<path class="valve-arrow" d="M'+(cx-12)+' '+cy+' H'+cx+' L'+(cx+10)+' '+(cy-10)+' M'+cx+' '+cy+' L'+(cx+10)+' '+(cy+10)+'"/>'
+          +'<text class="hpi-valve-port" x="'+(cx+23)+'" y="'+(cy-23)+'">'+label+'</text>'
+          +'</g>';
+      }
       if(node.type==='pump'&&b.inline){
         const cx=b.x+b.w/2,cy=b.y+b.h/2;
         // Keep the device interactive, including entity details, but do not
