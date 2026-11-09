@@ -87,6 +87,60 @@ check(firstParallel.x===extraParallel.x&&extraParallel.x===lastParallel.x&&
   'True parallel tanks share one central storage column without collision');
 check(HPC_NETWORK.bufferTopology(parallelPlan).mode==='parallel',
   'Confirmed parallel topology is reflected by the layout model');
+
+// One thousand deterministic, reproducible hydraulic assemblies. All actual
+// components and edges must survive normalization, with collision-free output.
+let randomizedFailures=0;
+for(let seed=0;seed<1000;seed++){
+  const sourceCount=1+seed%7,bufferCount=1+Math.floor(seed/7)%8;
+  const heatCount=1+Math.floor(seed/13)%6,wwCount=Math.floor(seed/29)%5;
+  const mixerCount=Math.floor(seed/17)%10;
+  const components=[],connections=[];
+  const add=(type,id,options={})=>
+    components.push({type,id,name:id,sensors:{},options});
+  const connect=(from,from_port,to,to_port)=>
+    connections.push({id:'line_'+connections.length,from,from_port,to,to_port});
+  for(let i=0;i<sourceCount;i++)
+    add(['heat_pump','oil_boiler','wood_gasifier','wood_chip_boiler'][i%4],'src_'+i);
+  for(let i=0;i<bufferCount;i++)add('buffer','buf_'+i);
+  for(let i=0;i<bufferCount-1;i++){
+    connect('buf_'+i,'top_out','buf_'+(i+1),'top_in');
+    connect('buf_'+(i+1),'bottom_out','buf_'+i,'bottom_in');
+  }
+  connect('src_0','flow','buf_0','top_in');
+  connect('buf_0','bottom_out','src_0','return');
+  for(let i=0;i<heatCount;i++){
+    add('heating_circuit','hc_'+i,{mixed:i%2===1});
+    connect('buf_'+(bufferCount-1),'top_out','hc_'+i,'flow_in');
+    connect('hc_'+i,'return_out','buf_'+(bufferCount-1),'bottom_in');
+  }
+  for(let i=0;i<wwCount;i++){
+    add('dhw_tank','ww_'+i,{connection_style:'branch'});
+    add('pump','wp_'+i);
+    connect('buf_'+(bufferCount-1),'top_out','wp_'+i,'in');
+    connect('wp_'+i,'out','ww_'+i,'coil_in');
+    connect('ww_'+i,'coil_out','buf_'+(bufferCount-1),'bottom_in');
+  }
+  for(let i=0;i<mixerCount;i++)add('mixer','mixer_'+i);
+  const plan=HPC_FREE.normalize({components,connections});
+  const model=HPC_INTEGRATED.layout(plan,heatCount);
+  const boxes=[...model.anchored,...model.points];
+  let ok=plan.components.length===components.length&&
+    plan.connections.length===connections.length&&
+    boxes.length===components.length;
+  for(let i=0;i<boxes.length&&ok;i++)for(let j=i+1;j<boxes.length;j++){
+    const a=boxes[i][1],z=boxes[j][1];
+    if(a.x<z.x+z.w-0.1&&a.x+a.w>z.x+0.1&&
+      a.y<z.y+z.h-0.1&&a.y+a.h>z.y+0.1)ok=false;
+  }
+  if(!ok){randomizedFailures++;if(randomizedFailures<5)errors.push('Topologie '+seed);}
+  if(seed%50===0){
+    const graphic=HPC_INTEGRATED.svg(model,{states:{},locale:{language:'de'}});
+    if(/NaN|undefined/.test(graphic.body)){randomizedFailures++;errors.push('SVG '+seed);}
+  }
+}
+check(randomizedFailures===0,
+  '1.000 seeded multi-generator, buffer, mixer, WW and heating layouts with no component collisions');
 document.querySelector('#result').textContent=errors.length?'FAIL':'PASS';
 document.querySelector('#log').textContent=done.join('\n');
 </script></body></html>
