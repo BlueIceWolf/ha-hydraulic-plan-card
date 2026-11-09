@@ -238,7 +238,8 @@ const HPC_INTEGRATED = (() => {
       };
       return positions[key]||{x:shape.x,y:shape.y+40};
     }
-    if(shape.type==='heating_circuit')return{x:shape.x,y:key==='return_out'?shape.y+135:shape.y+30};
+    // Ports coincide with the ORIGINAL radiator body, not its surrounding tile.
+    if(shape.type==='heating_circuit')return{x:shape.x+11,y:key==='return_out'?shape.y+125:shape.y+30};
     const def=HPC_FREE.ports(node.type).find(p=>p.id===key);
     return{x:shape.x+(def?.side==='R'?shape.w:0),y:shape.y+(def?.y??.5)*shape.h};
   }
@@ -455,11 +456,8 @@ const HPC_INTEGRATED = (() => {
       // tee on the right-hand heating collector. Draw its real return route.
     }
     const routeRecords=[...plan.connections,...HPC_NETWORK.auxiliaryEdges(plan,hass)].map(edge=>{
-      // The original circuit artwork already contains its shared risers,
-      // valves and radiators. Only supplemental routes need drawing.
-      if((all[edge.from]?.type==='heating_circuit'||
-          all[edge.to]?.type==='heating_circuit')&&
-          anchored.has(edge.from)&&anchored.has(edge.to))return null;
+      // Native heating circuits keep their original radiator/mixer pictograms,
+      // but their actual supply/return paths use this very same pipe registry.
       const fromShape=loc(edge.from),toShape=loc(edge.to);
       if(!fromShape||!toShape)return null;
       const p=port(all[edge.from],fromShape,edge.from_port);
@@ -478,7 +476,10 @@ const HPC_INTEGRATED = (() => {
         field==='mid_out'?from.sensors.middle:
         field==='bottom_out'?from.sensors.bottom:'';
       const reading=HPC_FREE.state(hass,edge.temperature_entity||inferred);
-      return {edge,d,on:edge.kind==='return_lift'?edge.active:flowing.has(edge.id),
+      const nativeCircuit=all[edge.to]?.type==='heating_circuit'&&anchored.has(edge.to)
+        ?edge.to:all[edge.from]?.type==='heating_circuit'&&anchored.has(edge.from)
+          ?edge.from:null;
+      return {edge,d,nativeCircuit,on:edge.kind==='return_lift'?edge.active:flowing.has(edge.id),
         evidence:edge.kind==='return_lift'?(edge.active?'inferred':'stopped'):
           evidence.get(edge.id)?.state||'unknown',
         color:reading?HPC_FREE.color(reading):null,
@@ -487,7 +488,17 @@ const HPC_INTEGRATED = (() => {
     // Resolve all route overlaps together, rather than having every boiler,
     // tank or heating circuit draw a second copy of the same collector.
     const physicalPipes=HPC_NETWORK.mergeRoutes(routeRecords);
-    const links=routeRecords.map(({edge,on,color,junction,evidence:pipeState})=>{
+    const nativePipes={};
+    for(const record of routeRecords.filter(r=>r.nativeCircuit)){
+      const direction=record.edge.to===record.nativeCircuit?'flow':'return';
+      const pair=physicalPipes.get(record.edge.id)||{pipe:'',flow:''};
+      const group=nativePipes[record.nativeCircuit]||(nativePipes[record.nativeCircuit]={});
+      const leg=group[direction]||(group[direction]={pipe:'',flow:''});
+      leg.pipe+=(leg.pipe?' ':'')+pair.pipe;
+      leg.flow+=(leg.flow?' ':'')+pair.flow;
+    }
+    const links=routeRecords.filter(r=>!r.nativeCircuit)
+      .map(({edge,on,color,junction,evidence:pipeState})=>{
       const paths=physicalPipes.get(edge.id)||{pipe:'',flow:''};
       const tee=junction?'<circle class="hpi-coil-branch" cx="'+junction.x+
         '" cy="'+junction.y+'" r="5" fill="var(--card-background-color,#fff)" stroke="'+
@@ -720,7 +731,7 @@ const HPC_INTEGRATED = (() => {
     const firstBuffer=HPC_NETWORK.orderedBuffers(plan)[0];
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank'&&anchored.has(c.id));
     return {defs,body:'<g id="hpc-integrated">'+links+nodes+accessories+pipeLabels+lift+primaryChip+primaryOil+primaryGas+'</g>',
-      firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
+      nativePipes,firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
   return {layout,coreConfig,svg,tankPoints,flowStates,isSource};
 })();
