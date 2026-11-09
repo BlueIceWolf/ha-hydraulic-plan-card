@@ -9,6 +9,7 @@ test('boiler types, hydraulic states and coexistence work in browser', async ({ 
   await page.goto('/test/hydraulic-plan.html', { waitUntil: 'domcontentloaded' });
   const result = page.locator('#result');
   let timeoutError;
+  let completedLog = '';
   try {
     try {
     await expect(result).toHaveText(/^(PASS|FAIL)$/, { timeout: 20000 });
@@ -22,12 +23,13 @@ test('boiler types, hydraulic states and coexistence work in browser', async ({ 
     // Preserve the completed checks even if the page never reaches PASS/FAIL.
     // This identifies the actual component or render operation that stalled.
     const log = (await page.locator('#log').textContent().catch(() => 'Log unavailable')) || '(empty test log)';
+    completedLog = log;
     await testInfo.attach('hydraulic-plan.log', {
       body: Buffer.from(log + '\n\nBrowser errors:\n' + (browserErrors.join('\n') || '(none)')),
       contentType: 'text/plain',
     });
   }
   if (timeoutError) throw timeoutError;
-  expect((await result.textContent()).trim()).toBe('PASS');
+  expect((await result.textContent()).trim(), completedLog).toBe('PASS');
   expect(browserErrors).toEqual([]);
 });
