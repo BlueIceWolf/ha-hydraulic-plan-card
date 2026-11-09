@@ -55,6 +55,24 @@ const stopped=HPC_NETWORK.flowStates(measuredZero,hass({
   'switch.ladepumpe':'on','sensor.durchfluss':[240,'l/h'],'sensor.coil_flow':[0,'l/h']}));
 check(!stopped.has('e4')&&!stopped.has('e5'),
   'Coil flow meter zero blocks return independently of pump command');
+const independentLoop=HPC_FREE.normalize({
+  components:[...nodes,{id:'hk',type:'heating_circuit',name:'Heizkreis',sensors:{}}],
+  connections:[...links,
+    {id:'heatSupply',from:'buffer1',from_port:'top_out',to:'hk',to_port:'flow_in'},
+    {id:'heatReturn',from:'hk',from_port:'return_out',to:'buffer1',to_port:'bottom_in'}]
+});
+const wwOnly=HPC_NETWORK.flowStates(independentLoop,
+  hass({'switch.ladepumpe':'on','sensor.durchfluss':[240,'l/h']}));
+check(wwOnly.has('e4')&&wwOnly.has('e5')&&
+  !wwOnly.has('heatSupply')&&!wwOnly.has('heatReturn'),
+  'Dedicated WW loading pump never animates unknown parallel heating circuit');
+const independentlyPumped=structuredClone(independentLoop);
+independentlyPumped.components.find(c=>c.id==='hk').sensors.pump='switch.hk_pumpe';
+const heatingOnly=HPC_NETWORK.flowStates(independentlyPumped,
+  hass({'switch.ladepumpe':'off','switch.hk_pumpe':'on'}));
+check(!heatingOnly.has('e4')&&!heatingOnly.has('e5')&&
+  heatingOnly.has('heatSupply')&&heatingOnly.has('heatReturn'),
+  'Heating circuit still circulates when a separate WW loading pump is off');
 const metadata={components:[{id:'boiler',type:'oil_boiler',name:'Old boiler',
   sensors:{custom_future:'sensor.custom_extra'},options:{future_setting:'keep'},
   custom_details:{a:1}}],
