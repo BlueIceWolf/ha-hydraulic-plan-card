@@ -8361,160 +8361,138 @@ const HPC_NETWORK = (() => {
     return null;
   }
 
-  function flowStates(plan, hass) {
-    const { nodes, incoming, outgoing, adjacent } = graph(plan);
-    const flowing = new Set();
-    const state = id => id ? HPC_FREE.state(hass, id) : null;
-    const measured = id => {
-      const reading = state(id);
-      if (!reading) return null;
-      if (reading.number !== null) return reading.number > 0;
-      return HPC_FREE.active(reading);
-    };
-    const mappedFlow = edge => edge.flow_entity ? measured(edge.flow_entity) : null;
-    const valvePortOpen = edge => {
-      for (const [id,port] of [[edge.from,edge.from_port],[edge.to,edge.to_port]]) {
-        const node=nodes.get(id);
-        if (node?.type !== 'diverter' || port === 'ab') continue;
-        if (port !== 'a' && port !== 'b') continue;
-        if (diverterActivePort(node,hass) !== port) return false;
-      }
-      return true;
-    };
-    const pumpEntity = node => {
-      if (node.type === 'pump') return node.sensors?.state || node.sensors?.pump;
-      if (isSource(node) || node.type === 'heating_circuit') return node.sensors?.pump;
+  // Every inferred active pipe belongs to a closed, directed hydraulic loop
+  // through a running pump. Each port is a vertex, including component internals.
+  function flowStates(plan,hass) {
+    const active=new Set(),nodes=new Map(plan.components.map(n=>[n.id,n]));
+    const connections=[],forward=new Map(),reverse=new Map();
+    const key=(id,port)=>id+'::'+port;
+    const read=id=>id?HPC_FREE.state(hass,id):null;
+    const signal=id=>{
+      const r=read(id);
+      if(!r)return null;
+      if(r.number!==null)return r.number>0;
+      const value=r.text.toLowerCase();
+      if(['on','open','active','running','ein','an','aktiv'].includes(value))return true;
+      if(['off','closed','idle','standby','aus'].includes(value))return false;
       return null;
     };
-    const pumpState = node => {
-      // A measured zero is stronger evidence than an on-command.
-      const volumeId = node.sensors?.volume;
-      const volumeState = state(volumeId);
-      if (volumeState?.number !== null && volumeState?.number <= 0) return false;
-      const reading = state(pumpEntity(node));
-      if (reading) return HPC_FREE.active(reading);
-      if (volumeState?.number > 0) return true;
-      return null;
+    const pumpSensor=n=>n.type==='pump'?(n.sensors?.state||n.sensors?.pump):
+      isSource(n)||n.type==='heating_circuit'?n.sensors?.pump:null;
+    const pumpStatus=n=>{
+      const volume=signal(n.sensors?.volume);
+      if(volume===false)return false;
+      const pump=signal(pumpSensor(n));
+      return pump===null?volume:pump;
     };
-    const blocked = node => pumpState(node) === false;
-    const stoppedCharge = new Set(), stoppedReturn = new Set();
-
-    for (const tank of plan.components.filter(n => n.type === 'dhw_tank')) {
-      const feeders = (incoming.get(tank.id) || []).filter(e => e.to_port === 'coil_in');
-      const returns = (outgoing.get(tank.id) || []).filter(e => e.from_port === 'coil_out');
-      if (!feeders.length || !returns.length) continue;
-      const seen = new Set();
-      const stoppedSupply = id => {
-        if (seen.has(id)) return false;
-        seen.add(id);
-        const n = nodes.get(id);
-        if (!n || n.type === 'dhw_tank') return false;
-        if (blocked(n)) return true;
-        // A reservoir is a hydraulic boundary. Never traverse unrelated
-        // return branches while checking a dedicated WW-coil supply.
-        if (isSource(n) || n.type === 'buffer' || n.type === 'heating_circuit') return false;
-        return (incoming.get(id) || []).some(e =>
-          !valvePortOpen(e) || mappedFlow(e) === false || stoppedSupply(e.from));
-      };
-      const stopped = feeders.some(e => !valvePortOpen(e) ||
-        mappedFlow(e) === false || stoppedSupply(e.from)) ||
-        returns.some(e => !valvePortOpen(e) || mappedFlow(e) === false);
-      if (!stopped) continue;
-      stoppedCharge.add(tank.id);
-      // Stop the coil's dedicated return only, not a shared heating collector.
-      const visit = (id, visited = new Set()) => {
-        if (visited.has(id)) return;
-        visited.add(id);
-        for (const edge of outgoing.get(id) || []) {
-          if (id === tank.id && edge.from_port !== 'coil_out') continue;
-          const next = nodes.get(edge.to);
-          if (!next) continue;
-          stoppedReturn.add(edge.id);
-          if (!isSource(next) && next.type !== 'dhw_tank' &&
-              next.type !== 'heating_circuit' &&
-              (adjacent.get(next.id) || []).length <= 2) visit(next.id, visited);
-        }
-      };
-      visit(tank.id);
+    const isPump=n=>n.type==='pump'||n.type==='heating_circuit'||isSource(n);
+    const blocked=n=>isPump(n)&&(
+      pumpStatus(n)===false||
+      !!pumpSensor(n)&&pumpStatus(n)===null||
+      n.type==='pump'&&pumpStatus(n)!==true);
+    const add=(a,b,edge=null)=>{
+      const arc={from:a,to:b,edge};
+      if(!forward.has(a))forward.set(a,[]);
+      if(!reverse.has(b))reverse.set(b,[]);
+      forward.get(a).push(arc);reverse.get(b).push(arc);
+      connections.push(arc);
+    };
+    for(const e of plan.connections){
+      const from=nodes.get(e.from),to=nodes.get(e.to);
+      if(!from||!to||blocked(from)||blocked(to)||signal(e.flow_entity)===false)continue;
+      const selected=(n,port)=>n.type!=='diverter'||port==='ab'||
+        diverterActivePort(n,hass)===port;
+      if(selected(from,e.from_port)&&selected(to,e.to_port))
+        add(key(e.from,e.from_port),key(e.to,e.to_port),e);
     }
-
-    const allowed = edge => valvePortOpen(edge) && mappedFlow(edge) !== false &&
-      !stoppedReturn.has(edge.id) &&
-      !stoppedCharge.has(edge.from) && !stoppedCharge.has(edge.to);
-
-    for (const edge of plan.connections)
-      if (mappedFlow(edge) === true && allowed(edge)) flowing.add(edge.id);
-
-    // A WW charging pump drives its own heating-coil loop. It is NOT proof
-    // that a parallel radiator without a running circuit pump also flows.
-    // Build the dedicated loop from the actual two coil ports, stopping at
-    // the reservoir/heat source instead of crossing into unrelated branches.
-    const chargingEdges = pump => {
-      if (pump.type !== 'pump') return null;
-      const out = outgoing.get(pump.id) || [];
-      const coils = out.filter(edge =>
-        edge.to_port === 'coil_in' && nodes.get(edge.to)?.type === 'dhw_tank');
-      if (!coils.length || coils.length !== out.length) return null;
-      const selected = new Set(coils.map(edge => edge.id));
-      const upstream = (id, seen = new Set()) => {
-        if (seen.has(id)) return;
-        seen.add(id);
-        for (const edge of incoming.get(id) || []) {
-          selected.add(edge.id);
-          const prev=nodes.get(edge.from);
-          if (prev && !isSource(prev) && prev.type !== 'buffer')
-            upstream(prev.id,seen);
+    for(const n of plan.components){
+      if(blocked(n))continue;
+      const connect=(a,b)=>add(key(n.id,a),key(n.id,b));
+      switch(n.type){
+        case 'pump':connect('in','out');break;
+        case 'heating_circuit':connect('flow_in','return_out');break;
+        case 'dhw_tank':connect('coil_in','coil_out');break;
+        case 'diverter':{
+          const selected=diverterActivePort(n,hass);
+          if(selected){connect('ab',selected);connect(selected,'ab');}
+          break;
         }
-      };
-      const downstream = (id, seen = new Set()) => {
-        if (seen.has(id)) return;
-        seen.add(id);
-        for (const edge of outgoing.get(id) || []) {
-          if (id !== pump.id && nodes.get(id)?.type === 'dhw_tank' &&
-              edge.from_port !== 'coil_out') continue;
-          selected.add(edge.id);
-          const next=nodes.get(edge.to);
-          if (next && !isSource(next) && next.type !== 'buffer' &&
-              next.type !== 'dhw_tank')
-            downstream(next.id,seen);
-        }
-      };
-      upstream(pump.id);
-      for (const coil of coils) downstream(coil.to);
-      return selected;
-    };
-
-    for (const pump of plan.components.filter(n => pumpState(n) === true)) {
-      const queue = [pump.id], visited = new Set();
-      const dedicatedCircuit = chargingEdges(pump);
-      while (queue.length) {
-        const id = queue.shift();
-        if (visited.has(id)) continue;
-        visited.add(id);
-        for (const { edge, neighbor } of adjacent.get(id) || []) {
-          if (!allowed(edge) || dedicatedCircuit && !dedicatedCircuit.has(edge.id)) continue;
-          const next = nodes.get(neighbor);
-          if (!next || blocked(next)) continue;
-          // A separate zone with a configured but unavailable pump is not
-          // proof of circulation, even when another circuit shares its buffer.
-          const unknownPump = next.id !== pump.id &&
-            (next.type === 'pump' || next.type === 'heating_circuit' || isSource(next)) &&
-            !!pumpEntity(next) && pumpState(next) === null;
-          if (unknownPump) continue;
-          // A buffer can feed a configured series of reservoirs, but cannot
-          // prove circulation in an independent load or charging branch.
-          const current = nodes.get(id);
-          if (current?.type === 'buffer' &&
-              next.type !== 'buffer' && next.id !== pump.id) continue;
-          flowing.add(edge.id);
-          // One pump is not evidence that an unrelated zone or boiler flows.
-          const otherUnmeteredCircuit = (isSource(next) || next.type === 'heating_circuit') &&
-            !pumpEntity(next) && !next.sensors?.volume && next.id !== pump.id;
-          if (!otherUnmeteredCircuit && !visited.has(neighbor)) queue.push(neighbor);
-        }
+        case 'mixer':
+          for(const port of ['a','b']){connect(port,'ab');connect('ab',port);}
+          break;
+        case 'buffer':
+          for(const inlet of ['top_in','mid_in','bottom_in','return_in'])
+            for(const outlet of ['top_out','mid_out','bottom_out'])
+              connect(inlet,outlet);
+          break;
+        case 'manifold':
+          for(const a of ['a','b','c'])for(const z of ['d','e','f']){
+            connect(a,z);connect(z,a);
+          }
+          break;
+        case 'electric_heater':connect('in','out');break;
+        case 'particle_separator':break;
+        default:
+          if(isSource(n)){
+            connect('return','flow');
+            if(n.type==='oil_boiler')connect('return','dhw');
+          }
       }
     }
-    return flowing;
+    const scan=(seeds,adj,stops,accept)=>{
+      const visited=new Set(seeds),queue=[...seeds];
+      while(queue.length){
+        const vertex=queue.shift();
+        if(stops.has(vertex))continue;
+        for(const arc of adj.get(vertex)||[]){
+          if(!accept(arc))continue;
+          const next=adj===forward?arc.to:arc.from;
+          if(!visited.has(next)){visited.add(next);queue.push(next);}
+        }
+      }
+      return visited;
+    };
+    for(const pump of plan.components.filter(n=>isPump(n)&&pumpStatus(n)===true)){
+      const outlets=pump.type==='pump'?['out']:
+        pump.type==='heating_circuit'?['return_out']:
+        pump.type==='oil_boiler'?['flow','dhw']:['flow'];
+      const inlets=pump.type==='pump'?['in']:
+        pump.type==='heating_circuit'?['flow_in']:['return'];
+      const start=outlets.map(p=>key(pump.id,p)),end=inlets.map(p=>key(pump.id,p));
+      const coilBranches=plan.connections.filter(e=>e.from===pump.id &&
+        e.from_port==='out'&&e.to_port==='coil_in'&&nodes.get(e.to)?.type==='dhw_tank');
+      const exclusiveCoil=pump.type==='pump'&&coilBranches.length>0&&
+        plan.connections.filter(e=>e.from===pump.id&&e.from_port==='out').length===coilBranches.length;
+      const coilIds=new Set(coilBranches.map(e=>e.to));
+      // A pump dedicated to a WW coil cannot prove circulation in a radiator.
+      // Conversely, an individual radiator pump cannot energise a WW charger.
+      const accept=arc=>{
+        for(const vertex of [arc.from,arc.to]){
+          const id=vertex.slice(0,vertex.indexOf('::')),node=nodes.get(id);
+          if(!node)continue;
+          if(exclusiveCoil&&(node.type==='heating_circuit'||
+            node.type==='dhw_tank'&&!coilIds.has(id)))return false;
+          if(pump.type==='heating_circuit'&&
+            (node.type==='dhw_tank'||node.type==='heating_circuit'&&id!==pump.id))
+            return false;
+        }
+        return true;
+      };
+      const reachable=scan(start,forward,new Set(end),accept);
+      if(!end.some(vertex=>reachable.has(vertex)))continue;
+      const toReturn=scan(end,reverse,new Set(start),accept);
+      for(const arc of connections)
+        if(arc.edge&&accept(arc)&&reachable.has(arc.from)&&toReturn.has(arc.to))
+          active.add(arc.edge.id);
+    }
+    // A genuine volumetric reading > 0 proves flow in that particular edge
+    // only, never in its unmetered neighbours. A switch alone is not a meter.
+    for(const arc of connections){
+      if(!arc.edge?.flow_entity)continue;
+      const reading=read(arc.edge.flow_entity);
+      if(reading?.number>0)active.add(arc.edge.id);
+    }
+    return active;
   }
 
   // Evidence is a separate property of the hydraulic edge. Consumers may
