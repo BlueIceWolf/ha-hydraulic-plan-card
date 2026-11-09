@@ -285,6 +285,11 @@
     document.body.append(legacyWithTanks);legacyWithTanks.hass=hassFree;
     let importedConfig;
     legacyWithTanks.addEventListener('config-changed',e=>importedConfig=e.detail.config);
+    check(legacyWithTanks._editorState()==='classic'&&
+      !legacyWithTanks.querySelector('#hpc-free-type')&&
+      !!legacyWithTanks._switch?.querySelector('button'),
+      'A classic configuration with an empty plan offers explicit migration before editing');
+    legacyWithTanks._switch?.querySelector('button')?.click();
     const classicSelect=legacyWithTanks.querySelector('#hpc-free-type');
     if(classicSelect)classicSelect.value='oil_boiler';
     legacyWithTanks.querySelector('[data-action="add-component"]')?.click();
@@ -306,6 +311,10 @@
     legacyEditor.hass=hassFree;
     let addedConfig;
     legacyEditor.addEventListener('config-changed',e=>addedConfig=e.detail.config);
+    check(legacyEditor._editorState()==='classic'&&
+      !!legacyEditor._switch?.querySelector('button'),
+      'A classic boiler configuration remains in the original editor until migration is requested');
+    legacyEditor._switch?.querySelector('button')?.click();
     const legacySelect=legacyEditor.querySelector('#hpc-free-type');
     if(legacySelect)legacySelect.value='oil_boiler';
     legacyEditor.querySelector('button[data-action="add-component"]')?.click();

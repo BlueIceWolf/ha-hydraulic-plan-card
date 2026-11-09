@@ -60,7 +60,7 @@ const HPC_MIGRATION = (() => {
           wood_gasifier:['return_lift'],wood_chip_boiler:['eta_model','particle_separator','silo'],
           diverter:['dhw_port','dhw_state','heating_state'],
           mixer:['a_closed_state','b_closed_state','a_closed_at','b_closed_at','closed_ports'],
-          heating_circuit:['emitter','mixed'],pellet_boiler:['boiler_kind','silo'],
+          heating_circuit:['emitter','mixed','hydraulic_auto'],pellet_boiler:['boiler_kind','silo'],
           oil_boiler:['boiler_kind'],gas_boiler:['boiler_kind'],
           heat_pump:['unit_style','unit_size','source_type']}[n.type]||[];
         if(Object.keys(n.options).some(key=>!supported.includes(key)))
@@ -150,6 +150,9 @@ const HPC_MIGRATION = (() => {
     if(!config||typeof config!=='object')return {changed:false,config,warnings:['Ungültige Konfiguration.']};
     if(!classic&&!Array.isArray(config.plan?.components))
       return {changed:false,config,warnings:[]};
+    if(!classic&&!config.hpc_schema_version&&
+      config.plan.components.length===0&&config.plan.connections?.length===0)
+      return {changed:false,config,warnings:[]};
     if(!classic&&config.hpc_migration_skip_auto===true)
       return {changed:false,config,warnings:[]};
     if(!classic&&Number(config.hpc_schema_version)>VERSION)
@@ -167,7 +170,7 @@ const HPC_MIGRATION = (() => {
     const backup=config.hpc_migration_backup||snapshot;
     const notes=[...result.warnings];
     if(!classic&&config.plan.connections?.some(e=>e.to_port==='return_in'))
-      notes.push('Veraltete Puffer-Rückläufe wurden auf die linken Eingänge umgestellt.');
+      notes.push('Veraltete Puffer-Rückläufe wurden auf den rechten Verbraucheranschluss umgestellt.');
     const out={...config,plan:result.plan,hpc_schema_version:VERSION,
       hpc_legacy_imported:true,hpc_migration_backup:backup,
       hpc_migration_notes:notes,

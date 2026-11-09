@@ -6,6 +6,7 @@ test('boiler types, hydraulic states and coexistence work in browser', async ({ 
   page.on('console', message => {
     if (message.type() === 'error') browserErrors.push('console: ' + message.text());
   });
+  page.on('dialog', dialog => dialog.accept());
   await page.goto('/test/hydraulic-plan.html', { waitUntil: 'domcontentloaded' });
   const result = page.locator('#result');
   let timeoutError;

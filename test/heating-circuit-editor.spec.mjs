@@ -1,5 +1,64 @@
 import { expect, test } from '@playwright/test';
 
+test('new card stub opens the setup wizard without creating a migration backup', async ({ page }) => {
+  await page.goto('/test/hydraulic-plan.html', { waitUntil: 'domcontentloaded' });
+  const result = await page.evaluate(() => {
+    const editor = document.createElement('hydraulic-plan-card-editor');
+    editor.setConfig({
+      type: 'custom:hydraulic-plan-card',
+      preset: 'none',
+      plan: { components: [], connections: [] },
+    });
+    document.body.append(editor);
+    editor.hass = { states: {}, entities: {}, devices: {}, locale: { language: 'en' } };
+
+    const boiler = editor.querySelector('[data-setup-type="oil_boiler"]');
+    const buffer = editor.querySelector('[data-setup-type="buffer"]');
+    const circuit = editor.querySelector('[data-setup-type="heating_circuit"]');
+    boiler.checked = true;
+    boiler.dispatchEvent(new Event('change', { bubbles: true }));
+    buffer.checked = true;
+    buffer.dispatchEvent(new Event('change', { bubbles: true }));
+    circuit.checked = true;
+    circuit.dispatchEvent(new Event('change', { bubbles: true }));
+    const circuitCount = editor.querySelector('[data-setup-count="heating_circuit"]');
+    circuitCount.value = '2';
+    circuitCount.dispatchEvent(new Event('change', { bubbles: true }));
+    const initial = {
+      state: editor._editorState(),
+      wizardVisible: !!editor.querySelector('[data-action="setup-create"]'),
+      componentEditorVisible: !!editor.querySelector('#hpc-free-type'),
+      migrationBackupSaved: !!editor._config.hpc_migration_backup,
+    };
+    editor.querySelector('[data-action="setup-create"]').click();
+    const circuits = editor._config.plan.components.filter(node => node.type === 'heating_circuit');
+    return {
+      initial,
+      startedState: editor._editorState(),
+      componentEditorVisibleAfterStart: !!editor.querySelector('#hpc-free-type'),
+      schemaVersion: editor._config.hpc_schema_version,
+      components: editor._config.plan.components.map(node => node.type),
+      circuitCount: circuits.length,
+      completeCircuitEdges: editor._config.plan.connections.filter(edge =>
+        circuits.some(node => node.id === edge.to && edge.to_port === 'flow_in') ||
+        circuits.some(node => node.id === edge.from && edge.from_port === 'return_out')).length,
+    };
+  });
+
+  expect(result.initial).toEqual({
+    state: 'new',
+    wizardVisible: true,
+    componentEditorVisible: false,
+    migrationBackupSaved: false,
+  });
+  expect(result.startedState).toBe('existing');
+  expect(result.componentEditorVisibleAfterStart).toBe(true);
+  expect(result.schemaVersion).toBe(3);
+  expect(result.components).toEqual(['oil_boiler', 'buffer', 'heating_circuit', 'heating_circuit']);
+  expect(result.circuitCount).toBe(2);
+  expect(result.completeCircuitEdges).toBe(4);
+});
+
 test('new heating circuits connect safely to an unambiguous source', async ({ page }) => {
   await page.goto('/test/hydraulic-plan.html', { waitUntil: 'domcontentloaded' });
   const result = await page.evaluate(async () => {

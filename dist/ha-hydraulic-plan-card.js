@@ -7545,7 +7545,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     {type:"wood_chip_boiler",de:"ETA Hackschnitzelkessel",en:"ETA Wood-chip boiler",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","fuel_feed","ash_removal","fuel_level","particle_state","particle_voltage","particle_current","volume"],ports:["flow:R:.25","return:L:.75"]},
     {type:"gas_boiler",de:"Gaskessel",en:"Gas boiler",group:"source",fields:["state","flow","return","power","pump","volume"],ports:["flow:R:.25","return:L:.75"]},
     {type:"heat_pump",de:"Wärmepumpe",en:"Heat pump",group:"source",fields:["state","flow","return","power","pump","volume"],ports:["flow:R:.25","return:L:.75"]},
-    {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:R:.8","return_in:L:.8","bottom_out:R:.8"]},
+    {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:R:.8","return_in:L:.8","bottom_out:L:.8"]},
     {type:"dhw_tank",de:"Warmwasserspeicher",en:"Hot-water tank",group:"storage",fields:["top","middle","bottom"],ports:["coil_in:L:.28","coil_out:L:.74","hot_out:R:.24","cold_in:R:.78"]},
     {type:"heating_circuit",de:"Heizkreis (gemischt/ungemischt)",en:"Heating circuit",group:"load",fields:["flow","return","target","pump","volume","mixer","mixer_opening","mixer_closing"],ports:["flow_in:L:.25","return_out:L:.75"]},
     {type:"pump",de:"Umwälzpumpe",en:"Circulation pump",group:"control",fields:["state","power","volume"],ports:["in:L:.5","out:R:.5"]},
@@ -8192,7 +8192,12 @@ const HPC_FREE = (function makeFreeHelpers() {
     ${routes}${svgNodes}
   </svg>`;
 }
-  const css="\n  :host { display:block; --hpc-muted: var(--secondary-text-color, #7b8798); }\n  ha-card { background:var(--ha-card-background,var(--card-background-color,#fff)); padding:14px;overflow:hidden; }\n  .hpc-board {width:100%;overflow:auto;overscroll-behavior:contain;border-radius:12px;\n    border:1px solid var(--divider-color,rgba(110,125,145,.22));\n    background:var(--card-background-color,rgba(0,0,0,.02));}\n  #hpc-free-svg{min-width:650px;display:block;width:100%;height:auto;max-height:72vh;}\n  .hpc-appliance .hpc-unit-border{fill:var(--secondary-background-color,rgba(126,144,160,.1));\n    stroke:var(--divider-color,#9ca3af);stroke-width:2.3;}\n  .hpc-appliance.is-on .hpc-unit-border{stroke:var(--hfc-heat,#ca793e);}\n  .hpc-node.is-selected .hpc-unit-border,.hpc-node.is-selected .hpc-tank-shadow{\n    stroke:var(--primary-color,#2196f3);stroke-width:4;}\n  .hpc-unit-border,.hpc-tank-shadow,.hpc-tank-main{filter:drop-shadow(0 2px 3px rgba(0,0,0,.08))}\n  .hpc-component-icon{stroke:var(--hpc-muted);fill:none;stroke-width:2.8}\n  .hpc-component-icon.is-on{stroke:var(--hfc-hot,#b35b38)}\n  .hpc-component-icon circle,.hpc-component-icon rect{fill:var(--card-background-color,#fff)}\n  .hpc-node{cursor:pointer}.hpc-node:hover .hpc-unit-border{stroke:var(--primary-color,#2196f3)}\n  .hpc-label{font:600 16px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-name{font-size:15px}\n  .hpc-reading{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-reading{font:600 12px var(--ha-font-family-body,system-ui,sans-serif);\n    fill:#fff;stroke:rgba(29,46,62,.85);paint-order:stroke fill;stroke-width:3px;}\n  .hpc-detail{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--secondary-text-color,#7d8590);}\n  .hpc-tank-shadow{fill:var(--card-background-color,#fff);stroke:var(--divider-color,#8e9bab);stroke-width:2.4;}\n  .hpc-tank-main{stroke:var(--divider-color,rgba(70,90,110,.6));stroke-width:1.3}\n  .hpc-tank-shine{fill:none;stroke:rgba(255,255,255,.28);stroke-width:6;stroke-linecap:round}\n  .hpc-tank-tick{fill:none;stroke:rgba(255,255,255,.50);stroke-width:1.1;}\n  .hpc-port{fill:var(--card-background-color,#fff);stroke:var(--hfc-flow-hot,#ad584b);stroke-width:2}\n  .hpc-route{pointer-events:none;}\n  .hpc-pipe-outline{fill:none;stroke:var(--divider-color,rgba(110,125,145,.5));\n    stroke-width:13;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-pipe{fill:none;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-arrow{fill:var(--primary-text-color,#516274);}\n  .hpc-pulse{fill:none;stroke:rgba(255,255,255,.9);stroke-width:3;stroke-dasharray:5 13;\n    animation:hpc-motion 1.35s linear infinite;}\n  @keyframes hpc-motion{to{stroke-dashoffset:-36}}\n  @media(prefers-reduced-motion:reduce){.hpc-pulse{animation:none;}}\n  .hpc-note{font-size:.82em;color:var(--secondary-text-color,#7d8590);margin:10px 3px 4px;}\n  .hpc-editor{font-family:var(--ha-font-family-body,inherit);color:var(--primary-text-color,inherit);}\n  .hpc-editor h3{font-size:1.02em;font-weight:600;margin:18px 0 9px;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding-bottom:6px}\n  .hpc-editor p{font-size:.88em;line-height:1.5;color:var(--secondary-text-color,#7d8590)}\n  .hpc-actions,.hpc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:9px 0}\n  .hpc-editor button,.hpc-editor select,.hpc-editor input{\n    box-sizing:border-box;font:inherit;border-radius:10px;\n    border:1px solid var(--divider-color,rgba(127,127,127,.34));\n    padding:10px 12px;color:var(--primary-text-color,inherit);\n    background:var(--card-background-color,#fff);max-width:100%;min-width:0}\n  .hpc-editor input:focus,.hpc-editor select:focus{outline:2px solid var(--primary-color,#03a9f4);outline-offset:1px}\n  .hpc-editor button{cursor:pointer;font-weight:500}\n  .hpc-editor button:hover{background:var(--secondary-background-color,rgba(127,127,127,.12))}\n  .hpc-editor button.hpc-primary{background:var(--primary-color,#03a9f4);color:#fff;border:0;}\n  .hpc-editor label{display:flex;flex-direction:column;gap:5px;font-size:.86em;font-weight:500;flex:1 1 170px;}\n  .hpc-editor .hpc-checkbox{display:flex;flex-direction:row;align-items:center;gap:11px;flex:1 1 100%;cursor:pointer;padding:11px 12px;border:1px solid var(--divider-color,rgba(127,127,127,.32));border-radius:10px;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-editor .hpc-checkbox input{width:19px;height:19px;margin:0;flex:0 0 auto;accent-color:var(--primary-color,#03a9f4);}\n  .hpc-editor .hpc-field{margin:6px 0;}\n  .hpc-editor .hpc-component-list{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}\n  .hpc-editor .hpc-pictogram{width:29px;height:29px;flex:none;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-add-preview{display:flex;align-items:center;justify-content:center;min-width:46px;min-height:46px;border-radius:12px;background:var(--secondary-background-color,rgba(127,127,127,.09))}\n  .hpc-editor .hpc-add-preview .hpc-pictogram{width:34px;height:34px;color:var(--primary-color,#03a9f4)}\n  .hpc-editor .hpc-config-title{display:flex;align-items:center;gap:9px}\n  .hpc-editor .hpc-config-title .hpc-pictogram{width:25px;height:25px}\n  .hpc-editor .hpc-component-list button{display:inline-flex;align-items:center;gap:8px;text-align:left}\n  .hpc-editor .hpc-component-list button span{display:flex;flex-direction:column;line-height:1.3;min-width:0;max-width:180px}\n  .hpc-editor .hpc-component-list button{max-width:100%;min-width:0}\n  .hpc-editor .hpc-component-list button .hpc-item-name,.hpc-editor .hpc-component-list button small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}\n  .hpc-editor .hpc-component-list button .hpc-item-name{font-weight:600}\n  .hpc-editor .hpc-ems strong{overflow-wrap:anywhere}\n  .hpc-editor .hpc-component-list button small{font-size:.75em;font-weight:400;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-native-form{margin:8px 0 16px;--ha-form-grid-column-min-width:220px}\n  .hpc-editor .hpc-native-form ha-form{display:block}\n  .hpc-ems{border:1px solid var(--primary-color,#03a9f4);border-radius:12px;padding:8px 14px 14px;margin:14px 0;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-ems h3{margin-top:5px;}\n  .hpc-connection-warning{color:var(--error-color,#e16a42)!important;font-weight:600;}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-quick-connect{margin:8px 0 4px}\n  .hpc-editor .hpc-quick-connect label{flex:1 1 260px}\n  .hpc-editor .hpc-connection-hint{margin:4px 0 14px;font-size:.82em}\n  .hpc-editor details summary{cursor:pointer;font-weight:600;padding:8px 2px}\n  .hpc-editor .hpc-advanced-pipes{border-top:1px solid var(--divider-color,rgba(127,127,127,.16));margin:13px 0}\n  .hpc-editor .hpc-pipe-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding:9px 0}\n  .hpc-editor .hpc-pipe-row>span{display:flex;flex:1 1 230px;flex-direction:column;font-weight:500;font-size:.9em;line-height:1.4}\n  .hpc-editor .hpc-pipe-row small{font-weight:400;font-size:.87em;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-pipe-row details{flex:1 1 100%;font-size:.85em}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
+  const css="\n  :host { display:block; --hpc-muted: var(--secondary-text-color, #7b8798); }\n  ha-card { background:var(--ha-card-background,var(--card-background-color,#fff)); padding:14px;overflow:hidden; }\n  .hpc-board {width:100%;overflow:auto;overscroll-behavior:contain;border-radius:12px;\n    border:1px solid var(--divider-color,rgba(110,125,145,.22));\n    background:var(--card-background-color,rgba(0,0,0,.02));}\n  #hpc-free-svg{min-width:650px;display:block;width:100%;height:auto;max-height:72vh;}\n  .hpc-appliance .hpc-unit-border{fill:var(--secondary-background-color,rgba(126,144,160,.1));\n    stroke:var(--divider-color,#9ca3af);stroke-width:2.3;}\n  .hpc-appliance.is-on .hpc-unit-border{stroke:var(--hfc-heat,#ca793e);}\n  .hpc-node.is-selected .hpc-unit-border,.hpc-node.is-selected .hpc-tank-shadow{\n    stroke:var(--primary-color,#2196f3);stroke-width:4;}\n  .hpc-unit-border,.hpc-tank-shadow,.hpc-tank-main{filter:drop-shadow(0 2px 3px rgba(0,0,0,.08))}\n  .hpc-component-icon{stroke:var(--hpc-muted);fill:none;stroke-width:2.8}\n  .hpc-component-icon.is-on{stroke:var(--hfc-hot,#b35b38)}\n  .hpc-component-icon circle,.hpc-component-icon rect{fill:var(--card-background-color,#fff)}\n  .hpc-node{cursor:pointer}.hpc-node:hover .hpc-unit-border{stroke:var(--primary-color,#2196f3)}\n  .hpc-label{font:600 16px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-name{font-size:15px}\n  .hpc-reading{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-reading{font:600 12px var(--ha-font-family-body,system-ui,sans-serif);\n    fill:#fff;stroke:rgba(29,46,62,.85);paint-order:stroke fill;stroke-width:3px;}\n  .hpc-detail{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--secondary-text-color,#7d8590);}\n  .hpc-tank-shadow{fill:var(--card-background-color,#fff);stroke:var(--divider-color,#8e9bab);stroke-width:2.4;}\n  .hpc-tank-main{stroke:var(--divider-color,rgba(70,90,110,.6));stroke-width:1.3}\n  .hpc-tank-shine{fill:none;stroke:rgba(255,255,255,.28);stroke-width:6;stroke-linecap:round}\n  .hpc-tank-tick{fill:none;stroke:rgba(255,255,255,.50);stroke-width:1.1;}\n  .hpc-port{fill:var(--card-background-color,#fff);stroke:var(--hfc-flow-hot,#ad584b);stroke-width:2}\n  .hpc-route{pointer-events:none;}\n  .hpc-pipe-outline{fill:none;stroke:var(--divider-color,rgba(110,125,145,.5));\n    stroke-width:13;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-pipe{fill:none;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-arrow{fill:var(--primary-text-color,#516274);}\n  .hpc-pulse{fill:none;stroke:rgba(255,255,255,.9);stroke-width:3;stroke-dasharray:5 13;\n    animation:hpc-motion 1.35s linear infinite;}\n  @keyframes hpc-motion{to{stroke-dashoffset:-36}}\n  @media(prefers-reduced-motion:reduce){.hpc-pulse{animation:none;}}\n  .hpc-note{font-size:.82em;color:var(--secondary-text-color,#7d8590);margin:10px 3px 4px;}\n  .hpc-editor{font-family:var(--ha-font-family-body,inherit);color:var(--primary-text-color,inherit);}\n  .hpc-editor h3{font-size:1.02em;font-weight:600;margin:18px 0 9px;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding-bottom:6px}\n  .hpc-editor p{font-size:.88em;line-height:1.5;color:var(--secondary-text-color,#7d8590)}\n  .hpc-actions,.hpc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:9px 0}\n  .hpc-editor button,.hpc-editor select,.hpc-editor input{\n    box-sizing:border-box;font:inherit;border-radius:10px;\n    border:1px solid var(--divider-color,rgba(127,127,127,.34));\n    padding:10px 12px;color:var(--primary-text-color,inherit);\n    background:var(--card-background-color,#fff);max-width:100%;min-width:0}\n  .hpc-editor input:focus,.hpc-editor select:focus{outline:2px solid var(--primary-color,#03a9f4);outline-offset:1px}\n  .hpc-editor button{cursor:pointer;font-weight:500}\n  .hpc-editor button:hover{background:var(--secondary-background-color,rgba(127,127,127,.12))}\n  .hpc-editor button.hpc-primary{background:var(--primary-color,#03a9f4);color:#fff;border:0;}\n  .hpc-editor label{display:flex;flex-direction:column;gap:5px;font-size:.86em;font-weight:500;flex:1 1 170px;}\n  .hpc-editor .hpc-checkbox{display:flex;flex-direction:row;align-items:center;gap:11px;flex:1 1 100%;cursor:pointer;padding:11px 12px;border:1px solid var(--divider-color,rgba(127,127,127,.32));border-radius:10px;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-editor .hpc-checkbox input{width:19px;height:19px;margin:0;flex:0 0 auto;accent-color:var(--primary-color,#03a9f4);}\n  .hpc-editor .hpc-field{margin:6px 0;}\n  .hpc-editor .hpc-component-list{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}\n  .hpc-editor .hpc-pictogram{width:29px;height:29px;flex:none;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-add-preview{display:flex;align-items:center;justify-content:center;min-width:46px;min-height:46px;border-radius:12px;background:var(--secondary-background-color,rgba(127,127,127,.09))}\n  .hpc-editor .hpc-add-preview .hpc-pictogram{width:34px;height:34px;color:var(--primary-color,#03a9f4)}\n  .hpc-editor .hpc-config-title{display:flex;align-items:center;gap:9px}\n  .hpc-editor .hpc-config-title .hpc-pictogram{width:25px;height:25px}\n  .hpc-editor .hpc-component-list button{display:inline-flex;align-items:center;gap:8px;text-align:left}\n  .hpc-editor .hpc-component-list button span{display:flex;flex-direction:column;line-height:1.3;min-width:0;max-width:180px}\n  .hpc-editor .hpc-component-list button{max-width:100%;min-width:0}\n  .hpc-editor .hpc-component-list button .hpc-item-name,.hpc-editor .hpc-component-list button small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}\n  .hpc-editor .hpc-component-list button .hpc-item-name{font-weight:600}\n  .hpc-editor .hpc-ems strong{overflow-wrap:anywhere}\n  .hpc-editor .hpc-component-list button small{font-size:.75em;font-weight:400;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-native-form{margin:8px 0 16px;--ha-form-grid-column-min-width:220px}\n    .hpc-editor .hpc-native-form ha-form{display:block}\n\
+  .hpc-editor .hpc-setup-group{border:1px solid var(--divider-color,rgba(127,127,127,.24));border-radius:12px;padding:8px 12px;margin:12px 0}\n\
+  .hpc-editor .hpc-setup-group legend{font-weight:600;padding:0 6px}\n\
+  .hpc-editor .hpc-setup-group .hpc-checkbox{margin:5px 0}\n\
+  .hpc-editor .hpc-setup-group .hpc-checkbox span{flex:1}\n\
+  .hpc-editor .hpc-setup-group .hpc-checkbox input[type=number]{width:76px}\n  .hpc-ems{border:1px solid var(--primary-color,#03a9f4);border-radius:12px;padding:8px 14px 14px;margin:14px 0;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-ems h3{margin-top:5px;}\n  .hpc-connection-warning{color:var(--error-color,#e16a42)!important;font-weight:600;}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-quick-connect{margin:8px 0 4px}\n  .hpc-editor .hpc-quick-connect label{flex:1 1 260px}\n  .hpc-editor .hpc-connection-hint{margin:4px 0 14px;font-size:.82em}\n  .hpc-editor details summary{cursor:pointer;font-weight:600;padding:8px 2px}\n  .hpc-editor .hpc-advanced-pipes{border-top:1px solid var(--divider-color,rgba(127,127,127,.16));margin:13px 0}\n  .hpc-editor .hpc-pipe-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding:9px 0}\n  .hpc-editor .hpc-pipe-row>span{display:flex;flex:1 1 230px;flex-direction:column;font-weight:500;font-size:.9em;line-height:1.4}\n  .hpc-editor .hpc-pipe-row small{font-weight:400;font-size:.87em;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-pipe-row details{flex:1 1 100%;font-size:.85em}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
   return {types,byType,ports,portRole,validConnection,connectPair,connectHeatingCircuit,
     preferredHeatingBuffer,connectDhwCharge,connectionPairs,connectBufferSeries,
     connectBuffersParallel,dimension,display,fieldLabel,icon,esc,normalize,newNode,
@@ -8264,7 +8269,7 @@ const HPC_MIGRATION = (() => {
           wood_gasifier:['return_lift'],wood_chip_boiler:['eta_model','particle_separator','silo'],
           diverter:['dhw_port','dhw_state','heating_state'],
           mixer:['a_closed_state','b_closed_state','a_closed_at','b_closed_at','closed_ports'],
-          heating_circuit:['emitter','mixed'],pellet_boiler:['boiler_kind','silo'],
+          heating_circuit:['emitter','mixed','hydraulic_auto'],pellet_boiler:['boiler_kind','silo'],
           oil_boiler:['boiler_kind'],gas_boiler:['boiler_kind'],
           heat_pump:['unit_style','unit_size','source_type']}[n.type]||[];
         if(Object.keys(n.options).some(key=>!supported.includes(key)))
@@ -8354,6 +8359,9 @@ const HPC_MIGRATION = (() => {
     if(!config||typeof config!=='object')return {changed:false,config,warnings:['Ungültige Konfiguration.']};
     if(!classic&&!Array.isArray(config.plan?.components))
       return {changed:false,config,warnings:[]};
+    if(!classic&&!config.hpc_schema_version&&
+      config.plan.components.length===0&&config.plan.connections?.length===0)
+      return {changed:false,config,warnings:[]};
     if(!classic&&config.hpc_migration_skip_auto===true)
       return {changed:false,config,warnings:[]};
     if(!classic&&Number(config.hpc_schema_version)>VERSION)
@@ -8371,7 +8379,7 @@ const HPC_MIGRATION = (() => {
     const backup=config.hpc_migration_backup||snapshot;
     const notes=[...result.warnings];
     if(!classic&&config.plan.connections?.some(e=>e.to_port==='return_in'))
-      notes.push('Veraltete Puffer-Rückläufe wurden auf die linken Eingänge umgestellt.');
+      notes.push('Veraltete Puffer-Rückläufe wurden auf den rechten Verbraucheranschluss umgestellt.');
     const out={...config,plan:result.plan,hpc_schema_version:VERSION,
       hpc_legacy_imported:true,hpc_migration_backup:backup,
       hpc_migration_notes:notes,
@@ -8759,6 +8767,19 @@ const HPC_NETWORK = (() => {
   // Routes without obstructions retain their original geometry and proportions.
   function avoidComponents(original,p,q,fromSide,toSide,obstacles,fromId,toId,pipeObstacles=[]) {
     const blockers=obstacles.map(box=>({...box,endpoint:box.id===fromId||box.id===toId}));
+    const facing=(fromSide==='R'&&toSide==='L'&&q.x>=p.x)||
+      (fromSide==='L'&&toSide==='R'&&q.x<=p.x);
+    const portGap=Math.abs(q.x-p.x);
+    const fromBox=blockers.find(box=>box.id===fromId);
+    const toBox=blockers.find(box=>box.id===toId);
+    const inset=(point,side,box)=>!box?0:side==='L'
+      ?Math.max(0,point.x-box.x):Math.max(0,box.x+box.w-point.x);
+    const fromInset=inset(p,fromSide,fromBox),toInset=inset(q,toSide,toBox);
+    const available=portGap-fromInset-toInset;
+    const fromStub=facing&&available>6
+      ?Math.min(18,Math.max(fromInset+1,available/3)):18;
+    const toStub=facing&&available>6
+      ?Math.min(18,Math.max(toInset+1,available/3)):18;
     const pieces=d=>{
       const tokens=(d||'').match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
       const segments=[];let x=0,y=0;
@@ -8800,9 +8821,8 @@ const HPC_NETWORK = (() => {
         overlapsPipe(segment));
     };
     if(!crosses(original))return original;
-    const stub=18;
-    const a={x:p.x+(fromSide==='L'?-stub:stub),y:p.y};
-    const b={x:q.x+(toSide==='L'?-stub:stub),y:q.y};
+    const a={x:p.x+(fromSide==='L'?-fromStub:fromStub),y:p.y};
+    const b={x:q.x+(toSide==='L'?-toStub:toStub),y:q.y};
     const minX=Math.min(a.x,b.x,...blockers.map(box=>box.x),
       ...pipeObstacles.flatMap(pipe=>[Math.min(pipe.x,pipe.nx)]))-60;
     const maxX=Math.max(a.x,b.x,...blockers.map(box=>box.x+box.w),
@@ -8884,7 +8904,9 @@ const HPC_NETWORK = (() => {
         scores[next]=cost;previous[next]=state;push(next,cost);
       }
     }
-    if(finish<0)throw new Error('No collision-free orthogonal route for '+fromId+' → '+toId);
+    if(finish<0)throw new Error('No collision-free orthogonal route for '+fromId+' → '+toId+
+      ' from '+JSON.stringify(p)+' to '+JSON.stringify(q)+
+      ' (sides '+fromSide+'/'+toSide+')');
     const path=[];
     for(let state=finish;state>=0;state=previous[state]){
       const node=Math.floor(state/2),xi=Math.floor(node/ys.length),yi=node%ys.length;
@@ -8911,10 +8933,8 @@ const HPC_NETWORK = (() => {
       routed+=' '+(from.x===to.x?'V'+to.y:'H'+to.x);
     }
     if(crosses(routed))
-      throw new Error('Orthogonal route still intersects a component for '+fromId+' → '+toId+
-        ': '+routed+' '+JSON.stringify(blockers.filter(box=>
-          pieces(routed).some((segment,index)=>!(box.endpoint&&
-            (index===0||index===pieces(routed).length-1))&&segmentCrosses(segment,box)))));
+      throw new Error('Orthogonal route intersects an obstacle for '+fromId+' → '+toId+
+        ': '+routed);
     return routed;
   }
 
@@ -9022,8 +9042,9 @@ const HPC_NETWORK = (() => {
       edge.from_port === 'top_out' && edge.to_port === 'in';
     if (bufferCoilReturn && !returnTee) {
       const below = Math.max(toShape.y + toShape.h + 32, fromShape.y + fromShape.h + 34);
+      const returnLaneX=q.x+(toSide==='R'?35:-35);
       d = 'M' + h(p.x, p.y) + ' H' + (p.x - 70) + ' V' + below +
-        ' H' + (q.x - 35) + ' V' + q.y + ' H' + q.x;
+        ' H' + returnLaneX + ' V' + q.y + ' H' + q.x;
     } else if (bufferCoilSupply && !supplyTee) {
       const laneX = Math.min(q.x - 30, p.x + 35);
       d = 'M' + h(p.x, p.y) + ' H' + laneX + ' V' + q.y + ' H' + q.x;
@@ -9256,12 +9277,40 @@ const HPC_INTEGRATED = (() => {
           // Pick a distinct piece of the actual charging supply for each
           // tank. This also avoids placing two loading-pump icons on top of
           // each other when a buffer has multiple DHW charging branches.
-          const laneX=tankBox.x-70;
+          const laneX=Math.max(tankBox.x-70,
+            bufferFedTanks.has(tank.id)?lastBufferRight+32:0);
           // Charge from the unobstructed shoulder just above each tank,
           // instead of sending the loading pump through the original
           // radiator/mixer column at y=330..470.
-          const laneY=bufferFedTanks.has(tank.id)
+          const preferredLaneY=bufferFedTanks.has(tank.id)
             ?Math.max(50,tankBox.y-70):tankBox.y+20;
+          const occupied=[...anchored,...points];
+          const returnLanes=extraDhw.filter(candidate=>
+            candidate.id!==tank.id&&bufferFedTanks.has(candidate.id))
+            .map(candidate=>points.get(candidate.id).y+175);
+          const laneIsClear=laneY=>{
+            const pump={x:laneX,y:laneY,w:40,h:40};
+            const supplyY=laneY+20;
+            if(returnLanes.some(y=>laneY<=y+9&&laneY+40>=y-9))return false;
+            const input={x:laneX,y:supplyY};
+            return occupied.every(([,box])=>{
+              const overlaps=pump.x<box.x+box.w&&pump.x+pump.w>box.x&&
+                pump.y<box.y+box.h&&pump.y+pump.h>box.y;
+              const inputBlocked=input.x>box.x-9&&input.x<box.x+box.w+9&&
+                input.y>box.y-9&&input.y<box.y+box.h+9;
+              return !overlaps&&!inputBlocked;
+            });
+          };
+          const maxOffset=Math.max(1000,...occupied.map(([,box])=>box.y+box.h));
+          let laneY=laneIsClear(preferredLaneY)?preferredLaneY:undefined;
+          for(let offset=20;laneY===undefined&&offset<=maxOffset;offset+=20){
+            const lower=preferredLaneY+offset;
+            const upper=preferredLaneY-offset;
+            if(laneIsClear(lower))laneY=lower;
+            else if(upper>=0&&laneIsClear(upper))laneY=upper;
+          }
+          if(laneY===undefined)
+            throw new Error('No collision-free loading-pump position for '+node.id);
           points.set(node.id,{x:laneX,y:laneY,w:40,h:40,type:node.type,inline:true});
           return;
         }
@@ -10619,9 +10668,24 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     }
   }
   class HydraulicPlanCardEditor extends HeatpumpFlowCardEditor {
-    _free(){return Array.isArray(this._config?.plan?.components);}
-    _unconfigured(){return !this._free()&&this._config?.editor_mode!=="classic"&&(!this._config?.preset||this._config.preset==="none")&&
-      !Object.values(this._config?.entities||{}).some(Boolean);}
+    _editorState(config=this._config){
+      const current=config||{};
+      if(current.editor_mode==="classic")return "classic";
+      const hasClassicConfig=Object.values(current.entities||{}).some(Boolean)||
+        ["preset","generator_type","boiler_type","boiler_name","hc_count","buffer"]
+          .some(key=>Object.hasOwn(current,key)&&
+            !(key==="preset"&&current[key]==="none"));
+      if(Array.isArray(current.plan?.components)){
+        if(HPC_MIGRATION.check(current.plan).length||
+          Number(current.hpc_schema_version)>HPC_MIGRATION.VERSION)return "incomplete";
+        if(current.plan.components.length||
+          Number(current.hpc_schema_version)>=HPC_MIGRATION.VERSION||
+          current.hpc_legacy_imported===true||current.hpc_migration_backup)return "existing";
+        if(hasClassicConfig)return "classic";
+        return "new";
+      }
+      return hasClassicConfig?"classic":"new";
+    }
     setConfig(config){
       // Home Assistant can call setConfig repeatedly (including for our own config-changed
       // event). Redrawing on an equivalent config destroys focused text inputs and selects.
@@ -10638,7 +10702,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           detail:{config:newConfig},bubbles:true,composed:true
         }));
       }
-      if(this._free()||this._unconfigured()){
+      if(this._editorState()!=="classic"){
         if(changed || !this._freeUi?.isConnected)this._renderFlex();
       } else {
         this._freeUi?.remove();this._freeUi=null;
@@ -10652,7 +10716,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       if(this._nativeSensorForm?.isConnected)this._nativeSensorForm.hass=hass;
       // Live HA data changes frequently. Never replace the whole configuration form;
       // this would interrupt typing, select popovers and drag operations.
-      if(this._free()||this._unconfigured()){
+      if(this._editorState()!=="classic"){
         const candidateSignature=JSON.stringify({ems:HPC_EMS.detect(hass).map(x=>[x.id,x.type,x.count,Object.values(x.entities)]),emsCircuits:HPC_EMS.detectCircuits(hass).map(x=>[x.id,x.count,Object.values(x.entities)]),emsDhw:HPC_EMS.detectDhw(hass).map(x=>[x.id,x.count,Object.values(x.entities)]),eta:HPC_ETA.detect(hass).map(x=>[x.id,x.model,x.count,Object.values(x.entities)])});
         if(first||!this._freeUi?.isConnected||candidateSignature!==this._emsSignature){
           this._emsSignature=candidateSignature;
@@ -10663,7 +10727,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       super.hass=hass;this._showFreeButton();
     }
     _render(){
-      if(this._free()||this._unconfigured())this._renderFlex();
+      if(this._editorState()!=="classic")this._renderFlex();
       else {this._freeUi?.remove();this._freeUi=null;super._render();this._showFreeButton();}
     }
     _save(config,{repaint=true}={}){
@@ -10698,7 +10762,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       return HPC_MIGRATION.legacyPlan(this._config).plan;
     }
     _showFreeButton(){
-      if(!this._config||!this._hass||this._free())return;
+      if(!this._config||!this._hass||this._editorState()!=="classic")return;
       if(this._switch?.isConnected)return;
       this._switch=document.createElement("div");
       this._switch.innerHTML=`<style>${HPC_FREE.css}</style><div class="hpc-editor hpc-actions"><button type="button" class="hpc-primary">Bauteile im vorhandenen Hydraulikplan ergänzen</button></div>`;
@@ -10727,7 +10791,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const p=HPC_FREE.normalize(this._config.plan);
       const migrationNotes=[...(this._config.hpc_migration_notes||[]),
         ...(this._migrationWarnings||[])];
-      const configured=true;
+      const configured=this._editorState()!=="new";
       const emsCandidates=HPC_EMS.detect(this._hass);
       const emsCircuitCandidates=HPC_EMS.detectCircuits(this._hass);
       const emsDhwCandidates=HPC_EMS.detectDhw(this._hass);
@@ -11082,10 +11146,32 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             +connectionField(edge,'temperature_entity',t('Rohrtemperatur','Pipe temperature'))
             +'</div></details></div>';
       }).join("");
+      const setupGroups=categories.map(([group,label])=>`<fieldset class="hpc-setup-group">
+        <legend>${esc(label)}</legend>
+        ${HPC_FREE.types.filter(c=>c.group===group&&c.type!=='particle_separator')
+          .map(c=>`<label class="hpc-checkbox"><input type="checkbox" value="${esc(c.type)}" data-setup-type="${esc(c.type)}"/>
+            <span>${esc(HPC_FREE.display(c.type,lang))}</span>
+            <input type="number" min="1" max="${c.type==='heating_circuit'?6:20}" value="1"
+              data-setup-count="${esc(c.type)}" aria-label="${esc(t('Anzahl','Quantity'))} ${esc(HPC_FREE.display(c.type,lang))}" hidden/>
+          </label>`).join("")}
+      </fieldset>`).join("");
       const html=`<style>${HPC_FREE.css}</style><div class="hpc-editor">
-        ${!configured?`<h3>${t("Deine Heizungsanlage","Your heating system")}</h3>
-          <p>${t("Wähle selbst, welche Wärmeerzeuger, Speicher und Heizkreise du hast und wie sie verbunden sind. Eine Wärmepumpe ist nicht erforderlich.","Choose your own heat generators, tanks, heating circuits and connections. No heat-pump integration required.")}</p>
-          <div class="hpc-actions"><button type="button" class="hpc-primary" data-action="start">${t("Leeren Plan anlegen","Start blank plan")}</button>
+        ${!configured?`<h3>${t("Welche Komponenten hat deine Heizungsanlage?","What components are in your heating system?")}</h3>
+          <p>${t("Wähle deine Wärmeerzeuger, Speicher und Wärmeverbraucher. Mehrere Komponenten sind möglich; eine Wärmepumpe ist nicht erforderlich.","Select your heat sources, tanks and consumers. You can choose multiple components; no heat-pump integration is required.")}</p>
+          ${emsInfo}
+          ${emsCircuitInfo}
+          ${emsDhwInfo}
+          ${etaInfo}
+          ${etaPartInfo}
+          ${chosenEta||chosenEtaPart?`<div class="hpc-actions"><button type="button" class="hpc-primary" data-action="eta-scan-all">${t("ETA-Anlage automatisch erkennen","Detect ETA system automatically")}</button></div>`:""}
+          ${setupGroups}
+          <div class="hpc-row" data-setup-buffer-mode hidden><label>${t("Mehrere Pufferspeicher verbinden","Connect multiple buffer tanks")}
+            <select data-setup-buffer-topology>
+              <option value="series">${t("In Reihe","In series")}</option>
+              <option value="parallel">${t("Parallel","In parallel")}</option>
+            </select></label>
+          </div>
+          <div class="hpc-actions"><button type="button" class="hpc-primary" data-action="setup-create" disabled>${t("Hydraulikplan erstellen","Create hydraulic plan")}</button>
             <button type="button" data-action="example">${t("Beispiel: Elternanlage","Example: parents' system")}</button></div>`:`
           ${useNativeForm?'<ha-form id="hpc-native-settings"></ha-form>':
              `<div class="hpc-row"><label>${t("Name der Anlage","System name")}<input id="hpc-free-title"
@@ -11269,6 +11355,27 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const box=root.querySelector('#hpc-free-icon');
         if(box)box.innerHTML=HPC_FREE.icon(typePicker.value);
       });
+      const setupSelectionChanged=()=>{
+        let selectedCount=0,bufferCount=0;
+        root.querySelectorAll('[data-setup-type]').forEach(input=>{
+          const countInput=root.querySelector(`[data-setup-count="${CSS.escape(input.value)}"]`);
+          if(countInput)countInput.hidden=!input.checked;
+          if(!input.checked)return;
+          const count=Math.max(1,Math.min(Number(countInput?.max)||20,
+            Math.round(Number(countInput?.value)||1)));
+          selectedCount+=count;
+          if(input.value==='buffer')bufferCount=count;
+        });
+        const create=root.querySelector('[data-action="setup-create"]');
+        if(create)create.disabled=selectedCount===0;
+        const bufferMode=root.querySelector('[data-setup-buffer-mode]');
+        if(bufferMode)bufferMode.hidden=bufferCount<2;
+      };
+      root.querySelectorAll('[data-setup-type]').forEach(input=>
+        input.addEventListener('change',setupSelectionChanged));
+      root.querySelectorAll('[data-setup-count]').forEach(input=>
+        input.addEventListener('change',setupSelectionChanged));
+      setupSelectionChanged();
       root.querySelectorAll('ha-entity-picker[data-edge]').forEach(picker=>{
         const edge=p.connections.find(c=>c.id===picker.dataset.edge);
         picker.hass=this._hass;
@@ -11484,6 +11591,52 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           return this._applyPlan(copy,{hpc_legacy_imported:true});
         }
         if(action==="start")return this._applyPlan({components:[],connections:[]});
+        if(action==="setup-create"){
+          const selections=[...root.querySelectorAll('[data-setup-type]:checked')];
+          const next=HPC_FREE.normalize(p);
+          let last=null;
+          for(const input of selections){
+            const countInput=root.querySelector(`[data-setup-count="${CSS.escape(input.value)}"]`);
+            const max=Number(countInput?.max)||20;
+            const count=Math.max(1,Math.min(max,
+              Math.round(Number(countInput?.value)||1)));
+            for(let index=0;index<count;index++){
+              const node=HPC_FREE.newNode(input.value,next);
+              if(!node)continue;
+              next.components.push(node);
+              last=node;
+            }
+          }
+          if(!last)return;
+          this._selectedId=last.id;
+          const sources=next.components.filter(node=>
+            HPC_FREE.byType[node.type]?.group==='source');
+          const buffers=next.components.filter(node=>node.type==='buffer');
+          if(sources.length===1&&buffers.length===1)
+            Object.assign(next,HPC_FREE.connectPair(next,sources[0].id,buffers[0].id));
+          if(buffers.length>1){
+            const topology=root.querySelector('[data-setup-buffer-topology]')?.value;
+            if(topology==='series'){
+              if(sources.length===1)
+                Object.assign(next,HPC_FREE.connectPair(next,sources[0].id,buffers[0].id));
+              Object.assign(next,HPC_FREE.connectBufferSeries(next));
+            }
+            else if(topology==='parallel'&&sources.length===1){
+              const parallel=HPC_FREE.connectBuffersParallel(next,sources[0].id);
+              if(parallel)Object.assign(next,parallel);
+            }
+          }
+          const buffer=HPC_FREE.preferredHeatingBuffer(next);
+          if(buffer){
+            for(const circuit of next.components.filter(node=>node.type==='heating_circuit'))
+              Object.assign(next,HPC_FREE.connectHeatingCircuit(next,circuit.id,buffer)||next);
+          }
+          if(!buffers.length&&sources.length===1){
+            const tanks=next.components.filter(node=>node.type==='dhw_tank');
+            if(tanks.length===1)Object.assign(next,HPC_FREE.connectPair(next,sources[0].id,tanks[0].id));
+          }
+          return this._applyPlan(next);
+        }
         if(action==="example"){
           if(p.components.length&&!window.confirm(
             t("Beispielanlage laden? Die aktuelle Konfiguration wird ersetzt.","Load example? This replaces the current configuration.")))return;

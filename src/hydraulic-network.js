@@ -370,6 +370,19 @@ const HPC_NETWORK = (() => {
   // Routes without obstructions retain their original geometry and proportions.
   function avoidComponents(original,p,q,fromSide,toSide,obstacles,fromId,toId,pipeObstacles=[]) {
     const blockers=obstacles.map(box=>({...box,endpoint:box.id===fromId||box.id===toId}));
+    const facing=(fromSide==='R'&&toSide==='L'&&q.x>=p.x)||
+      (fromSide==='L'&&toSide==='R'&&q.x<=p.x);
+    const portGap=Math.abs(q.x-p.x);
+    const fromBox=blockers.find(box=>box.id===fromId);
+    const toBox=blockers.find(box=>box.id===toId);
+    const inset=(point,side,box)=>!box?0:side==='L'
+      ?Math.max(0,point.x-box.x):Math.max(0,box.x+box.w-point.x);
+    const fromInset=inset(p,fromSide,fromBox),toInset=inset(q,toSide,toBox);
+    const available=portGap-fromInset-toInset;
+    const fromStub=facing&&available>6
+      ?Math.min(18,Math.max(fromInset+1,available/3)):18;
+    const toStub=facing&&available>6
+      ?Math.min(18,Math.max(toInset+1,available/3)):18;
     const pieces=d=>{
       const tokens=(d||'').match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
       const segments=[];let x=0,y=0;
@@ -411,9 +424,8 @@ const HPC_NETWORK = (() => {
         overlapsPipe(segment));
     };
     if(!crosses(original))return original;
-    const stub=18;
-    const a={x:p.x+(fromSide==='L'?-stub:stub),y:p.y};
-    const b={x:q.x+(toSide==='L'?-stub:stub),y:q.y};
+    const a={x:p.x+(fromSide==='L'?-fromStub:fromStub),y:p.y};
+    const b={x:q.x+(toSide==='L'?-toStub:toStub),y:q.y};
     const minX=Math.min(a.x,b.x,...blockers.map(box=>box.x),
       ...pipeObstacles.flatMap(pipe=>[Math.min(pipe.x,pipe.nx)]))-60;
     const maxX=Math.max(a.x,b.x,...blockers.map(box=>box.x+box.w),
@@ -495,7 +507,9 @@ const HPC_NETWORK = (() => {
         scores[next]=cost;previous[next]=state;push(next,cost);
       }
     }
-    if(finish<0)throw new Error('No collision-free orthogonal route for '+fromId+' → '+toId);
+    if(finish<0)throw new Error('No collision-free orthogonal route for '+fromId+' → '+toId+
+      ' from '+JSON.stringify(p)+' to '+JSON.stringify(q)+
+      ' (sides '+fromSide+'/'+toSide+')');
     const path=[];
     for(let state=finish;state>=0;state=previous[state]){
       const node=Math.floor(state/2),xi=Math.floor(node/ys.length),yi=node%ys.length;
@@ -522,10 +536,8 @@ const HPC_NETWORK = (() => {
       routed+=' '+(from.x===to.x?'V'+to.y:'H'+to.x);
     }
     if(crosses(routed))
-      throw new Error('Orthogonal route still intersects a component for '+fromId+' → '+toId+
-        ': '+routed+' '+JSON.stringify(blockers.filter(box=>
-          pieces(routed).some((segment,index)=>!(box.endpoint&&
-            (index===0||index===pieces(routed).length-1))&&segmentCrosses(segment,box)))));
+      throw new Error('Orthogonal route intersects an obstacle for '+fromId+' → '+toId+
+        ': '+routed);
     return routed;
   }
 
@@ -633,8 +645,9 @@ const HPC_NETWORK = (() => {
       edge.from_port === 'top_out' && edge.to_port === 'in';
     if (bufferCoilReturn && !returnTee) {
       const below = Math.max(toShape.y + toShape.h + 32, fromShape.y + fromShape.h + 34);
+      const returnLaneX=q.x+(toSide==='R'?35:-35);
       d = 'M' + h(p.x, p.y) + ' H' + (p.x - 70) + ' V' + below +
-        ' H' + (q.x - 35) + ' V' + q.y + ' H' + q.x;
+        ' H' + returnLaneX + ' V' + q.y + ' H' + q.x;
     } else if (bufferCoilSupply && !supplyTee) {
       const laneX = Math.min(q.x - 30, p.x + 35);
       d = 'M' + h(p.x, p.y) + ' H' + laneX + ' V' + q.y + ' H' + q.x;

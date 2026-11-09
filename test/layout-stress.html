@@ -6,6 +6,12 @@
 <script src="../src/hydraulic-network.js"></script>
 <script src="../src/integrated-extension.js"></script>
 <script>
+window.addEventListener('error',event=>{
+  document.querySelector('#result').textContent='FAIL';
+  document.querySelector('#log').textContent+=
+    (document.querySelector('#log').textContent?'\n':'')+
+    'Unhandled layout-stress exception: '+(event.error?.stack||event.message);
+});
 const errors=[],done=[];
 function check(condition,name){done.push((condition?'OK ':'FAIL ')+name);if(!condition)errors.push(name);}
 function node(type,id,options={}){return {type,id,name:id,sensors:{},options};}

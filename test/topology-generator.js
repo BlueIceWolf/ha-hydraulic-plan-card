@@ -1,4 +1,4 @@
-(() => {
+(async () => {
   const CASES=1200,BASE_SEED=0x5eed2000;
   const sourceTypes=['heat_pump','oil_boiler','gas_boiler','wood_gasifier',
     'pellet_boiler','wood_chip_boiler'];
@@ -242,6 +242,7 @@
   const requestedIndex=(requestedSeed-BASE_SEED)/7919-1;
   const indices=Number.isInteger(requestedIndex)&&requestedIndex>=0&&requestedIndex<CASES
     ?[requestedIndex]:Array.from({length:CASES},(_,i)=>i);
+  let processed=0;
   for(const index of indices){
     const seed=(BASE_SEED+Math.imul(index+1,7919))>>>0;
     const generated=plant(seed,index),config=generated.raw;
@@ -403,6 +404,11 @@
       }
     }catch(error){
       recordFailure(seed,'exception',String(error?.stack||error),config);
+    }
+    if(++processed%10===0){
+      document.querySelector('#report').textContent=
+        'Checked '+processed+' of '+indices.length+' topologies';
+      await new Promise(resolve=>setTimeout(resolve,0));
     }
   }
   const summary={cases:indices.length,valid:counts.valid, intentionallyInvalid:counts.invalid,

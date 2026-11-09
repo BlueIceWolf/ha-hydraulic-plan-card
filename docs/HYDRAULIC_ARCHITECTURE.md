@@ -13,6 +13,10 @@ Diese Architektur erweitert die ursprüngliche **Heat Pump Hydraulic Card** und 
 | `src/migration.js` | Nichtdestruktive Übernahme, Versionierung, Validierung, Warnungen und Wiederherstellung |
 | `src/ems-esp-detection.js` | Optionale, bestätigungspflichtige Geräteerkennung über bereits vorhandene Home-Assistant-Informationen |
 
+### Editorzustände
+
+Der Editor unterscheidet neue Karten, gültige Komponentenpläne, klassische Kartenkonfigurationen und unvollständige Pläne. Eine leere, unversionierte Stub-Konfiguration bleibt im Einrichtungsassistenten und wird nicht als migrierte Anlage gespeichert. Erst wenn der Nutzer den leeren Plan ausdrücklich startet oder Komponenten hinzufügt, wird er als Komponentenplan versioniert. Klassische Konfigurationen bleiben im Originaleditor, bis der Nutzer die Übernahme bestätigt; ungültige Pläne werden im Komponenteneditor mit Migrationshinweisen zur Korrektur angeboten.
+
 Der installierbare HACS-Build liegt weiterhin in `dist/ha-hydraulic-plan-card.js`. Der ursprüngliche Build-, Installations- und Releasepfad bleibt erhalten.
 
 ## Hydraulische Topologie
@@ -33,7 +37,7 @@ Die Anordnung orientiert sich an echten Verbindungen; vorhandene alte `x`/`y`-Fe
 
 ## Rohrsegment-Routing
 
-`HPC_NETWORK.route()` erstellt eine orthogonale Leitung zwischen zwei realen Anschlussports. Die Seite eines Anschlusses stammt aus der Portdefinition des Bauteils: Ausgänge liegen rechts, sofern der jeweilige Port nicht ausdrücklich anders definiert ist. Beispielsweise zeigen die Pufferspeicher-Ausgänge `top_out`, `mid_out` und `bottom_out` nach rechts; der Heizkreis-Rücklauf `return_out` bleibt links, weil das Original-Heizkörpersymbol dort angeschlossen ist. Die Position und Seite dürfen nicht aus einem vermuteten Standard für alle Bauteile abgeleitet werden.
+`HPC_NETWORK.route()` erstellt eine orthogonale Leitung zwischen zwei realen Anschlussports. Die Seite eines Anschlusses stammt aus der Portdefinition des Bauteils: Die Puffer-Vorläufe `top_out` und `mid_out` liegen rechts; der erzeugerseitige Rücklauf `bottom_out` liegt links, während der verbraucherseitige Rücklauf `bottom_in` rechts liegt. Der Heizkreis-Rücklauf `return_out` bleibt links, weil das Original-Heizkörpersymbol dort angeschlossen ist. Die Position und Seite dürfen nicht aus einem vermuteten Standard für alle Bauteile abgeleitet werden.
 
 `mergeRoutes()` zerlegt die geometrischen Leitungswege in horizontale und vertikale Teilstücke, erkennt kollineare Überlappungen und gibt gemeinsame **physische Rohrsegmente einmalig** aus. Vorlauf und Rücklauf bleiben eigene Segmente. Es darf dadurch nicht ein zweiter Strich über einer vorhandenen Sammelleitung liegen.
 
@@ -59,7 +63,7 @@ Die Konfiguration führt `hpc_schema_version: 3` und bewahrt beim ersten Upgrade
 1. Vor dem Update die Dashboard-Karte als YAML exportieren oder die Home-Assistant-Konfiguration sichern.
 2. Einen vorhandenen klassischen Heizungsplan bei Bedarf im Editor bewusst in Komponenten übernehmen. Vorhandene Messwerte und Generatorarten werden behalten; ein unbekannter Leitungsverlauf wird **nicht** erfunden.
 3. Eine vorhandene v1/v2-Komponentenkonfiguration wird auf bekannte Anschlussbezeichnungen umgestellt, ohne ihre Quellkonfiguration zu verändern. Mehrdeutige Warmwasser-Heizwendeln, unbekannte Bauteile oder nicht eindeutig migrierbare Felder werden **blockiert und angezeigt**, nicht verworfen.
-4. Die erste Ausgangsfassung bleibt in `hpc_migration_backup`. Der Editor bietet das bewusste Wiederherstellen an; danach unterdrückt `hpc_migration_skip_auto` ein ungewolltes sofortiges Re-Upgrade.
+4. Die erste Ausgangsfassung bleibt in `hpc_migration_backup`. Eine neue, noch leere Stub-Karte wird nicht als Bestandskonfiguration migriert. Der Editor bietet das bewusste Wiederherstellen an; danach unterdrückt `hpc_migration_skip_auto` ein ungewolltes sofortiges Re-Upgrade.
 5. Wiederholtes Öffnen/Upgraden einer v3-Konfiguration ändert nichts. Auch Konfigurationen mit einer zukünftigen höheren Schemaversion werden nicht zurückmigriert.
 
 **Beispiel für Pufferladepumpe** (Entitäten entsprechend der eigenen Anlage ersetzen):

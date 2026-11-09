@@ -1,12 +1,12 @@
 import { expect, test } from '@playwright/test';
 
 test('1200 seeded hydraulic topologies validate and render deterministically', async ({ page }, testInfo) => {
-  test.setTimeout(120_000);
+  test.setTimeout(240_000);
   const replaySeed = process.env.TOPOLOGY_SEED;
   await page.goto('/test/topology-generator.html' +
     (replaySeed ? '?seed=' + encodeURIComponent(replaySeed) : ''));
   expect(await page.evaluate(() => typeof HPC_MIGRATION)).toBe('object');
-  await expect(page.locator('#result')).toHaveText(/^(PASS|FAIL)$/, { timeout: 110_000 });
+  await expect(page.locator('#result')).toHaveText(/^(PASS|FAIL)$/, { timeout: 230_000 });
   const report = await page.evaluate(() => window.topologyTestSummary);
   console.log('Topology run:', JSON.stringify({
     cases: report?.cases, valid: report?.valid,

@@ -118,12 +118,40 @@ const HPC_INTEGRATED = (() => {
           // Pick a distinct piece of the actual charging supply for each
           // tank. This also avoids placing two loading-pump icons on top of
           // each other when a buffer has multiple DHW charging branches.
-          const laneX=tankBox.x-70;
+          const laneX=Math.max(tankBox.x-70,
+            bufferFedTanks.has(tank.id)?lastBufferRight+32:0);
           // Charge from the unobstructed shoulder just above each tank,
           // instead of sending the loading pump through the original
           // radiator/mixer column at y=330..470.
-          const laneY=bufferFedTanks.has(tank.id)
+          const preferredLaneY=bufferFedTanks.has(tank.id)
             ?Math.max(50,tankBox.y-70):tankBox.y+20;
+          const occupied=[...anchored,...points];
+          const returnLanes=extraDhw.filter(candidate=>
+            candidate.id!==tank.id&&bufferFedTanks.has(candidate.id))
+            .map(candidate=>points.get(candidate.id).y+175);
+          const laneIsClear=laneY=>{
+            const pump={x:laneX,y:laneY,w:40,h:40};
+            const supplyY=laneY+20;
+            if(returnLanes.some(y=>laneY<=y+9&&laneY+40>=y-9))return false;
+            const input={x:laneX,y:supplyY};
+            return occupied.every(([,box])=>{
+              const overlaps=pump.x<box.x+box.w&&pump.x+pump.w>box.x&&
+                pump.y<box.y+box.h&&pump.y+pump.h>box.y;
+              const inputBlocked=input.x>box.x-9&&input.x<box.x+box.w+9&&
+                input.y>box.y-9&&input.y<box.y+box.h+9;
+              return !overlaps&&!inputBlocked;
+            });
+          };
+          const maxOffset=Math.max(1000,...occupied.map(([,box])=>box.y+box.h));
+          let laneY=laneIsClear(preferredLaneY)?preferredLaneY:undefined;
+          for(let offset=20;laneY===undefined&&offset<=maxOffset;offset+=20){
+            const lower=preferredLaneY+offset;
+            const upper=preferredLaneY-offset;
+            if(laneIsClear(lower))laneY=lower;
+            else if(upper>=0&&laneIsClear(upper))laneY=upper;
+          }
+          if(laneY===undefined)
+            throw new Error('No collision-free loading-pump position for '+node.id);
           points.set(node.id,{x:laneX,y:laneY,w:40,h:40,type:node.type,inline:true});
           return;
         }

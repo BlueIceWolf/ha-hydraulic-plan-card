@@ -154,7 +154,7 @@ check(b.points.get('puffer_2').x>b.anchored.get('puffer_1').x+
 const buffer=HPC_FREE.normalize({components:[n('tank','buffer')],connections:[]}).components[0];
 const bufferShape={x:100,y:100,w:120,h:200,type:'buffer'};
 for(const [key,expected] of [['top_in','L'],['top_out','R'],['mid_in','L'],
-  ['mid_out','R'],['bottom_in','R'],['bottom_out','R']]){
+  ['mid_out','R'],['bottom_in','R'],['bottom_out','L']]){
   const point=HPC_INTEGRATED.port(buffer,bufferShape,key);
   check(HPC_INTEGRATED.portSide(buffer,bufferShape,key)===expected&&
     point.x===(expected==='R'?220:100),

@@ -93,31 +93,45 @@ for (const [index, plant] of plants.entries()) {
           const d = path.getAttribute('d') || '';
           if (!d) continue; // a shared pipe can be owned by a different edge
           const raw = d.match(/[MHV]|-?\d+(?:\.\d+)?/g) || [];
+          const matrix = path.getCTM();
+          if (!matrix) {
+            failures.push('Pipe has no rendered SVG transform: ' + path.id);
+            continue;
+          }
+          const project = (x, y) => ({
+            x: matrix.a * x + matrix.c * y + matrix.e,
+            y: matrix.b * x + matrix.d * y + matrix.f,
+          });
           const edgeId = path.parentElement?.getAttribute('data-hpi-edge') || path.id;
-          let x = 0, y = 0;
+          let localX = 0, localY = 0, x = 0, y = 0;
           const role = path.id.includes('-rl') ||
             /(?:^|_)rl(?:$|_)/.test(edgeId) ? 'return' : 'flow';
           for (let i = 0; i < raw.length;) {
             const command = raw[i++];
             if (command === 'M') {
-              x = Number(raw[i++]); y = Number(raw[i++]);
+              localX = Number(raw[i++]); localY = Number(raw[i++]);
+              const point = project(localX, localY);
+              x = point.x; y = point.y;
               continue;
             }
             if (command !== 'H' && command !== 'V') {
               failures.push('Unsupported water-pipe command in ' + edgeId);
               break;
             }
-            const nx = command === 'H' ? Number(raw[i++]) : x;
-            const ny = command === 'V' ? Number(raw[i++]) : y;
+            if (command === 'H') localX = Number(raw[i++]);
+            else localY = Number(raw[i++]);
+            const projected = project(localX, localY);
+            const nx = projected.x, ny = projected.y;
             if (![x, y, nx, ny].every(Number.isFinite) ||
                 Math.abs(nx - x) + Math.abs(ny - y) < .01) {
               failures.push('Invalid or zero-length segment in ' + edgeId);
               break;
             }
+            const axis = Math.abs(nx - x) > Math.abs(ny - y) ? 'H' : 'V';
             segments.push({
-              edgeId, role, axis: command, fixed: command === 'H' ? y : x,
-              low: Math.min(command === 'H' ? x : y, command === 'H' ? nx : ny),
-              high: Math.max(command === 'H' ? x : y, command === 'H' ? nx : ny),
+              edgeId, role, axis, fixed: axis === 'H' ? y : x,
+              low: Math.min(axis === 'H' ? x : y, axis === 'H' ? nx : ny),
+              high: Math.max(axis === 'H' ? x : y, axis === 'H' ? nx : ny),
             });
             x = nx; y = ny;
           }
@@ -130,7 +144,10 @@ for (const [index, plant] of plants.entries()) {
             const b = segments[j];
             if (a.axis !== b.axis || Math.abs(a.fixed - b.fixed) > .01) continue;
             if (Math.min(a.high, b.high) - Math.max(a.low, b.low) > 1)
-              failures.push('Overlapping water pipes: ' + a.edgeId + ' / ' + b.edgeId);
+              failures.push('Overlapping water pipes: ' + a.edgeId + ' / ' + b.edgeId +
+                ' (' + a.axis + ', ' + a.fixed.toFixed(2) + ', ' +
+                Math.max(a.low, b.low).toFixed(2) + '–' +
+                Math.min(a.high, b.high).toFixed(2) + ')');
           }
         }
 
