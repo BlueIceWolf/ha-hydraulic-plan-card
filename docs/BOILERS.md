@@ -66,6 +66,14 @@ Auch bei EMS-ESP können bekannte Kesseldaten vorgeschlagen werden. Der Brenners
 
 Eine Erkennung verändert keine Heizungsregelung und übernimmt Daten erst nach Bestätigung.
 
+### Wärmepumpe aus EMS-ESP übernehmen
+
+Die **Wärmepumpe** ist weiterhin ein normaler Wärmeerzeuger und nutzt auch im Komponentenplan die Außengeräte-Darstellungen der ursprünglichen Karte. Bei einer über EMS-ESP gefundenen Heizung kann jetzt ausdrücklich **Wärmepumpe** ausgewählt werden. Danach bleiben die Originalauswahl für Außengerät und Lüftergröße verfügbar.
+
+Ein EMS-ESP-Gerät kann eine ganze Liste unterstützter Modelle anzeigen, zum Beispiel Enviline, Compress und WLW/WSW. Das ist **keine eindeutige Modellkennung der angeschlossenen Wärmepumpe**. Deshalb wählt der Nutzer den Typ selbst. Aus dem allgemeinen EMS-ESP-Signal `boiler_burngas` wird niemals ein Verdichterstatus abgeleitet; auch eine Kesselleistungsangabe wird nicht ungeprüft als elektrische Leistungsaufnahme übernommen. Für eine Wärmepumpe werden zunächst nur eindeutig erkannte hydraulische Temperaturen zugeordnet. Fehlende Werte bitte manuell auswählen.
+
+
+
 ### EMS-ESP-Heizkreise
 
 EMS-ESP veröffentlicht Heizkreise oft unter `thermostat_hc1`, `mixer_hc1` usw. – nicht als Teil der Kessel-Entitäten. Der Karteneditor erkennt diese Geräte jetzt gesondert und bietet beispielsweise **Heizkreis 1** und **Heizkreis 2** zum Übernehmen an. Die Zuordnung erfolgt erst nach Bestätigung.
@@ -79,7 +87,7 @@ Die Karte kennt dadurch die Heizkreise, aber noch nicht deren tatsächliche Verr
 
 Der neue Editor kann weitere Wärmeerzeuger, Pumpen, Speicher und Anschlüsse in einem gemeinsamen Plan aufnehmen. Die alte Darstellung bleibt Grundlage. Diese Funktionen sind in der Alpha-Phase und bei komplexen Verschaltungen noch nicht vollständig abgenommen.
 
-Details stehen in [Komponenten und Rohrverbindungen](FREE_PLAN.md) und im [Prüfstand des Entwicklungszweigs](https://github.com/BlueIceWolf/ha-hydraulic-plan-card/blob/refactor/finish-unified-hydraulics-20261109/docs/ACCEPTANCE-2026-11-09.md).
+Details stehen in [Komponenten und Rohrverbindungen](FREE_PLAN.md) und im [aktuellen Abnahmeprotokoll](ACCEPTANCE-2026-11-09.md).
 
 ---
 
