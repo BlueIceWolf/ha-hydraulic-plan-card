@@ -70,6 +70,61 @@ const geom=HPC_NETWORK.route({edge:{from_port:'coil_out',to_port:'bottom_in'},
   p:{x:1080,y:215},q:{x:520,y:495},fromSide:'L',toSide:'L'});
 check(geom.startsWith('M1080 215 H1010')&&geom.endsWith('H520'),
   'Return route takes the outside tank connection, not the vessel interior');
+// Three-way changeover: only the explicitly selected outlet can circulate.
+const valveNodes=[
+  {id:'heat',type:'oil_boiler',name:'Oil boiler',sensors:{pump:'switch.main_pump'}},
+  {id:'threeway',type:'diverter',name:'WW Umschaltung',sensors:{position:'sensor.valve'},
+    options:{dhw_port:'a',dhw_state:'WW',heating_state:'Heizen'}},
+  {id:'water',type:'dhw_tank',name:'WW',sensors:{}},
+  {id:'circuit',type:'heating_circuit',name:'HK',sensors:{}}
+];
+const valveConnections=[
+  {id:'sourcefeed',from:'heat',from_port:'flow',to:'threeway',to_port:'ab'},
+  {id:'wwfeed',from:'threeway',from_port:'a',to:'water',to_port:'coil_in'},
+  {id:'wwback',from:'water',from_port:'coil_out',to:'heat',to_port:'return'},
+  {id:'heatfeed',from:'threeway',from_port:'b',to:'circuit',to_port:'flow_in'},
+  {id:'heatback',from:'circuit',from_port:'return_out',to:'heat',to_port:'return'}
+];
+const valvePlan=HPC_FREE.normalize({components:valveNodes,connections:valveConnections});
+const wwFlow=HPC_NETWORK.flowStates(valvePlan,
+  hass({'sensor.valve':'WW','switch.main_pump':'on'}));
+check(wwFlow.has('wwfeed')&&wwFlow.has('wwback')&&!wwFlow.has('heatfeed'),
+  'WW valve state opens coil inlet and return but not heating outlet');
+const heatFlow=HPC_NETWORK.flowStates(valvePlan,
+  hass({'sensor.valve':'Heizen','switch.main_pump':'on'}));
+check(!heatFlow.has('wwfeed')&&!heatFlow.has('wwback')&&heatFlow.has('heatfeed'),
+  'Heating valve state closes WW supply and return, opens heating circuit');
+const unknownValve=HPC_NETWORK.flowStates(valvePlan,
+  hass({'sensor.valve':'unknown','switch.main_pump':'on'}));
+check(!unknownValve.has('wwfeed')&&!unknownValve.has('heatfeed'),
+  'Unrecognized valve state never chooses a path');
+const numericValve=structuredClone(valvePlan);
+numericValve.components.find(node=>node.type==='diverter').options={
+  dhw_port:'a',dhw_state:'0',heating_state:'100'};
+const numericWw=HPC_NETWORK.flowStates(numericValve,
+  hass({'sensor.valve':0,'switch.main_pump':'on'}));
+check(numericWw.has('wwfeed')&&!numericWw.has('heatfeed'),
+  'Numeric changeover 0 maps to WW only with an explicit valve setting');
+const numericHeat=HPC_NETWORK.flowStates(numericValve,
+  hass({'sensor.valve':100,'switch.main_pump':'on'}));
+check(numericHeat.has('heatfeed')&&!numericHeat.has('wwfeed')&&!numericHeat.has('wwback'),
+  'Numeric changeover 100 maps to heating and blocks the coil return');
+const unassigned=structuredClone(numericValve);
+unassigned.components.find(node=>node.type==='diverter').options={
+  dhw_port:'a',dhw_state:'',heating_state:''};
+const noGuess=HPC_NETWORK.flowStates(unassigned,
+  hass({'sensor.valve':0,'switch.main_pump':'on'}));
+check(!noGuess.has('wwfeed')&&!noGuess.has('heatfeed'),
+  'Numeric position without installer mapping does not invent flow');
+const splitRoutes=HPC_NETWORK.mergeRoutes([
+  {edge:{id:'flow1',from_port:'top_out',to_port:'flow_in'},
+    d:'M640 360 H680 V340 H815',on:false},
+  {edge:{id:'flow2',from_port:'top_out',to_port:'flow_in'},
+    d:'M640 360 H680 V590 H815',on:true}
+]);
+check(!splitRoutes.get('flow2').pipe.includes('M640 360 H680')&&
+  splitRoutes.get('flow1').flow.includes('M640 360 H680'),
+  'Shared hot-water header is drawn once and active if one branch circulates');
 document.querySelector('#result').textContent=checks.every(line=>line.startsWith('OK'))?'PASS':'FAIL';
 document.querySelector('#log').textContent=checks.join('\n');
 </script></body></html>
