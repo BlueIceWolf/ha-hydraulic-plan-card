@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><title>Automatic hydraulic layout stress</title></head><body>
+<pre id="result">RUNNING</pre><pre id="log"></pre>
+<script>const HFC_EMITTERS=['radiator','underfloor','column'];</script>
+<script src="../src/flexible-plan.js"></script>
+<script src="../src/hydraulic-network.js"></script>
+<script src="../src/integrated-extension.js"></script>
+<script>
+const errors=[],done=[];
+function check(condition,name){done.push((condition?'OK ':'FAIL ')+name);if(!condition)errors.push(name);}
+function node(type,id,options={}){return {type,id,name:id,sensors:{},options};}
+function link(id,from,from_port,to,to_port){
+  return {id,from,from_port,to,to_port};
+}
+for(const [sourceCount,bufferCount,directWw,bufferWw,hcCount,controls] of [
+  [1,1,1,1,1,1],[2,3,3,3,3,5],[7,7,4,4,6,8],[1,0,5,0,2,6]
+]){
+  const components=[],connections=[];
+  for(let i=0;i<sourceCount;i++)
+    components.push(node(['wood_gasifier','oil_boiler','wood_chip_boiler','heat_pump'][i%4],
+      'quelle_'+i));
+  for(let i=0;i<bufferCount;i++)
+    components.push(node('buffer','puffer_'+i));
+  for(let i=0;i<bufferCount-1;i++){
+    connections.push(link('pvl_'+i,'puffer_'+i,'top_out','puffer_'+(i+1),'top_in'));
+    connections.push(link('prl_'+i,'puffer_'+(i+1),'bottom_out','puffer_'+i,'bottom_in'));
+  }
+  for(let i=0;i<directWw;i++){
+    components.push(node('dhw_tank','direkt_ww_'+i));
+    connections.push(link('direkt_vl_'+i,'quelle_0','flow','direkt_ww_'+i,'coil_in'));
+    connections.push(link('direkt_rl_'+i,'direkt_ww_'+i,'coil_out','quelle_0','return'));
+  }
+  for(let i=0;i<bufferWw;i++){
+    components.push(node('dhw_tank','geladen_ww_'+i,{connection_style:'branch'}));
+    components.push(node('pump','ladepumpe_'+i));
+    connections.push(link('wws_'+i,'puffer_'+(bufferCount-1),'top_out','ladepumpe_'+i,'in'));
+    connections.push(link('wwf_'+i,'ladepumpe_'+i,'out','geladen_ww_'+i,'coil_in'));
+    connections.push(link('wwr_'+i,'geladen_ww_'+i,'coil_out','puffer_'+(bufferCount-1),'bottom_in'));
+  }
+  for(let i=0;i<hcCount;i++){
+    components.push(node('heating_circuit','heizkreis_'+i,{mixed:i%2===1}));
+    if(bufferCount){
+      connections.push(link('hcv_'+i,'puffer_'+(bufferCount-1),'top_out','heizkreis_'+i,'flow_in'));
+      connections.push(link('hcr_'+i,'heizkreis_'+i,'return_out','puffer_'+(bufferCount-1),'bottom_in'));
+    }
+  }
+  for(let i=0;i<controls;i++)components.push(node('mixer','standalone_valve_'+i));
+  const plan=HPC_FREE.normalize({components,connections});
+  const model=HPC_INTEGRATED.layout(plan,hcCount);
+  const boxes=[...model.anchored,...model.points];
+  const label=[sourceCount,bufferCount,directWw,bufferWw,hcCount,controls].join('/');
+  check(boxes.length===components.length,label+' every node is present');
+  const collisions=[];
+  for(let i=0;i<boxes.length;i++)for(let j=i+1;j<boxes.length;j++){
+    const [aId,a]=boxes[i],[bId,b]=boxes[j];
+    if(a.x<b.x+b.w-0.01&&a.x+a.w>b.x+0.01&&
+       a.y<b.y+b.h-0.01&&a.y+a.h>b.y+0.01)
+      collisions.push(aId+'/'+bId);
+  }
+  check(!collisions.length,label+' collision-free: '+collisions.join(', '));
+  check(boxes.every(([id,b])=>b.x>=0&&b.y>=0&&Number.isFinite(b.x)&&
+    Number.isFinite(b.y)),label+' all boxes inside positive coordinate space');
+  const sourceBoxes=boxes.filter(([id])=>id.startsWith('quelle_'));
+  const bufferBoxes=boxes.filter(([id])=>id.startsWith('puffer_'));
+  check(!bufferBoxes.length||sourceBoxes.every(([,a])=>bufferBoxes.every(([,b])=>a.x+a.w<=b.x)),
+    label+' all generators left of all buffers');
+  const loaded=boxes.filter(([id])=>id.startsWith('geladen_ww_'));
+  check(loaded.every(([,a])=>bufferBoxes.every(([,b])=>b.x+b.w<a.x)),
+    label+' charged WW tanks strictly to right of storage');
+  const rendered=HPC_INTEGRATED.svg(model,{states:{},locale:{language:'de'}});
+  check(!/NaN|undefined/.test(rendered.body),label+' SVG has valid geometry and labels');
+  check(model.width>=Math.max(...boxes.map(([,b])=>b.x+b.w)),
+    label+' viewBox includes all placed equipment');
+}
+document.querySelector('#result').textContent=errors.length?'FAIL':'PASS';
+document.querySelector('#log').textContent=done.join('\n');
+</script></body></html>
