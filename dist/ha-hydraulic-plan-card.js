@@ -8322,6 +8322,22 @@ const HPC_NETWORK = (() => {
   }
 
 
+  function bufferTopology(plan) {
+    const buffers=orderedBuffers(plan);
+    if(buffers.length<2)return {mode:'single',sourceId:null,buffers};
+    const ids=new Set(buffers.map(n=>n.id));
+    const serial=plan.connections.some(e=>ids.has(e.from)&&ids.has(e.to));
+    const sourceCandidates=plan.components.filter(isSource).filter(source=>
+      buffers.every(tank=>
+        plan.connections.some(e=>e.from===source.id&&e.from_port==='flow'&&
+          e.to===tank.id&&e.to_port==='top_in')&&
+        plan.connections.some(e=>e.from===tank.id&&e.from_port==='bottom_out'&&
+          e.to===source.id&&e.to_port==='return')));
+    if(!serial&&sourceCandidates.length)
+      return {mode:'parallel',sourceId:sourceCandidates[0].id,buffers};
+    return {mode:serial?'series':'independent',sourceId:null,buffers};
+  }
+
   // The state of a three-way changeover valve is not a pump signal.
   // 0%/100% is manufacturer-specific, so it is only interpreted when the
   // installer explicitly configures its corresponding text/value.
@@ -8720,7 +8736,7 @@ const HPC_NETWORK = (() => {
     }));
   }
 
-  return { graph, orderedBuffers, diverterActivePort, flowStates, flowEvidence, route, mergeRoutes };
+  return { graph, orderedBuffers, bufferTopology, diverterActivePort, flowStates, flowEvidence, route, mergeRoutes };
 })();
 
 const HPC_INTEGRATED = (() => {
