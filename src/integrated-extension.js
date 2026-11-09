@@ -57,13 +57,15 @@ const HPC_INTEGRATED = (() => {
     const orderedBuffers=HPC_NETWORK.orderedBuffers(p).filter(n=>!anchored.has(n.id));
     const extraDhw=byGroup.storage.filter(c=>c.type==='dhw_tank');
     const storageStart=520;
-    // Continue the original storage bank directly underneath the native
-    // 120 x 200 buffer. Two more tanks fit between the source and radiator
-    // columns, avoiding both overlap and a 300 px empty gap.
-    const bufferStartY=555;
+    // Keep a true left-to-right tank sequence: the hot outlet of a previous
+    // buffer must face the next tank's left inlet. Position this extension
+    // below original heating circuits, otherwise the third tank could
+    // overlap an original radiator or its mixer.
+    const bottomHeating=330+(Math.max(1,Math.min(hcCount,6))-1)*250+140;
+    const bufferStartY=Math.max(555,bottomHeating+65);
     orderedBuffers.forEach((node,index)=>{
-      points.set(node.id,{x:520,
-        y:bufferStartY+index*225,w:120,h:200,type:node.type});
+      points.set(node.id,{x:680+index*160,
+        y:bufferStartY,w:120,h:200,type:node.type});
     });
     // Buffer-fed WW coils belong to the consumer column, just like a heating
     // circuit; all other tanks continue to use the original storage artwork.
