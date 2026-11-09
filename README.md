@@ -10,7 +10,7 @@ An animated heating-system card for **Home Assistant**, based on [Heat Pump Hydr
 
 *Reference: original heat-pump layout by Sturmi77. Hydraulic Plan Card retains this view and adds boiler variants; the picture does not yet show the boiler extensions.*
 
-> **Development status: 0.2.0-alpha.5.** An experimental single-page extension of the original card, not a stable release.
+> **Development status: 0.2.0-alpha.6 (test build).** This version is for testing the consolidated hydraulics and configuration migration. It is not a stable, fully approved release. Before updating an existing dashboard, save its card YAML or make a Home Assistant backup.
 
 ## One hydraulic schematic, automatically arranged
 
