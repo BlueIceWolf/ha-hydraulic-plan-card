@@ -152,7 +152,8 @@ const HPC_FREE = (function makeFreeHelpers() {
         flow_entity:entityRx.test(e.flow_entity||"")?e.flow_entity:"",
         temperature_entity:entityRx.test(e.temperature_entity||"")?e.temperature_entity:""});
     }
-    return {components,connections};
+    // Keep forward-compatible plan metadata even when this version cannot render it.
+    return {...raw,components,connections};
   }
   // Read the hydraulic direction from each port. Valves allow both directions,
   // whereas a boiler return port is never a valid pipe source.
