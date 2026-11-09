@@ -72,6 +72,21 @@ for(const [sourceCount,bufferCount,directWw,bufferWw,hcCount,controls] of [
   check(model.width>=Math.max(...boxes.map(([,b])=>b.x+b.w)),
     label+' viewBox includes all placed equipment');
 }
+const parallelPlan=HPC_FREE.connectBuffersParallel(
+  HPC_FREE.normalize({components:[
+    node('wood_gasifier','parallel_boiler'),node('buffer','pb1'),
+    node('buffer','pb2'),node('buffer','pb3')
+  ],connections:[]}), 'parallel_boiler');
+const parallelLayout=HPC_INTEGRATED.layout(parallelPlan,0);
+const firstParallel=parallelLayout.anchored.get('pb1');
+const extraParallel=parallelLayout.points.get('pb2');
+const lastParallel=parallelLayout.points.get('pb3');
+check(firstParallel.x===extraParallel.x&&extraParallel.x===lastParallel.x&&
+  extraParallel.y>firstParallel.y+firstParallel.h&&
+  lastParallel.y>extraParallel.y+extraParallel.h,
+  'True parallel tanks share one central storage column without collision');
+check(HPC_NETWORK.bufferTopology(parallelPlan).mode==='parallel',
+  'Confirmed parallel topology is reflected by the layout model');
 document.querySelector('#result').textContent=errors.length?'FAIL':'PASS';
 document.querySelector('#log').textContent=done.join('\n');
 </script></body></html>
