@@ -84,6 +84,28 @@ const heatingOff=HPC_NETWORK.flowStates(independentlyPumped,
 check(['e3','e4','e5'].every(id=>heatingOff.has(id))&&
   !heatingOff.has('heatSupply')&&!heatingOff.has('heatReturn'),
   'Stopped heating return cannot suppress independent active WW charging loop');
+// An ON command is not hydraulic proof when there is no return connection.
+const openLoop=structuredClone(independentlyPumped);
+openLoop.connections=openLoop.connections.filter(e=>e.id!=='heatReturn');
+const openPump=HPC_NETWORK.flowStates(openLoop,
+  hass({'switch.ladepumpe':'off','switch.hk_pumpe':'on'}));
+check(!openPump.has('heatSupply')&&openPump.size===0,
+  'An open heating supply never animates as a closed circuit');
+
+// The same circuit with a proper return is inferred from its pump, not metered.
+const completePump=HPC_NETWORK.flowEvidence(independentlyPumped,
+  hass({'switch.ladepumpe':'off','switch.hk_pumpe':'on'}));
+check(completePump.get('heatSupply')?.state==='inferred'&&
+  completePump.get('heatReturn')?.state==='inferred',
+  'A complete running heating loop is classified as inferred, not measured');
+
+// A stopped inline pump must interrupt an otherwise reachable path.
+const blockedLoop=structuredClone(independentlyPumped);
+blockedLoop.connections.find(e=>e.id==='heatReturn').flow_entity='sensor.hk_volumen';
+check(!HPC_NETWORK.flowStates(blockedLoop,
+  hass({'switch.ladepumpe':'off','switch.hk_pumpe':'on',
+    'sensor.hk_volumen':[0,'l/h']})).has('heatSupply'),
+  'Measured zero on the return disables the complete closed heating loop');
 const metadata={components:[{id:'boiler',type:'oil_boiler',name:'Old boiler',
   sensors:{custom_future:'sensor.custom_extra'},options:{future_setting:'keep'},
   custom_details:{a:1}}],
