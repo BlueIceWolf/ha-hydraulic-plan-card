@@ -165,6 +165,24 @@ const evidValved=HPC_NETWORK.flowEvidence(valvePlan,
 check(evidValved.get('wwfeed')?.state==='stopped'&&
   evidValved.get('wwback')?.state==='stopped',
   'Heating changeover stops the entire WW coil including its return');
+const crossing=HPC_NETWORK.mergeRoutes([
+  {edge:{id:'hot',from_port:'flow',to_port:'flow_in'},d:'M0 25 H100',on:true},
+  {edge:{id:'cold',from_port:'return_out',to_port:'bottom_in'},
+    d:'M50 0 V50',on:true}
+]);
+check(crossing.get('hot')?.pipe.includes('H44')&&
+  crossing.get('hot')?.pipe.includes('M56 25 H100')&&
+  crossing.get('cold')?.pipe==='M50 0 V50',
+  'Crossing hot flow has a drafting gap; unrelated return is continuous');
+const actualTee=HPC_NETWORK.mergeRoutes([
+  {edge:{id:'t1',from_port:'top_out',to_port:'flow_in'},
+    d:'M0 25 H100',on:true},
+  {edge:{id:'t2',from_port:'top_out',to_port:'flow_in'},
+    d:'M50 25 V60',on:true}
+]);
+check(!actualTee.get('t1')?.pipe.includes('H44')&&
+  actualTee.get('t1')?.pipe.includes('H100'),
+  'Shared supply T-junction does not acquire a false crossing gap');
 document.querySelector('#result').textContent=checks.every(line=>line.startsWith('OK'))?'PASS':'FAIL';
 document.querySelector('#log').textContent=checks.join('\n');
 </script></body></html>
