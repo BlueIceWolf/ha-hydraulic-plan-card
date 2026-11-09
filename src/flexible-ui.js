@@ -78,7 +78,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         tank.setAttribute('stroke-width','1.25');
       }
     }
-    _syncNativeCircuitFlow(svg,plan) {
+    _syncNativeCircuitFlow(svg,plan,nativePaths={}) {
       // The original radiator, mixer and pump art remains untouched. Only
       // activation of its existing pipe segments follows the SAME graph used
       // by additional generators and WW charging loops.
@@ -93,24 +93,29 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           flow.some(e=>evidence.get(e.id)?.active)&&
           ret.some(e=>evidence.get(e.id)?.active);
         allActive.push(active);
-        for(const section of ['vl','body','rl']){
-          const path=svg.querySelector('#f-hc-'+section+suffix);
-          if(path)path.classList.toggle('on',active);
+        // The original radiator and mixer paths remain in their SVG group,
+        // but the external pipe geometry comes from HPC_NETWORK.mergeRoutes.
+        const paths=nativePaths[circuit.id]||{};
+        for(const [leg,part] of [['flow','vl'],['return','rl']]){
+          const pipe=svg.querySelector('#p-hc-'+part+suffix);
+          const flowPath=svg.querySelector('#f-hc-'+part+suffix);
+          if(pipe)pipe.setAttribute('d',paths[leg]?.pipe||'');
+          if(flowPath)flowPath.setAttribute('d',paths[leg]?.flow||'');
+          if(flowPath)flowPath.classList.toggle('on',active&&!!paths[leg]?.flow);
         }
+        const body=svg.querySelector('#f-hc-body'+suffix);
+        if(body)body.classList.toggle('on',active);
         const mixer=svg.querySelector('#p-hc-mix'+suffix);
         if(mixer)mixer.classList.toggle('on',active);
       }
-      const circulating=allActive.some(Boolean);
-      for(const part of ['trunk-vl','trunk-rl']){
-        const pipe=svg.querySelector('#f-hc-'+part);
-        if(pipe)pipe.classList.toggle('on',circulating);
-      }
-      for(let index=2;index<=circuits.length;index++){
-        const exists=allActive.slice(index-1).some(Boolean);
-        for(const part of ['up','down']){
-          const path=svg.querySelector('#f-hc-'+part+index);
-          if(path)path.classList.toggle('on',exists);
-        }
+      // Legacy risers and collector strips were independent fixed pipe
+      // geometry. The graph routes now own those segments exactly once.
+      for(const path of svg.querySelectorAll(
+        'path[id^="p-hc-trunk"],path[id^="f-hc-trunk"],'+
+        'path[id^="p-hc-up"],path[id^="f-hc-up"],'+
+        'path[id^="p-hc-down"],path[id^="f-hc-down"]')){
+        path.setAttribute('d','');
+        path.classList.remove('on');
       }
     }
     _syncAdditional(force=false) {
@@ -188,7 +193,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(title)title.textContent=p.components.find(c=>c.id===firstBuffer)?.name||title.textContent;
       }
       this._polishBufferPipes(svg,p,firstBuffer);
-      this._syncNativeCircuitFlow(svg,p);
+      this._syncNativeCircuitFlow(svg,p,rendered.nativePipes);
       if(firstDhw){
         svg.querySelector('rect.tank[x="520"][y="40"]')?.setAttribute('fill','url(#hpi-'+firstDhw+')');
         const title=svg.querySelector('text.tank-title[x="580"][y="30"]');
