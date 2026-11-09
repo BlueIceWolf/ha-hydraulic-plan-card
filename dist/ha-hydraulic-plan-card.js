@@ -7570,7 +7570,7 @@ const HPC_FREE = (function makeFreeHelpers() {
   };
   const byType = Object.fromEntries(types.map(t=>[t.type,t]));
   const entityRx = /^(?:sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/;
-  const isId = id => typeof id==="string" && /^[a-z][a-z0-9_]{0,43}$/.test(id);
+  const isId = id => typeof id==="string" && /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(id);
   const esc = v => String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const text = (de,en,lang) => lang==="en"?en:de;
   const display = (type,lang="de") => byType[type] ? text(byType[type].de,byType[type].en,lang) : type;
