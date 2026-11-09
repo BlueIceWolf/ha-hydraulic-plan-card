@@ -173,9 +173,9 @@ const splitRoutes=HPC_NETWORK.mergeRoutes([
   {edge:{id:'flow2',from_port:'top_out',to_port:'flow_in'},
     d:'M640 360 H680 V590 H815',on:true}
 ]);
-check(!splitRoutes.get('flow2').pipe.includes('M640 360 H680')&&
-  splitRoutes.get('flow1').flow.includes('M640 360 H680'),
-  'Shared hot-water header is drawn once and active if one branch circulates');
+check(!splitRoutes.get('flow1').pipe.includes('M640 360 H680')&&
+  splitRoutes.get('flow2').flow.includes('M640 360 H680'),
+  'Shared header is drawn once on the actually flowing route, never the stopped branch');
 // Classify hydraulic evidence without inventing a numerical flow rate.
 const evidMeasured=HPC_NETWORK.flowEvidence(plan,
   hass({'switch.ladepumpe':'on','sensor.durchfluss':[245,'l/h']}));
