@@ -213,6 +213,71 @@ const HPC_NETWORK = (() => {
     return flowing;
   }
 
+  // Evidence is a separate property of the hydraulic edge. Consumers may
+  // animate inferred circulation, but must never present it as a flow reading.
+  // This is based on the same active-edge set as the renderer, not a second
+  // independent hydraulic solver.
+  function flowEvidence(plan, hass) {
+    const active=flowStates(plan,hass);
+    const {nodes,incoming,outgoing}=graph(plan);
+    const read=id=>id?HPC_FREE.state(hass,id):null;
+    const asFlow=id=>{
+      const value=read(id);
+      // Textual switch states may be an explicit pipe activity signal, not
+      // an actual volumetric measurement.
+      if(!value)return {state:'unknown',measured:false};
+      if(value.number!==null)
+        return {state:value.number>0?'active':'stopped',measured:true};
+      const word=value.text.trim().toLowerCase();
+      if(['on','open','active','running','ein','an','aktiv'].includes(word))
+        return {state:'active',measured:false};
+      if(['off','closed','idle','standby','aus'].includes(word))
+        return {state:'stopped',measured:false};
+      return {state:'unknown',measured:false};
+    };
+    const atPort=(node,port)=>{
+      if(node?.type!=='diverter'||!['a','b'].includes(port))return false;
+      return diverterActivePort(node,hass)!==port;
+    };
+    const pumpOff=node=>{
+      if(!node||!['pump','heating_circuit','wood_gasifier','oil_boiler',
+        'gas_boiler','wood_chip_boiler','pellet_boiler','heat_pump'].includes(node.type))
+        return false;
+      const volume=asFlow(node.sensors?.volume);
+      if(volume.measured&&volume.state==='stopped')return true;
+      const pump=read(node.type==='pump'?node.sensors?.state:node.sensors?.pump);
+      if(!pump)return false;
+      const status=pump.text.trim().toLowerCase();
+      return ['off','closed','idle','standby','aus'].includes(status)||
+        pump.number===0;
+    };
+    const result=new Map();
+    for(const edge of plan.connections){
+      const source=nodes.get(edge.from),destination=nodes.get(edge.to);
+      const reported=asFlow(edge.flow_entity);
+      let state='unknown',basis='none';
+      if(reported.state==='stopped'){
+        state='stopped';basis=reported.measured?'meter':'switch';
+      }else if(atPort(source,edge.from_port)||atPort(destination,edge.to_port)){
+        state='stopped';basis='valve';
+      }else if(pumpOff(source)||pumpOff(destination)){
+        state='stopped';basis='pump';
+      }else if(active.has(edge.id)){
+        const adjacentPumps=[source,destination].filter(n=>n?.type==='pump');
+        const measuredPump=adjacentPumps.some(n=>
+          asFlow(n.sensors?.volume).measured&&asFlow(n.sensors?.volume).state==='active');
+        state=reported.state==='active'&&reported.measured||measuredPump
+          ?'measured':'inferred';
+        basis=state==='measured'?'meter':'state';
+      }
+      result.set(edge.id,{state,basis,active:active.has(edge.id)});
+    }
+    // Inferred flow on a shared return header remains inferred even if a
+    // different branch has a measured value; measurement never leaks across
+    // devices. Keep edge identity stable for SVG and editor diagnostics.
+    return result;
+  }
+
   // One orthogonal router for every non-native SVG pipe. It uses actual ports,
   // not the stored legacy X/Y values or assumptions based on a component name.
   function route({ edge, fromNode, toNode, fromShape, toShape, p, q,
@@ -335,5 +400,5 @@ const HPC_NETWORK = (() => {
     }));
   }
 
-  return { graph, orderedBuffers, diverterActivePort, flowStates, route, mergeRoutes };
+  return { graph, orderedBuffers, diverterActivePort, flowStates, flowEvidence, route, mergeRoutes };
 })();
