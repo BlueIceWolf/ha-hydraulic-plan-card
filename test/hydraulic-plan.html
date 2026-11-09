@@ -618,6 +618,26 @@
       'Hot-water charging supply and coil return use distinct real ports');
     dual.remove();
 
+    const secondGenerator=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[
+        {id:'first_wood',type:'wood_gasifier',name:'Holzvergaser',sensors:{}},
+        {id:'second_oil',type:'oil_boiler',name:'Ölkessel',sensors:{}},
+        {id:'common_buffer',type:'buffer',name:'Puffer',sensors:{}}
+      ],connections:[
+        {id:'second_supply',from:'second_oil',from_port:'flow',
+          to:'common_buffer',to_port:'top_in'},
+        {id:'second_return',from:'common_buffer',from_port:'bottom_out',
+          to:'second_oil',to_port:'return'}
+      ]}},hassOf());
+    const secondarySupply=secondGenerator.shadowRoot.querySelector(
+      'g.hpi-link[data-hpi-edge="second_supply"] path.pipe')?.getAttribute('d');
+    const secondaryReturn=secondGenerator.shadowRoot.querySelector(
+      'g.hpi-link[data-hpi-edge="second_return"] path.pipe')?.getAttribute('d');
+    check(secondarySupply?.startsWith('M290 535')&&
+      secondaryReturn?.includes('665'),
+      'Second boiler supplies and returns at its own real pictogram ports, not the first generator');
+    secondGenerator.remove();
+
     // A warm-water coil loaded from the buffer belongs among consumers.
     // The native tank is hidden, while its original-style SVG pictogram is
     // reused at the hydraulic charging position to the right of the buffer.
