@@ -13,19 +13,22 @@ const original={type:'custom:hydraulic-plan-card',title:'Altbestand',plan:{
   {id:'ww_1',type:'dhw_tank',name:'Warmwasser',options:{connection_style:'branch'},sensors:{top:'sensor.ww_top'}},
   {id:'lade_1',type:'pump',name:'Ladepumpe',sensors:{state:'switch.ww_ladepumpe'},discovery:{provider:'eta-system',id:'buffer:eta:1'}}
  ],
- connections:[{id:'leitung_1',from:'ww_1',from_port:'coil_out',to:'puffer_1',to_port:'return_in',
-  flow_entity:'switch.ww_ladepumpe',temperature_entity:'sensor.ww_return'}]}};
+ connections:[
+  {id:'leitung_2',from:'puffer_1',from_port:'top_out',to:'lade_1',to_port:'in'},
+  {id:'leitung_3',from:'lade_1',from_port:'out',to:'ww_1',to_port:'coil_in'},
+  {id:'leitung_1',from:'ww_1',from_port:'coil_out',to:'puffer_1',to_port:'return_in',
+   flow_entity:'switch.ww_ladepumpe',temperature_entity:'sensor.ww_return'}]}};
 const before=JSON.stringify(original);
 const migrated=HPC_MIGRATION.upgrade(original);
-pass=check(migrated.changed&&migrated.config.hpc_schema_version===2,'versions migration')&&pass;
+pass=check(migrated.changed&&migrated.config.hpc_schema_version===3,'versions migration')&&pass;
 pass=check(JSON.stringify(original)===before,'source is not mutated')&&pass;
 pass=check(migrated.config.plan.components[2].discovery?.provider==='eta-system','ETA discovery retained')&&pass;
-pass=check(migrated.config.plan.connections[0].to_port==='bottom_in','legacy return mapped left')&&pass;
-pass=check(migrated.config.plan.connections[0].flow_entity==='switch.ww_ladepumpe','pipe signal retained')&&pass;
-pass=check(migrated.config.plan.connections[0].temperature_entity==='sensor.ww_return','pipe temperature retained')&&pass;
+pass=check(migrated.config.plan.connections[2].to_port==='bottom_in','legacy return mapped left')&&pass;
+pass=check(migrated.config.plan.connections[2].flow_entity==='switch.ww_ladepumpe','pipe signal retained')&&pass;
+pass=check(migrated.config.plan.connections[2].temperature_entity==='sensor.ww_return','pipe temperature retained')&&pass;
 pass=check(!HPC_MIGRATION.upgrade(migrated.config).changed,'idempotence')&&pass;
 const restored=HPC_MIGRATION.restore(migrated.config);
-pass=check(restored.hpc_migration_skip_auto&&restored.plan.connections[0].to_port==='return_in','rollback restores old graph')&&pass;
+pass=check(restored.hpc_migration_skip_auto&&restored.plan.connections[2].to_port==='return_in','rollback restores old graph')&&pass;
 pass=check(!HPC_MIGRATION.upgrade(restored).changed,'restored graph not immediately overwritten')&&pass;
 const unknown=structuredClone(original);unknown.plan.components.push({id:'unknown_1',type:'future_pump'});
 pass=check(HPC_MIGRATION.upgrade(unknown).blocked,'unknown types block')&&pass;
@@ -37,6 +40,36 @@ pass=check(classic.changed&&classic.config.plan.components.some(c=>c.type==='oil
 pass=check(classic.config.plan.components.filter(c=>c.type==='heating_circuit').length===2,'classic circuits import')&&pass;
 pass=check(classic.config.plan.connections.length===0&&classic.warnings.length>0,'no invented pipes')&&pass;
 pass=check(!!classic.config.hpc_migration_backup,'classic snapshot exists')&&pass;
+
+const extra=structuredClone(original);
+extra.plan.components[0].sensors.custom_extension='sensor.temperatur_extra';
+extra.plan.components[0].options={future_setting:'retain_this'};
+extra.plan.components[0].plugin_data={notes:'Leave this intact'};
+extra.plan.connections[0].future_style='compat';
+const extraResult=HPC_MIGRATION.upgrade(extra);
+pass=check(extraResult.blocked===true,'unknown sensor or options block unreviewed migration')&&pass;
+pass=check(HPC_FREE.normalize(extra.plan).components[0].sensors.custom_extension==='sensor.temperatur_extra'&&
+  HPC_FREE.normalize(extra.plan).components[0].options.future_setting==='retain_this'&&
+  HPC_FREE.normalize(extra.plan).components[0].plugin_data.notes==='Leave this intact'&&
+  HPC_FREE.normalize(extra.plan).connections[0].future_style==='compat',
+  'unknown extension fields survive normalization')&&pass;
+const ambiguous=structuredClone(original);
+ambiguous.plan.connections=ambiguous.plan.connections.filter(e=>e.to_port!=='coil_in');
+pass=check(HPC_MIGRATION.upgrade(ambiguous).blocked,'partial DHW coil blocks migration')&&pass;
+const schema2=structuredClone(original);schema2.hpc_schema_version=2;
+const v2=HPC_MIGRATION.upgrade(schema2);
+pass=check(v2.changed&&v2.config.hpc_schema_version===3&&
+  !!v2.config.hpc_migration_backup,'v2 upgrades to v3 with snapshot')&&pass;
+pass=check(!HPC_MIGRATION.upgrade(v2.config).changed,'v3 remains idempotent')&&pass;
+const future=structuredClone(original);future.hpc_schema_version=4;
+pass=check(!HPC_MIGRATION.upgrade(future).changed,'future schema is never downgraded')&&pass;
+const futureNode=structuredClone(v2.config);
+futureNode.plan.components.push({id:'unknown_future',type:'future_valve',name:'Neues Bauteil'});
+const unchangedFuture=JSON.stringify(futureNode);
+const guarded=HPC_MIGRATION.upgrade(futureNode);
+pass=check(!guarded.changed&&guarded.warnings.length>0&&
+  JSON.stringify(futureNode)===unchangedFuture,
+  'v3 unknown extension is reported without modifying original config')&&pass;
 document.querySelector('#result').textContent=pass?'PASS':'FAIL';
 document.querySelector('#log').textContent=log.join('\n');
 </script></html>

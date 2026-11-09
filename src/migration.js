@@ -2,7 +2,7 @@
 // All operations are pure until the editor emits a single config-changed event.
 // Unknown topology is never discarded or fabricated.
 const HPC_MIGRATION = (() => {
-  const VERSION=2;
+  const VERSION=3;
   const clone=x=>JSON.parse(JSON.stringify(x));
   const sourceTypes={wood_gasifier:'wood_gasifier',oil:'oil_boiler',
     pellet:'pellet_boiler',wood_chip_boiler:'wood_chip_boiler',
@@ -28,8 +28,12 @@ const HPC_MIGRATION = (() => {
         continue;
       }
       ids.add(n.id);
+      // Empty optional selectors are a normal older editor state, not a
+      // lost sensor. Unknown keys and genuinely invalid identifiers still
+      // block automatic rewriting.
       for(const [key,value] of Object.entries(n.sensors||{}))
-        if(!HPC_FREE.byType[n.type].fields.includes(key)||!validEntity(value))
+        if(!HPC_FREE.byType[n.type].fields.includes(key)||
+          (value!==''&&value!==null&&!validEntity(value)))
           warnings.push('Sensorzuordnung an '+n.id+' benötigt eine manuelle Prüfung.');
       if(n.level_sensors!==undefined&&!Array.isArray(n.level_sensors))
         warnings.push('Fühlerliste an '+n.id+' muss geprüft werden.');
@@ -54,6 +58,7 @@ const HPC_MIGRATION = (() => {
       if(n.options&&typeof n.options==='object'){
         const supported={dhw_tank:['connection_style'],
           wood_gasifier:['return_lift'],wood_chip_boiler:['eta_model','particle_separator','silo'],
+          diverter:['dhw_port','dhw_state','heating_state'],
           heating_circuit:['emitter','mixed'],pellet_boiler:['boiler_kind','silo'],
           oil_boiler:['boiler_kind'],gas_boiler:['boiler_kind'],
           heat_pump:['unit_style','unit_size','source_type']}[n.type]||[];
@@ -74,6 +79,15 @@ const HPC_MIGRATION = (() => {
       if(e&&(e.flow_entity&&!validEntity(e.flow_entity)||
         e.temperature_entity&&!validEntity(e.temperature_entity)))
         warnings.push('Eine Leitungsentität ist ungültig.');
+    }
+    // A legacy tank with only one side of the heating coil wired cannot be
+    // auto-converted into a complete circuit. Preserve the partial topology.
+    for (const tank of components.filter(n => n?.type === 'dhw_tank')) {
+      const feeds = connections.filter(e => e?.to === tank.id && e.to_port === 'coil_in');
+      const returns = connections.filter(e => e?.from === tank.id && e.from_port === 'coil_out');
+      if (feeds.length !== returns.length || feeds.length > 1)
+        warnings.push('Warmwasserspeicher ' + tank.id +
+          ': Heizwendel-Anschlüsse sind nicht eindeutig. Bitte Verschaltung prüfen.');
     }
     return [...new Set(warnings)];
   }
@@ -135,7 +149,7 @@ const HPC_MIGRATION = (() => {
     if(!classic&&Number(config.hpc_schema_version)>VERSION)
       return {changed:false,config,warnings:['Diese Konfiguration stammt aus einer neueren Version.']};
     if(!classic&&config.hpc_schema_version===VERSION)
-      return {changed:false,config,warnings:[]};
+      return {changed:false,config,warnings:check(config.plan)};
     const warnings=classic?[]:check(config.plan);
     if(warnings.length)return {changed:false,blocked:true,config,warnings};
     const result=classic?legacyPlan(config):{plan:HPC_FREE.normalize(config.plan),warnings:[]};

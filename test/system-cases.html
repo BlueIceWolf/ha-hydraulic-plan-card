@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><title>Hydraulic plant scenarios</title></head><body>
+<pre id="result">RUNNING</pre><pre id="log"></pre>
+<script>const HFC_EMITTERS=['radiator','underfloor','column'];</script>
+<script src="../src/flexible-plan.js"></script>
+<script src="../src/hydraulic-network.js"></script>
+<script src="../src/integrated-extension.js"></script>
+<script>
+const notes=[],check=(condition,label)=>{
+  notes.push((condition?'OK ':'FAIL ')+label);
+  if(!condition)console.error(label);
+};
+const n=(id,type,sensors={},options={})=>({id,type,name:id,sensors,options});
+const e=(id,from,from_port,to,to_port)=>({id,from,from_port,to,to_port});
+const scenarios=[
+  {name:'A Wärmepumpe mit Umschaltung',hc:1,components:[
+    n('waermepumpe','heat_pump'),n('puffer','buffer'),
+    n('heizkreis','heating_circuit'),n('warmwasser','dhw_tank'),
+    n('umschaltventil','diverter',{position:'sensor.umschaltung'},
+      {dhw_port:'a',dhw_state:'WW',heating_state:'Heizen'})
+  ],connections:[
+    e('wp_ventil','waermepumpe','flow','umschaltventil','ab'),
+    e('ventil_ww','umschaltventil','a','warmwasser','coil_in'),
+    e('ww_wp','warmwasser','coil_out','waermepumpe','return'),
+    e('ventil_puffer','umschaltventil','b','puffer','top_in'),
+    e('puffer_hk','puffer','top_out','heizkreis','flow_in'),
+    e('hk_puffer','heizkreis','return_out','puffer','bottom_in'),
+    e('puffer_wp','puffer','bottom_out','waermepumpe','return')
+  ]},
+  {name:'B Wärmepumpe zwei Puffer zwei Heizkreise',hc:2,components:[
+    n('waermepumpe','heat_pump'),n('puffer_1','buffer'),n('puffer_2','buffer'),
+    n('heizkreis_1','heating_circuit'),n('heizkreis_2','heating_circuit',{},
+      {mixed:true,emitter:'underfloor'})
+  ],connections:[
+    e('wp_vl','waermepumpe','flow','puffer_1','top_in'),
+    e('puffer_vl','puffer_1','top_out','puffer_2','top_in'),
+    e('puffer_rl','puffer_2','bottom_out','puffer_1','bottom_in'),
+    e('p1_wp_rl','puffer_1','bottom_out','waermepumpe','return'),
+    e('p2_hk1','puffer_2','top_out','heizkreis_1','flow_in'),
+    e('p2_hk2','puffer_2','top_out','heizkreis_2','flow_in'),
+    e('hk1_p2','heizkreis_1','return_out','puffer_2','bottom_in'),
+    e('hk2_p2','heizkreis_2','return_out','puffer_2','bottom_in')
+  ]},
+  {name:'C Fröling Öl drei Puffer Rücklaufumschaltung',hc:1,components:[
+    n('holzvergaser','wood_gasifier',{}, {return_lift:true}),
+    n('oelkessel','oil_boiler'),n('p1','buffer'),n('p2','buffer'),n('p3','buffer'),
+    n('haus','heating_circuit'),n('ww','dhw_tank'),
+    n('rl_umschalter','diverter')
+  ],connections:[
+    e('holz_vl','holzvergaser','flow','p1','top_in'),
+    e('holz_rl','p1','bottom_out','holzvergaser','return'),
+    e('p1_vl','p1','top_out','p2','top_in'),
+    e('p2_vl','p2','top_out','p3','top_in'),
+    e('p3_rl','p3','bottom_out','p2','bottom_in'),
+    e('p2_rl','p2','bottom_out','p1','bottom_in'),
+    e('oel_ww','oelkessel','dhw','ww','coil_in'),
+    e('ww_rl','ww','coil_out','rl_umschalter','ab'),
+    e('rueck_waerme','rl_umschalter','a','oelkessel','return'),
+    e('rueck_puffer','rl_umschalter','b','p1','bottom_in'),
+    e('haus_vl','p3','top_out','haus','flow_in'),
+    e('haus_rl','haus','return_out','p3','bottom_in')
+  ]},
+  {name:'D ETA Hackgut Silo Abscheider und WW Pufferladung',hc:1,components:[
+    n('hackgut','wood_chip_boiler',{exhaust:'sensor.abgas',
+      particle_state:'binary_sensor.abscheider'}, {silo:true,particle_separator:true,eta_model:'ehack'}),
+    n('puffer','buffer'),
+    n('ladepumpe','pump',{state:'switch.ladepumpe'}),
+    n('ww','dhw_tank'),n('haus','heating_circuit')
+  ],connections:[
+    e('hack_vl','hackgut','flow','puffer','top_in'),
+    e('hack_rl','puffer','bottom_out','hackgut','return'),
+    e('ww_p1','puffer','top_out','ladepumpe','in'),
+    e('ww_p2','ladepumpe','out','ww','coil_in'),
+    e('ww_rl','ww','coil_out','puffer','bottom_in'),
+    e('hk_vl','puffer','top_out','haus','flow_in'),
+    e('hk_rl','haus','return_out','puffer','bottom_in')
+  ]},
+  {name:'E Mehrfacherzeuger und drei Heizkreise',hc:3,components:[
+    n('waermepumpe','heat_pump'),n('oelkessel','oil_boiler'),n('holz','wood_gasifier'),
+    n('b1','buffer'),n('b2','buffer'),n('b3','buffer'),
+    n('hk1','heating_circuit'),n('hk2','heating_circuit',{}, {mixed:true}),
+    n('hk3','heating_circuit',{}, {mixed:true,emitter:'underfloor'}),
+    n('ww','dhw_tank'),n('ladepumpe','pump',{state:'switch.ladepumpe'})
+  ],connections:[
+    e('wp','waermepumpe','flow','b1','top_in'),
+    e('oil','oelkessel','flow','b1','mid_in'),
+    e('wood','holz','flow','b1','top_in'),
+    e('b1b2','b1','top_out','b2','top_in'),
+    e('b2b3','b2','top_out','b3','top_in'),
+    e('b3b2','b3','bottom_out','b2','bottom_in'),
+    e('b2b1','b2','bottom_out','b1','bottom_in'),
+    e('h1','b3','top_out','hk1','flow_in'),
+    e('r1','hk1','return_out','b3','bottom_in'),
+    e('h2','b3','top_out','hk2','flow_in'),
+    e('r2','hk2','return_out','b3','bottom_in'),
+    e('h3','b3','top_out','hk3','flow_in'),
+    e('r3','hk3','return_out','b3','bottom_in'),
+    e('wwp','b1','top_out','ladepumpe','in'),
+    e('wwl','ladepumpe','out','ww','coil_in'),
+    e('wwr','ww','coil_out','b1','bottom_in')
+  ]}
+];
+for(const scenario of scenarios){
+  const name=scenario.name,raw={components:scenario.components,connections:scenario.connections};
+  const plan=HPC_FREE.normalize(raw),model=HPC_INTEGRATED.layout(plan,scenario.hc);
+  const all=new Map([...model.anchored,...model.points]);
+  check(plan.components.length===raw.components.length &&
+    plan.connections.length===raw.connections.length,
+    name+': all components and real connections survive normalization');
+  check([...plan.components].every(node=>all.has(node.id)),
+    name+': every source, storage, consumer and control has a position');
+  check(![...all.values()].some(box=>
+    !Number.isFinite(box.x)||!Number.isFinite(box.y)||box.w<=0||box.h<=0),
+    name+': automatic placement has valid geometry');
+  const entries=[...all.entries()];
+  const collisions=[];
+  for(let i=0;i<entries.length;i++)for(let j=i+1;j<entries.length;j++){
+    const [aId,a]=entries[i],[bId,b]=entries[j];
+    if(a.x<b.x+b.w-6&&a.x+a.w>b.x+6&&
+      a.y+a.h>b.y+6&&a.y<b.y+b.h-6)
+      collisions.push(aId+' × '+bId);
+  }
+  check(collisions.length===0,name+': no overlapping components'+
+    (collisions.length?' ('+collisions.join(', ')+')':''));
+  const svg=HPC_INTEGRATED.svg(model,{states:{},locale:{language:'de'}});
+  check(typeof svg.body==='string'&&svg.body.includes('id="hpc-integrated"')&&
+    !/d="[^"]*NaN/.test(svg.body),name+': one valid original-style SVG without invalid pipe coordinates');
+  check(model.width>=1000&&model.height>=560,
+    name+': scalable viewBox respects original geometry and extensions');
+}
+const b=HPC_INTEGRATED.layout(HPC_FREE.normalize(scenarios[1]),2);
+check(b.points.get('puffer_2').x>b.anchored.get('puffer_1').x+
+  b.anchored.get('puffer_1').w,
+  'Series: second buffer follows the first buffer hot outlet');
+const d=HPC_INTEGRATED.layout(HPC_FREE.normalize(scenarios[3]),1);
+check(d.points.get('ww').x>d.anchored.get('puffer').x+400&&
+  d.points.get('ladepumpe').inline===true,
+  'ETA: WW coil and its small pump sit in consumer-side flow path');
+const ecase=HPC_INTEGRATED.layout(HPC_FREE.normalize(scenarios[4]),3);
+check(ecase.points.get('b3').y>ecase.anchored.get('hk3').y+
+  ecase.anchored.get('hk3').h,
+  'Large installations: series buffer extension clears all native radiators');
+const result=document.querySelector('#result');
+result.textContent=notes.every(n=>n.startsWith('OK'))?'PASS':'FAIL';
+document.querySelector('#log').textContent=notes.join('\n');
+</script></body></html>

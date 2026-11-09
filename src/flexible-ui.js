@@ -83,6 +83,25 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       if(!this._hass||!p?.components.length)return;
       const svg=this._$('svg');if(!svg)return;
       const model=HPC_INTEGRATED.layout(p,this._hcCount||1);
+      // The original hot-water tank remains in use for direct generator
+      // charging. A coil loaded from the buffer is rendered in the consumer
+      // column using the exact same tank pictogram, not twice.
+      const nativeDhw=svg.querySelector('rect.tank[x="520"][y="40"]')?.closest('g.tap');
+      if(nativeDhw){
+        nativeDhw.style.display=p.components.some(n=>
+          n.type==='dhw_tank'&&model.anchored.has(n.id))?'':'none';
+      }
+      // An explicit graph with no heating circuits must not inherit the
+      // original demo's first radiator. Keep original heater art otherwise.
+      if(!p.components.some(n=>n.type==='heating_circuit')){
+        const unusedCircuit=svg.querySelector('#p-hc-vl')?.closest('g[transform]');
+        if(unusedCircuit)unusedCircuit.style.display='none';
+      }
+      // The original heat-pump layout has a fixed illustrative 3-way valve.
+      // In explicit graph mode it would be a duplicate (or an invented valve).
+      // Use only the user's configured changeover component instead.
+      const inheritedValve=svg.querySelector('#valve-arrow')?.closest('g.tap');
+      if(inheritedValve)inheritedValve.style.display='none';
       const ids=new Set();
       for(const n of p.components){
         Object.values(n.sensors||{}).forEach(id=>{if(id)ids.add(id);});
@@ -343,9 +362,23 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     }
     _applyPlan(plan,extra={},options={}){
       const current=this._config||{};
+      const normalized=HPC_FREE.normalize(plan);
+      const previouslySaved=current.plan;
+      // Do not let an editor action silently erase a component or connection
+      // whose type/port comes from a newer extension or an older schema.
+      const hasLostEntries=source=>source&&(
+        Array.isArray(source.components)&&HPC_FREE.normalize(source).components.length!==source.components.length||
+        Array.isArray(source.connections)&&HPC_FREE.normalize(source).connections.length!==source.connections.length);
+      if(hasLostEntries(previouslySaved)||hasLostEntries(plan)){
+        this._migrationWarnings=[
+          'Nicht unterstützte Bauteile oder Leitungen erkannt. Die bestehende Konfiguration bleibt unverändert.'
+        ];
+        this._renderFlex();
+        return;
+      }
       // Always record the schema version for a saved graph. The migration
       // snapshot is kept unchanged, so rollback remains possible.
-      this._save({...current,...extra,plan:HPC_FREE.normalize(plan),
+      this._save({...current,...extra,plan:normalized,
         hpc_schema_version:HPC_MIGRATION.VERSION},options);
     }
     _legacyPlan(){
@@ -551,6 +584,22 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               ['column',t('Gliederheizkörper','Column radiators')]]
               .map(([id,label])=>`<option value="${id}" ${(selected.options?.emitter||'radiator')===id?'selected':''}>${label}</option>`).join('')}
           </select></label>`:""}
+        ${selected.type==="diverter"?`<div class="hpc-ems">
+           <strong>${t("Umschaltventil","Changeover valve")}</strong>
+           <p>${t("Lege fest, an welchem Ventilausgang die Warmwasserladung angeschlossen ist. Ohne eindeutig zugeordneten Ventilzustand bleibt der Fluss in beiden Abgängen inaktiv.","Choose the DHW outlet. Without an unambiguous valve state both outlets remain without flow animation.")}</p>
+           <label class="hpc-field">${t("Warmwasser-Ausgang","DHW outlet")}
+             <select data-diverter-port="${esc(selected.id)}">
+               <option value="a" ${selected.options?.dhw_port!=='b'?'selected':''}>A</option>
+               <option value="b" ${selected.options?.dhw_port==='b'?'selected':''}>B</option>
+             </select></label>
+           <label class="hpc-field">${t("Ventilwert für Warmwasser","Valve value for DHW")}
+             <input data-diverter-dhw="${esc(selected.id)}" maxlength="60"
+               value="${esc(selected.options?.dhw_state||'')}" placeholder="WW"/></label>
+           <label class="hpc-field">${t("Ventilwert für Heizen","Valve value for heating")}
+             <input data-diverter-heating="${esc(selected.id)}" maxlength="60"
+               value="${esc(selected.options?.heating_state||'')}" placeholder="Heizen"/></label>
+           <p>${t("Bei Zahlenwerten wie 0 oder 100 bitte beide tatsächlich gemessenen Ventilstellungen eintragen.","For numerical states such as 0 or 100, enter the actual measured valve values.")}</p>
+         </div>`:""}
         ${selected.type==="wood_chip_boiler"?`<label class="hpc-field">${t("ETA Kesselmodell","ETA boiler model")}
           <select data-eta-model="${esc(selected.id)}">
             ${[["ehack","ETA eHACK"],["hack","ETA HACK"],["hack_vr","ETA HACK VR"]]
@@ -935,11 +984,27 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           return this._applyPlan(HPC_FREE.sample(),{hpc_legacy_imported:true});
         }
         if(action==="add-component"){
-          // Adding a component must never silently import classic entities
-          // or replace a previously saved plan without a migration preview.
-          const node=HPC_FREE.newNode(root.querySelector("#hpc-free-type")?.value,p);
-          if(!node)return;this._selectedId=node.id;
-          return this._applyPlan({components:[...p.components,node],connections:p.connections});
+          // An empty graph may coexist with an older, already configured card.
+          // Preserve those generators, tanks and entities when the user chooses
+          // the explicit "add component" action. Never fabricate pipework.
+          const legacyFields=this._config?.generator_type||
+            this._config?.boiler_type||this._config?.buffer===true||
+            Number(this._config?.hc_count)>0||
+            Object.values(this._config?.entities||{}).some(Boolean);
+          const imported=!p.components.length&&legacyFields
+            ?HPC_MIGRATION.upgrade(this._config,{classic:true}):null;
+          const base=imported?.changed?imported.config.plan:p;
+          const node=HPC_FREE.newNode(root.querySelector("#hpc-free-type")?.value,base);
+          if(!node)return;
+          this._selectedId=node.id;
+          const retained=imported?.changed?{
+            hpc_migration_backup:imported.config.hpc_migration_backup,
+            hpc_migration_notes:imported.config.hpc_migration_notes,
+            hpc_migration_review:imported.config.hpc_migration_review,
+            hpc_legacy_imported:true
+          }:{};
+          return this._applyPlan({components:[...base.components,node],
+            connections:base.connections},retained);
         }
         if(action==="remove-component"&&selected){
           this._selectedId=null;
@@ -1012,6 +1077,21 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(['Gaskessel','Gas boiler'].includes(node.name))node.name='Ölkessel';
         node.options={boiler_kind:node.options?.boiler_kind||'standard'};
         // Shared flow/return ports and existing sensor assignments survive.
+      });
+      fieldUpdate('[data-diverter-port]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.diverterPort);
+        if(node?.type==='diverter')node.options={...node.options,
+          dhw_port:el.value==='b'?'b':'a'};
+      });
+      fieldUpdate('[data-diverter-dhw]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.diverterDhw);
+        if(node?.type==='diverter')node.options={...node.options,
+          dhw_state:el.value.slice(0,60)};
+      });
+      fieldUpdate('[data-diverter-heating]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.diverterHeating);
+        if(node?.type==='diverter')node.options={...node.options,
+          heating_state:el.value.slice(0,60)};
       });
       fieldUpdate('[data-wp-style]',(plan,el)=>{
         const node=plan.components.find(c=>c.id===el.dataset.wpStyle);

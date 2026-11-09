@@ -8,7 +8,7 @@
  *
  * https://github.com/Sturmi77/heatpump-hydraulic-card · MIT License
  */
-const HFC_VERSION = '0.2.0-alpha.5';
+const HFC_VERSION = '0.2.0-alpha.6';
 // Derivative of Heat Pump Hydraulic Card (MIT, Sturmi77). Keep its engine reusable.
 const HPC_GENERATORS = ['heat_pump', 'wood_gasifier', 'oil', 'pellet', 'gas', 'electric'];
 const HPC_BOILERS = HPC_GENERATORS.slice(1);
@@ -7539,18 +7539,18 @@ class HeatpumpFlowCardEditor extends HTMLElement {
 // Free hydraulic plan: component graph, SVG rendering and editor, isolated from legacy mode.
 const HPC_FREE = (function makeFreeHelpers() {
   const types = [
-    {type:"wood_gasifier",de:"Holzvergaser",en:"Wood gasifier",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","mixer"],ports:["flow:R:.25","return:L:.75"]},
-    {type:"oil_boiler",de:"Ölkessel",en:"Oil boiler",group:"source",fields:["state","flow","return","power","pump","starts"],ports:["flow:R:.25","return:L:.75","dhw:R:.56"]},
-    {type:"pellet_boiler",de:"Pelletkessel",en:"Pellet boiler",group:"source",fields:["state","flow","return","exhaust","pump","fuel_level"],ports:["flow:R:.25","return:L:.75"]},
-    {type:"wood_chip_boiler",de:"ETA Hackschnitzelkessel",en:"ETA Wood-chip boiler",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","fuel_feed","ash_removal","fuel_level","particle_state","particle_voltage","particle_current"],ports:["flow:R:.25","return:L:.75"]},
-    {type:"gas_boiler",de:"Gaskessel",en:"Gas boiler",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
-    {type:"heat_pump",de:"Wärmepumpe",en:"Heat pump",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"wood_gasifier",de:"Holzvergaser",en:"Wood gasifier",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","mixer","volume"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"oil_boiler",de:"Ölkessel",en:"Oil boiler",group:"source",fields:["state","flow","return","power","pump","starts","volume"],ports:["flow:R:.25","return:L:.75","dhw:R:.56"]},
+    {type:"pellet_boiler",de:"Pelletkessel",en:"Pellet boiler",group:"source",fields:["state","flow","return","exhaust","pump","fuel_level","volume"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"wood_chip_boiler",de:"ETA Hackschnitzelkessel",en:"ETA Wood-chip boiler",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","fuel_feed","ash_removal","fuel_level","particle_state","particle_voltage","particle_current","volume"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"gas_boiler",de:"Gaskessel",en:"Gas boiler",group:"source",fields:["state","flow","return","power","pump","volume"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"heat_pump",de:"Wärmepumpe",en:"Heat pump",group:"source",fields:["state","flow","return","power","pump","volume"],ports:["flow:R:.25","return:L:.75"]},
     {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:L:.8","return_in:L:.8","bottom_out:R:.8"]},
     {type:"dhw_tank",de:"Warmwasserspeicher",en:"Hot-water tank",group:"storage",fields:["top","middle","bottom"],ports:["coil_in:L:.28","coil_out:L:.74","hot_out:R:.24","cold_in:R:.78"]},
-    {type:"heating_circuit",de:"Heizkreis (gemischt/ungemischt)",en:"Heating circuit",group:"load",fields:["flow","return","target","pump","mixer","mixer_opening","mixer_closing"],ports:["flow_in:L:.25","return_out:L:.75"]},
+    {type:"heating_circuit",de:"Heizkreis (gemischt/ungemischt)",en:"Heating circuit",group:"load",fields:["flow","return","target","pump","volume","mixer","mixer_opening","mixer_closing"],ports:["flow_in:L:.25","return_out:L:.75"]},
     {type:"pump",de:"Umwälzpumpe",en:"Circulation pump",group:"control",fields:["state","power","volume"],ports:["in:L:.5","out:R:.5"]},
     {type:"mixer",de:"3-Wege-Mischer / Rücklaufanhebung",en:"3-way mixing valve",group:"control",fields:["position","state"],ports:["a:L:.25","b:L:.75","ab:R:.5"]},
-    {type:"diverter",de:"3-Wege-Umschaltventil",en:"3-way diverter valve",group:"control",fields:["position","state"],ports:["a:L:.25","b:L:.75","ab:R:.5"]},
+    {type:"diverter",de:"3-Wege-Umschaltventil",en:"3-way diverter valve",group:"control",fields:["position","state"],ports:["a:R:.25","b:R:.75","ab:L:.5"]},
     {type:"electric_heater",de:"Heizstab / Heizregister",en:"Electric heater",group:"control",fields:["state","power","flow","target"],ports:["in:L:.5","out:R:.5"]},
     // The electrostatic filter belongs to the flue-gas path, NOT the water circuit.
     {type:"particle_separator",de:"Elektrostatischer Partikelabscheider",en:"Electrostatic particle separator",group:"control",fields:["state","voltage","current"],ports:[]},
@@ -7610,10 +7610,14 @@ const HPC_FREE = (function makeFreeHelpers() {
       const index=counters[group]||0;counters[group]=index+1;
       const defaults={source:75,control:365,storage:635,load:910};
       const coord=(v,d) => Number.isFinite(v)&&v>=0&&v<=7000?Math.round(v):d;
-      const sensors={};
+      // Retain extension-specific sensor roles on round-trip. Known fields
+      // still use strict Home Assistant entity validation.
+      const sensors=n.sensors&&typeof n.sensors==="object"&&!Array.isArray(n.sensors)
+        ?{...n.sensors}:{};
       for(const key of byType[n.type].fields){
         const id=n.sensors?.[key];
         if(typeof id==="string"&&entityRx.test(id))sensors[key]=id;
+        else delete sensors[key];
       }
       // Heights are measured from the top of the tank, 0..100 %. Arbitrarily
       // many additional sensor points can be inserted between the fixed legacy slots.
@@ -7639,6 +7643,10 @@ const HPC_FREE = (function makeFreeHelpers() {
           ?{eta_model:["ehack","hack","hack_vr"].includes(n.options?.eta_model)?n.options.eta_model:"ehack",
             particle_separator:n.options?.particle_separator===true,
             silo:n.options?.silo===true}
+        :n.type==="diverter"
+          ?{dhw_port:n.options?.dhw_port==="b"?"b":"a",
+            dhw_state:typeof n.options?.dhw_state==="string"?n.options.dhw_state.slice(0,60):"",
+            heating_state:typeof n.options?.heating_state==="string"?n.options.heating_state.slice(0,60):""}
         :n.type==="heating_circuit"
           ?{emitter:HFC_EMITTERS.includes(n.options?.emitter)?n.options.emitter:"radiator",
             mixed:typeof n.options?.mixed==="boolean"?n.options.mixed:
@@ -7662,8 +7670,9 @@ const HPC_FREE = (function makeFreeHelpers() {
         ["ems-esp","eta","eta-system"].includes(n.discovery?.provider)&&
         /^[a-zA-Z0-9._:\/-]{1,150}$/.test(n.discovery.id)
         ?{provider:n.discovery.provider,id:n.discovery.id}:undefined;
-      components.push({id:n.id,type:n.type,name:String(n.name||display(n.type)).slice(0,75),
-        x:coord(n.x,defaults[group]),y:coord(n.y,70+index*(group==="storage"?240:180)),sensors,level_sensors,options,
+      components.push({...n,id:n.id,type:n.type,name:String(n.name||display(n.type)).slice(0,75),
+        x:coord(n.x,defaults[group]),y:coord(n.y,70+index*(group==="storage"?240:180)),
+        sensors,level_sensors,options:{...(n.options&&typeof n.options==="object"?n.options:{}),...options},
         ...(discovery?{discovery}:{})});
     }
     const byId=Object.fromEntries(components.map(c=>[c.id,c]));
@@ -7678,7 +7687,7 @@ const HPC_FREE = (function makeFreeHelpers() {
       if(e.from===e.to||!ports(byId[e.from].type).some(p=>p.id===e.from_port)||
          !ports(byId[e.to].type).some(p=>p.id===toPort))continue;
       edgeIds.add(e.id);
-      connections.push({id:e.id,from:e.from,from_port:e.from_port,to:e.to,to_port:toPort,
+      connections.push({...e,id:e.id,from:e.from,from_port:e.from_port,to:e.to,to_port:toPort,
         flow_entity:entityRx.test(e.flow_entity||"")?e.flow_entity:"",
         temperature_entity:entityRx.test(e.temperature_entity||"")?e.temperature_entity:""});
     }
@@ -7762,6 +7771,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     if(control&&!newNode)return null;
     if(newNode){
       newNode.name=(kind==='pump'?'WW-Ladepumpe ':'WW-Umschaltventil ')+tank.name;
+      if(kind==='diverter')newNode.options={dhw_port:'a',dhw_state:'',heating_state:''};
       plan.components.push(newNode);
     }
     const supplyPort=source.type==='buffer'?'top_out':source.type==='oil_boiler'?'dhw':'flow';
@@ -8055,7 +8065,7 @@ const HPC_FREE = (function makeFreeHelpers() {
 // All operations are pure until the editor emits a single config-changed event.
 // Unknown topology is never discarded or fabricated.
 const HPC_MIGRATION = (() => {
-  const VERSION=2;
+  const VERSION=3;
   const clone=x=>JSON.parse(JSON.stringify(x));
   const sourceTypes={wood_gasifier:'wood_gasifier',oil:'oil_boiler',
     pellet:'pellet_boiler',wood_chip_boiler:'wood_chip_boiler',
@@ -8081,8 +8091,12 @@ const HPC_MIGRATION = (() => {
         continue;
       }
       ids.add(n.id);
+      // Empty optional selectors are a normal older editor state, not a
+      // lost sensor. Unknown keys and genuinely invalid identifiers still
+      // block automatic rewriting.
       for(const [key,value] of Object.entries(n.sensors||{}))
-        if(!HPC_FREE.byType[n.type].fields.includes(key)||!validEntity(value))
+        if(!HPC_FREE.byType[n.type].fields.includes(key)||
+          (value!==''&&value!==null&&!validEntity(value)))
           warnings.push('Sensorzuordnung an '+n.id+' benötigt eine manuelle Prüfung.');
       if(n.level_sensors!==undefined&&!Array.isArray(n.level_sensors))
         warnings.push('Fühlerliste an '+n.id+' muss geprüft werden.');
@@ -8107,6 +8121,7 @@ const HPC_MIGRATION = (() => {
       if(n.options&&typeof n.options==='object'){
         const supported={dhw_tank:['connection_style'],
           wood_gasifier:['return_lift'],wood_chip_boiler:['eta_model','particle_separator','silo'],
+          diverter:['dhw_port','dhw_state','heating_state'],
           heating_circuit:['emitter','mixed'],pellet_boiler:['boiler_kind','silo'],
           oil_boiler:['boiler_kind'],gas_boiler:['boiler_kind'],
           heat_pump:['unit_style','unit_size','source_type']}[n.type]||[];
@@ -8127,6 +8142,15 @@ const HPC_MIGRATION = (() => {
       if(e&&(e.flow_entity&&!validEntity(e.flow_entity)||
         e.temperature_entity&&!validEntity(e.temperature_entity)))
         warnings.push('Eine Leitungsentität ist ungültig.');
+    }
+    // A legacy tank with only one side of the heating coil wired cannot be
+    // auto-converted into a complete circuit. Preserve the partial topology.
+    for (const tank of components.filter(n => n?.type === 'dhw_tank')) {
+      const feeds = connections.filter(e => e?.to === tank.id && e.to_port === 'coil_in');
+      const returns = connections.filter(e => e?.from === tank.id && e.from_port === 'coil_out');
+      if (feeds.length !== returns.length || feeds.length > 1)
+        warnings.push('Warmwasserspeicher ' + tank.id +
+          ': Heizwendel-Anschlüsse sind nicht eindeutig. Bitte Verschaltung prüfen.');
     }
     return [...new Set(warnings)];
   }
@@ -8188,7 +8212,7 @@ const HPC_MIGRATION = (() => {
     if(!classic&&Number(config.hpc_schema_version)>VERSION)
       return {changed:false,config,warnings:['Diese Konfiguration stammt aus einer neueren Version.']};
     if(!classic&&config.hpc_schema_version===VERSION)
-      return {changed:false,config,warnings:[]};
+      return {changed:false,config,warnings:check(config.plan)};
     const warnings=classic?[]:check(config.plan);
     if(warnings.length)return {changed:false,blocked:true,config,warnings};
     const result=classic?legacyPlan(config):{plan:HPC_FREE.normalize(config.plan),warnings:[]};
@@ -8216,6 +8240,346 @@ const HPC_MIGRATION = (() => {
   return {VERSION,check,legacyPlan,upgrade,restore};
 })();
 
+// Shared hydraulic topology, pipe routing and flow-state evaluation.
+// The original card still owns its artwork. This module owns hydraulic decisions.
+const HPC_NETWORK = (() => {
+  const isSource = node => HPC_FREE.byType[node?.type]?.group === 'source';
+
+  function graph(plan) {
+    const nodes = new Map(plan.components.map(node => [node.id, node]));
+    const incoming = new Map(plan.components.map(node => [node.id, []]));
+    const outgoing = new Map(plan.components.map(node => [node.id, []]));
+    const adjacent = new Map(plan.components.map(node => [node.id, []]));
+    for (const edge of plan.connections) {
+      if (!nodes.has(edge.from) || !nodes.has(edge.to)) continue;
+      incoming.get(edge.to).push(edge);
+      outgoing.get(edge.from).push(edge);
+      adjacent.get(edge.from).push({ edge, neighbor: edge.to });
+      adjacent.get(edge.to).push({ edge, neighbor: edge.from });
+    }
+    return { nodes, incoming, outgoing, adjacent };
+  }
+
+  // A physically connected top outlet -> top inlet establishes buffer order.
+  // The lower return runs in the opposite direction and must not reorder tanks.
+  function orderedBuffers(plan) {
+    const buffers = plan.components.filter(n => n.type === 'buffer');
+    const bufferIds = new Set(buffers.map(n => n.id));
+    const next = new Map(buffers.map(n => [n.id, []]));
+    const indegree = new Map(buffers.map(n => [n.id, 0]));
+    for (const e of plan.connections) {
+      if (!bufferIds.has(e.from) || !bufferIds.has(e.to) ||
+          e.from_port !== 'top_out' || e.to_port !== 'top_in') continue;
+      if (next.get(e.from).includes(e.to)) continue;
+      next.get(e.from).push(e.to);
+      indegree.set(e.to, indegree.get(e.to) + 1);
+    }
+    const order = new Map(buffers.map((n, i) => [n.id, i]));
+    const sorted = [], queue = buffers.filter(n => indegree.get(n.id) === 0);
+    while (queue.length) {
+      queue.sort((a, b) => order.get(a.id) - order.get(b.id));
+      const current = queue.shift();
+      sorted.push(current);
+      for (const id of next.get(current.id)) {
+        indegree.set(id, indegree.get(id) - 1);
+        if (indegree.get(id) === 0) queue.push(buffers.find(n => n.id === id));
+      }
+    }
+    // A cycle is invalid as a series, but it must never lose a tank.
+    return [...sorted, ...buffers.filter(n => !sorted.includes(n))];
+  }
+
+
+  // The state of a three-way changeover valve is not a pump signal.
+  // 0%/100% is manufacturer-specific, so it is only interpreted when the
+  // installer explicitly configures its corresponding text/value.
+  function diverterActivePort(node, hass) {
+    if (node?.type !== 'diverter') return null;
+    const sensor=node.sensors?.position;
+    const reading=sensor?HPC_FREE.state(hass,sensor):null;
+    if (!reading) return null;
+    const value=reading.text.trim().toLowerCase();
+    const dhwPort=node.options?.dhw_port==='b'?'b':'a';
+    const other=dhwPort==='a'?'b':'a';
+    const dhwState=String(node.options?.dhw_state||'').trim().toLowerCase();
+    const heatingState=String(node.options?.heating_state||'').trim().toLowerCase();
+    if (dhwState && value===dhwState) return dhwPort;
+    if (heatingState && value===heatingState) return other;
+    if (['dhw','ww','warmwasser','hot water','domestic hot water'].includes(value))
+      return dhwPort;
+    if (['heat','heating','heizen','heizkreis','heizbetrieb'].includes(value))
+      return other;
+    return null;
+  }
+
+  function flowStates(plan, hass) {
+    const { nodes, incoming, outgoing, adjacent } = graph(plan);
+    const flowing = new Set();
+    const state = id => id ? HPC_FREE.state(hass, id) : null;
+    const measured = id => {
+      const reading = state(id);
+      if (!reading) return null;
+      if (reading.number !== null) return reading.number > 0;
+      return HPC_FREE.active(reading);
+    };
+    const mappedFlow = edge => edge.flow_entity ? measured(edge.flow_entity) : null;
+    const valvePortOpen = edge => {
+      for (const [id,port] of [[edge.from,edge.from_port],[edge.to,edge.to_port]]) {
+        const node=nodes.get(id);
+        if (node?.type !== 'diverter' || port === 'ab') continue;
+        if (port !== 'a' && port !== 'b') continue;
+        if (diverterActivePort(node,hass) !== port) return false;
+      }
+      return true;
+    };
+    const pumpEntity = node => {
+      if (node.type === 'pump') return node.sensors?.state || node.sensors?.pump;
+      if (isSource(node) || node.type === 'heating_circuit') return node.sensors?.pump;
+      return null;
+    };
+    const pumpState = node => {
+      // A measured zero is stronger evidence than an on-command.
+      const volumeId = node.sensors?.volume;
+      const volumeState = state(volumeId);
+      if (volumeState?.number !== null && volumeState?.number <= 0) return false;
+      const reading = state(pumpEntity(node));
+      if (reading) return HPC_FREE.active(reading);
+      if (volumeState?.number > 0) return true;
+      return null;
+    };
+    const blocked = node => pumpState(node) === false;
+    const stoppedCharge = new Set(), stoppedReturn = new Set();
+
+    for (const tank of plan.components.filter(n => n.type === 'dhw_tank')) {
+      const feeders = (incoming.get(tank.id) || []).filter(e => e.to_port === 'coil_in');
+      const returns = (outgoing.get(tank.id) || []).filter(e => e.from_port === 'coil_out');
+      if (!feeders.length || !returns.length) continue;
+      const seen = new Set();
+      const stoppedSupply = id => {
+        if (seen.has(id)) return false;
+        seen.add(id);
+        const n = nodes.get(id);
+        if (!n || n.type === 'dhw_tank') return false;
+        if (blocked(n)) return true;
+        if (isSource(n) || n.type === 'heating_circuit') return false;
+        return (incoming.get(id) || []).some(e =>
+          !valvePortOpen(e) || mappedFlow(e) === false || stoppedSupply(e.from));
+      };
+      const stopped = feeders.some(e => !valvePortOpen(e) ||
+        mappedFlow(e) === false || stoppedSupply(e.from)) ||
+        returns.some(e => !valvePortOpen(e) || mappedFlow(e) === false);
+      if (!stopped) continue;
+      stoppedCharge.add(tank.id);
+      // Stop the coil's dedicated return only, not a shared heating collector.
+      const visit = (id, visited = new Set()) => {
+        if (visited.has(id)) return;
+        visited.add(id);
+        for (const edge of outgoing.get(id) || []) {
+          if (id === tank.id && edge.from_port !== 'coil_out') continue;
+          const next = nodes.get(edge.to);
+          if (!next) continue;
+          stoppedReturn.add(edge.id);
+          if (!isSource(next) && next.type !== 'dhw_tank' &&
+              next.type !== 'heating_circuit' &&
+              (adjacent.get(next.id) || []).length <= 2) visit(next.id, visited);
+        }
+      };
+      visit(tank.id);
+    }
+
+    const allowed = edge => valvePortOpen(edge) && mappedFlow(edge) !== false &&
+      !stoppedReturn.has(edge.id) &&
+      !stoppedCharge.has(edge.from) && !stoppedCharge.has(edge.to);
+
+    for (const edge of plan.connections)
+      if (mappedFlow(edge) === true && allowed(edge)) flowing.add(edge.id);
+
+    // A WW charging pump drives its own heating-coil loop. It is NOT proof
+    // that a parallel radiator without a running circuit pump also flows.
+    // Build the dedicated loop from the actual two coil ports, stopping at
+    // the reservoir/heat source instead of crossing into unrelated branches.
+    const chargingEdges = pump => {
+      if (pump.type !== 'pump') return null;
+      const out = outgoing.get(pump.id) || [];
+      const coils = out.filter(edge =>
+        edge.to_port === 'coil_in' && nodes.get(edge.to)?.type === 'dhw_tank');
+      if (!coils.length || coils.length !== out.length) return null;
+      const selected = new Set(coils.map(edge => edge.id));
+      const upstream = (id, seen = new Set()) => {
+        if (seen.has(id)) return;
+        seen.add(id);
+        for (const edge of incoming.get(id) || []) {
+          selected.add(edge.id);
+          const prev=nodes.get(edge.from);
+          if (prev && !isSource(prev) && prev.type !== 'buffer')
+            upstream(prev.id,seen);
+        }
+      };
+      const downstream = (id, seen = new Set()) => {
+        if (seen.has(id)) return;
+        seen.add(id);
+        for (const edge of outgoing.get(id) || []) {
+          if (id !== pump.id && nodes.get(id)?.type === 'dhw_tank' &&
+              edge.from_port !== 'coil_out') continue;
+          selected.add(edge.id);
+          const next=nodes.get(edge.to);
+          if (next && !isSource(next) && next.type !== 'buffer' &&
+              next.type !== 'dhw_tank')
+            downstream(next.id,seen);
+        }
+      };
+      upstream(pump.id);
+      for (const coil of coils) downstream(coil.to);
+      return selected;
+    };
+
+    for (const pump of plan.components.filter(n => pumpState(n) === true)) {
+      const queue = [pump.id], visited = new Set();
+      const dedicatedCircuit = chargingEdges(pump);
+      while (queue.length) {
+        const id = queue.shift();
+        if (visited.has(id)) continue;
+        visited.add(id);
+        for (const { edge, neighbor } of adjacent.get(id) || []) {
+          if (!allowed(edge) || dedicatedCircuit && !dedicatedCircuit.has(edge.id)) continue;
+          const next = nodes.get(neighbor);
+          if (!next || blocked(next)) continue;
+          flowing.add(edge.id);
+          // One pump is not evidence that an unrelated zone or boiler flows.
+          const otherUnmeteredCircuit = (isSource(next) || next.type === 'heating_circuit') &&
+            !pumpEntity(next) && !next.sensors?.volume && next.id !== pump.id;
+          if (!otherUnmeteredCircuit && !visited.has(neighbor)) queue.push(neighbor);
+        }
+      }
+    }
+    return flowing;
+  }
+
+  // One orthogonal router for every non-native SVG pipe. It uses actual ports,
+  // not the stored legacy X/Y values or assumptions based on a component name.
+  function route({ edge, fromNode, toNode, fromShape, toShape, p, q,
+                   fromSide, toSide, supplyTee = null, returnTee = null }) {
+    const h = (x, y) => String(x) + ' ' + String(y);
+    let d;
+    if (p.x > q.x + 8 || fromSide === 'L' || toSide === 'R') {
+      const farX = p.x + (fromSide === 'L' ? -36 : 38);
+      const entryX = q.x + (toSide === 'R' ? 36 : -36);
+      const laneY = p.y < q.y - 120
+        ? Math.max(fromShape.y + fromShape.h + 32, toShape.y - 32)
+        : p.y > q.y + 120
+        ? Math.min(fromShape.y - 32, toShape.y + toShape.h + 32)
+        : Math.max(fromShape.y + fromShape.h, toShape.y + toShape.h) + 38;
+      d = 'M' + h(p.x, p.y) + ' H' + farX + ' V' + laneY +
+        ' H' + entryX + ' V' + q.y + ' H' + q.x;
+    } else {
+      const mid = (p.x + q.x) / 2;
+      d = 'M' + h(p.x, p.y) + ' H' + mid + ' V' + q.y + ' H' + q.x;
+    }
+    // A direct left-to-right coil connection is routed on the existing
+    // supply level. The overhead bypass is needed only when approaching
+    // the physical left-hand coil inlet from the wrong side.
+    if (toNode.type === 'dhw_tank' && edge.to_port === 'coil_in' &&
+        (p.x >= q.x || fromSide === 'L')) {
+      const outsideX = Math.max(p.x + 36, toShape.x + toShape.w + 42);
+      const aboveY = Math.max(10, Math.min(toShape.y - 24, fromShape.y - 25, 16));
+      d = 'M' + h(p.x, p.y) + ' H' + outsideX + ' V' + aboveY +
+        ' H' + (q.x - 34) + ' V' + q.y + ' H' + q.x;
+    }
+    const bufferCoilReturn = fromNode.type === 'dhw_tank' &&
+      edge.from_port === 'coil_out' && toNode.type === 'buffer' &&
+      edge.to_port === 'bottom_in';
+    const bufferCoilSupply = fromNode.type === 'buffer' &&
+      toNode.type === 'pump' && toShape.inline &&
+      edge.from_port === 'top_out' && edge.to_port === 'in';
+    if (bufferCoilReturn && !returnTee) {
+      const below = Math.max(toShape.y + toShape.h + 32, fromShape.y + fromShape.h + 34);
+      d = 'M' + h(p.x, p.y) + ' H' + (p.x - 70) + ' V' + below +
+        ' H' + (q.x - 35) + ' V' + q.y + ' H' + q.x;
+    } else if (bufferCoilSupply && !supplyTee) {
+      const laneX = Math.min(q.x - 30, p.x + 35);
+      d = 'M' + h(p.x, p.y) + ' H' + laneX + ' V' + q.y + ' H' + q.x;
+    }
+    if (supplyTee) {
+      const viaX = Math.max(supplyTee.x, p.x + 20);
+      d = 'M' + h(p.x, p.y) + ' H' + viaX + ' V' + q.y +
+        ' H' + (q.x - 30) + ' H' + q.x;
+    } else if (returnTee) {
+      const below = toNode.type === 'buffer'
+        ? Math.max(toShape.y + toShape.h + 32, fromShape.y + fromShape.h + 34)
+        : Math.max(555, fromShape.y + fromShape.h + 35);
+      d = 'M' + h(p.x, p.y) + ' H' + (p.x - 70) + ' V' + below +
+        ' H' + (q.x - 35) + ' V' + q.y + ' H' + q.x;
+    }
+    return d;
+  }
+
+
+  // Split collinear routes into physical pipe segments. Shared supply and
+  // return headers are drawn exactly once; active branches illuminate only
+  // those segments for which a valid circulation path exists.
+  function mergeRoutes(routes) {
+    const all = [], grouped = new Map();
+    for (const [routeIndex, route] of routes.entries()) {
+      const tokens = route.d.match(/[MHV]|-?\d+(?:\.\d+)?/g) || [];
+      let x = 0, y = 0, segmentIndex = 0;
+      for (let i = 0; i < tokens.length;) {
+        const op = tokens[i++];
+        if (op === 'M') { x = Number(tokens[i++]); y = Number(tokens[i++]); continue; }
+        if (op !== 'H' && op !== 'V') throw Error('Unsupported pipe routing command');
+        const nx = op === 'H' ? Number(tokens[i++]) : x;
+        const ny = op === 'V' ? Number(tokens[i++]) : y;
+        const role = /^(?:return_out|coil_out|bottom_out|return)$/.test(route.edge.from_port) ||
+          /^(?:return|return_in|bottom_in)$/.test(route.edge.to_port) ? 'return' : 'flow';
+        if (Number.isFinite(nx) && Number.isFinite(ny) &&
+            Math.abs(nx-x)+Math.abs(ny-y)>0.001) {
+          const axis=op==='H'?'h':'v',fixed=op==='H'?y:x;
+          const from=op==='H'?x:y,to=op==='H'?nx:ny;
+          const key=role+'|'+axis+'|'+fixed.toFixed(3);
+          const segment={key,axis,fixed,from,to,low:Math.min(from,to),
+            high:Math.max(from,to),routeIndex,segmentIndex:segmentIndex++,active:route.on};
+          if (!grouped.has(key)) grouped.set(key,[]);
+          grouped.get(key).push(segment);
+          all.push(segment);
+        }
+        x=nx;y=ny;
+      }
+    }
+    const pieces=routes.map(()=>[]);
+    for (const [key,segments] of grouped) {
+      const boundaries=[...new Set(segments.flatMap(s=>[s.low,s.high]))].sort((a,b)=>a-b);
+      for (let i=1;i<boundaries.length;i++) {
+        const a=boundaries[i-1],b=boundaries[i];
+        if (b-a<0.001) continue;
+        const owners=segments.filter(s=>s.low<=a+0.001&&s.high>=b-0.001);
+        if (!owners.length) continue;
+        // The first user-defined connection owns the shared line segment.
+        // A hot and a cold header never share a physical segment identity.
+        owners.sort((a,b)=>a.routeIndex-b.routeIndex||a.segmentIndex-b.segmentIndex);
+        const owner=owners[0], forward=owner.to>=owner.from;
+        const start=forward?a:b, finish=forward?b:a;
+        const d=owner.axis==='h'
+          ?'M'+start+' '+owner.fixed+' H'+finish
+          :'M'+owner.fixed+' '+start+' V'+finish;
+        pieces[owner.routeIndex].push({
+          segmentIndex:owner.segmentIndex,
+          distance:Math.abs(start-owner.from),
+          d,active:owners.some(s=>s.active)
+        });
+      }
+    }
+    return new Map(routes.map((route,index)=>{
+      const sorted=pieces[index].sort((a,b)=>
+        a.segmentIndex-b.segmentIndex||a.distance-b.distance);
+      return [route.edge.id,{
+        pipe:sorted.map(s=>s.d).join(' '),
+        flow:sorted.filter(s=>s.active).map(s=>s.d).join(' ')
+      }];
+    }));
+  }
+
+  return { graph, orderedBuffers, diverterActivePort, flowStates, route, mergeRoutes };
+})();
+
 const HPC_INTEGRATED = (() => {
   const sources = new Set(['wood_gasifier','oil_boiler','pellet_boiler','wood_chip_boiler','gas_boiler','heat_pump']);
   const isSource = (node) => sources.has(node.type);
@@ -8223,11 +8587,24 @@ const HPC_INTEGRATED = (() => {
   function layout(plan, hcCount=1) {
     const p=HPC_FREE.normalize(plan), anchored=new Map();
     const firstSource=p.components.find(isSource);
-    const firstBuffer=p.components.find(c=>c.type==='buffer');
+    const firstBuffer=HPC_NETWORK.orderedBuffers(p)[0];
     const firstDhw=p.components.find(c=>c.type==='dhw_tank');
+    // A buffer-fed DHW coil is a consumer, not a second storage node in the
+    // central bank. Preserve the native tank placement for direct source
+    // charging; only relocated coils get the original tank pictogram in SVG.
+    const bufferFedTanks=new Set();
+    for(const tank of p.components.filter(n=>n.type==='dhw_tank')){
+      const feed=p.connections.find(e=>e.to===tank.id&&e.to_port==='coil_in');
+      const feeder=feed&&p.components.find(n=>n.id===feed.from);
+      const source=feeder&&['pump','diverter'].includes(feeder.type)
+        ?p.connections.find(e=>e.to===feeder.id)
+        :feed;
+      if(source&&p.components.some(n=>n.id===source.from&&n.type==='buffer'))
+        bufferFedTanks.add(tank.id);
+    }
     if(firstSource)anchored.set(firstSource.id,{x:50,y:190,w:240,h:235,type:'source'});
     if(firstBuffer)anchored.set(firstBuffer.id,{x:520,y:320,w:120,h:200,type:'buffer'});
-    if(firstDhw)anchored.set(firstDhw.id,{x:520,y:40,w:120,h:200,type:'dhw_tank'});
+    if(firstDhw&&!bufferFedTanks.has(firstDhw.id))anchored.set(firstDhw.id,{x:520,y:40,w:120,h:200,type:'dhw_tank'});
     p.components.filter(c=>c.type==='heating_circuit').slice(0,Math.min(hcCount,6))
       .forEach((c,index)=>anchored.set(c.id,{x:815,y:330+index*250,w:155,h:140,type:'heating_circuit'}));
     // Deterministic automatic layout: no manual X/Y placement is required.
@@ -8256,37 +8633,28 @@ const HPC_INTEGRATED = (() => {
     }
     // Discover the buffer sequence from the user's directed pipe connections.
     // This works regardless of the order in which buffers were added.
-    const orderedBuffers=byGroup.storage.filter(c=>c.type==='buffer');
-    const adjacency=new Map();
-    for(const edge of p.connections){
-      if(!adjacency.has(edge.from))adjacency.set(edge.from,[]);
-      adjacency.get(edge.from).push(edge.to);
-    }
-    const distances=new Map(),queue=firstBuffer?[firstBuffer.id]:[];
-    if(firstBuffer)distances.set(firstBuffer.id,0);
-    while(queue.length){
-      const from=queue.shift(),depth=distances.get(from);
-      for(const to of adjacency.get(from)||[]){
-        if(distances.has(to))continue;
-        distances.set(to,depth+1);
-        queue.push(to);
-      }
-    }
-    orderedBuffers.sort((a,b)=>(distances.get(a.id)??Infinity)-(distances.get(b.id)??Infinity));
+    const orderedBuffers=HPC_NETWORK.orderedBuffers(p).filter(n=>!anchored.has(n.id));
     const extraDhw=byGroup.storage.filter(c=>c.type==='dhw_tank');
     const storageStart=520;
-    // Continue the original storage bank directly underneath the native
-    // 120 x 200 buffer. Two more tanks fit between the source and radiator
-    // columns, avoiding both overlap and a 300 px empty gap.
-    const bufferStartY=555;
+    // Keep a true left-to-right tank sequence: the hot outlet of a previous
+    // buffer must face the next tank's left inlet. Position this extension
+    // below original heating circuits, otherwise the third tank could
+    // overlap an original radiator or its mixer.
+    const bottomHeating=330+(Math.max(1,Math.min(hcCount,6))-1)*250+140;
+    const bufferStartY=Math.max(555,bottomHeating+65);
     orderedBuffers.forEach((node,index)=>{
-      points.set(node.id,{x:520+(index%2)*160,
-        y:bufferStartY+Math.floor(index/2)*225,w:120,h:200,type:node.type});
+      points.set(node.id,{x:680+index*160,
+        y:bufferStartY,w:120,h:200,type:node.type});
     });
-    // Preserve the original DHW proportions as well.
-    extraDhw.forEach((node,index)=>{
-      points.set(node.id,{x:680+(index%2)*160,
-        y:40+Math.floor(index/2)*220,w:120,h:200,type:node.type});
+    // Buffer-fed WW coils belong to the consumer column, just like a heating
+    // circuit; all other tanks continue to use the original storage artwork.
+    let consumerTanks=0,otherTanks=0;
+    extraDhw.forEach(node=>{
+      const chargingFromBuffer=bufferFedTanks.has(node.id);
+      const index=chargingFromBuffer?consumerTanks++:otherTanks++;
+      points.set(node.id,chargingFromBuffer
+        ?{x:1040,y:300+index*225,w:120,h:200,type:node.type}
+        :{x:680+(index%2)*160,y:40+Math.floor(index/2)*220,w:120,h:200,type:node.type});
     });
     // WW charging devices sit next to their coil, not in a disconnected
     // column at the other end of the schematic. They are still real
@@ -8295,8 +8663,8 @@ const HPC_INTEGRATED = (() => {
       p.connections.some(e=>e.from===n.id&&
         p.components.some(t=>t.id===e.to&&t.type==='dhw_tank'&&e.to_port==='coil_in')));
     chargeControls.forEach((node,index)=>{
-      if(node.type==='pump'){
-        // A DHW charging pump belongs ON the coil supply pipe. Place its
+      if(['pump','diverter'].includes(node.type)){
+        // A DHW loading device belongs ON the coil supply pipe. Place its
         // 40px-wide symbol immediately before the coil inlet, not in a
         // separate 157×96px control tile overlapping the hot-water tank.
         const edge=p.connections.find(e=>e.from===node.id&&e.to_port==='coil_in');
@@ -8308,10 +8676,16 @@ const HPC_INTEGRATED = (() => {
           const feeder=p.connections.find(c=>c.to===node.id&&c.to_port==='in');
           const source=feeder&&p.components.find(c=>c.id===feeder.from);
           const sourceBox=source&&(anchored.get(source.id)||points.get(source.id));
-          const laneX=sourceBox?.type==='buffer'?sourceBox.x+sourceBox.w+80:
-            tankBox.x+220;
-          const laneY=sourceBox?.type==='buffer'?sourceBox.y-64:tankBox.y+250;
-          points.set(node.id,{x:laneX,y:laneY,w:40,h:40,type:'pump',inline:true});
+          // Pick a distinct piece of the actual charging supply for each
+          // tank. This also avoids placing two loading-pump icons on top of
+          // each other when a buffer has multiple DHW charging branches.
+          const laneX=sourceBox
+            ?Math.min(tankBox.x-80,sourceBox.x+sourceBox.w+80)
+            :tankBox.x-80;
+          const laneY=sourceBox?.type==='buffer'
+            ?Math.max(sourceBox.y+sourceBox.h*.2-20,tankBox.y+20)
+            :tankBox.y+20;
+          points.set(node.id,{x:laneX,y:laneY,w:40,h:40,type:node.type,inline:true});
           return;
         }
       }
@@ -8335,7 +8709,7 @@ const HPC_INTEGRATED = (() => {
   }
   function coreConfig(config) {
     const p=HPC_FREE.normalize(config.plan),src=p.components.find(isSource);
-    const buffer=p.components.find(c=>c.type==='buffer');
+    const buffer=HPC_NETWORK.orderedBuffers(p)[0];
     const dhw=p.components.find(c=>c.type==='dhw_tank');
     const circuits=p.components.filter(c=>c.type==='heating_circuit').slice(0,6);
     const types={wood_gasifier:'wood_gasifier',oil_boiler:'oil',pellet_boiler:'pellet',wood_chip_boiler:'pellet',
@@ -8405,9 +8779,13 @@ const HPC_INTEGRATED = (() => {
   }
   function port(node,shape,key) {
     if(shape.type==='source') {
-      if(key==='return')return{x:290,y:380};
-      if(key==='dhw')return{x:290,y:310};
-      return{x:290,y:250};
+      // Primary and additional heat sources share the original 240x235
+      // pictogram, but never the same absolute pipe ports. Otherwise all
+      // supplemental boilers accidentally connect at the first boiler.
+      const x=shape.x+shape.w;
+      if(key==='return')return{x,y:shape.y+190};
+      if(key==='dhw')return{x,y:shape.y+120};
+      return{x,y:shape.y+60};
     }
     if(shape.type==='buffer'){
       // Ports are defined by flow DIRECTION: every inlet is on the left,
@@ -8421,10 +8799,10 @@ const HPC_INTEGRATED = (() => {
       // The heat-exchanger circuit is on the LEFT. Domestic hot and cold
       // outlets belong on the RIGHT; never intersect the vessel internally.
       const positions={
-        coil_in:{x:520,y:80},coil_out:{x:520,y:215},
-        hot_out:{x:640,y:80},cold_in:{x:640,y:215}
+        coil_in:{x:shape.x,y:shape.y+40},coil_out:{x:shape.x,y:shape.y+175},
+        hot_out:{x:shape.x+shape.w,y:shape.y+40},cold_in:{x:shape.x+shape.w,y:shape.y+175}
       };
-      return positions[key]||{x:520,y:80};
+      return positions[key]||{x:shape.x,y:shape.y+40};
     }
     if(shape.type==='heating_circuit')return{x:shape.x,y:key==='return_out'?shape.y+135:shape.y+30};
     const def=HPC_FREE.ports(node.type).find(p=>p.id===key);
@@ -8459,107 +8837,9 @@ const HPC_INTEGRATED = (() => {
     return a.join('');
   }
   function flowStates(plan,hass) {
-    // Pipe animation is a *circuit* state, not an independent property of
-    // every line. An off DHW charging pump closes the supply AND the return of
-    // its coil, even when an unrelated heating pump is running elsewhere.
-    const nodes=Object.fromEntries(plan.components.map(c=>[c.id,c]));
-    const adjacent=new Map(plan.components.map(c=>[c.id,[]]));
-    const incoming=new Map(plan.components.map(c=>[c.id,[]]));
-    const outgoing=new Map(plan.components.map(c=>[c.id,[]]));
-    const flowing=new Set();
-    const mappedFlow=edge=>{
-      if(!edge.flow_entity)return null;
-      const state=HPC_FREE.state(hass,edge.flow_entity);
-      return state?HPC_FREE.active(state):null;
-    };
-    for(const edge of plan.connections){
-      adjacent.get(edge.from)?.push({edge,neighbor:edge.to});
-      adjacent.get(edge.to)?.push({edge,neighbor:edge.from});
-      incoming.get(edge.to)?.push(edge);
-      outgoing.get(edge.from)?.push(edge);
-    }
-    const pumpEntity=node=>{
-      if(node.type==='pump')return node.sensors.state||node.sensors.pump||node.sensors.volume;
-      if(isSource(node)||node.type==='heating_circuit')return node.sensors.pump;
-      return null;
-    };
-    const pumpState=node=>{
-      const id=pumpEntity(node);
-      const state=id&&HPC_FREE.state(hass,id);
-      return state?HPC_FREE.active(state):null;
-    };
-    const blocked=node=>pumpState(node)===false;
-    const stoppedChargeCircuits=new Set();
-    const stoppedReturnEdges=new Set();
-
-    for(const tank of plan.components.filter(node=>node.type==='dhw_tank')){
-      // Inspect *directed supply* going into the heating coil. Never walk
-      // backwards through the DHW return to find an unrelated source pump.
-      const feeders=(incoming.get(tank.id)||[]).filter(e=>e.to_port==='coil_in');
-      const visited=new Set();
-      const hasStoppedFeed=id=>{
-        if(visited.has(id))return false;
-        visited.add(id);
-        const node=nodes[id];
-        if(!node||node.type==='dhw_tank')return false;
-        if(blocked(node))return true;
-        // Heat sources are the beginning of the charging route. Other
-        // circuits sharing a return manifold must not influence the feed.
-        if(isSource(node)||node.type==='heating_circuit')return false;
-        return (incoming.get(id)||[]).some(edge=>hasStoppedFeed(edge.from));
-      };
-      if(!feeders.some(edge=>hasStoppedFeed(edge.from)))continue;
-      stoppedChargeCircuits.add(tank.id);
-      // Suppress the return leg until it rejoins a larger circuit. Pipes
-      // after a shared manifold may still correctly animate for heating.
-      const traceReturn=(id,seen=new Set())=>{
-        if(seen.has(id))return;
-        seen.add(id);
-        for(const edge of outgoing.get(id)||[]){
-          if(id===tank.id&&edge.from_port!=='coil_out')continue;
-          const next=nodes[edge.to];
-          if(!next)continue;
-          stoppedReturnEdges.add(edge.id);
-          const branches=(adjacent.get(next.id)||[]).length;
-          if(!isSource(next)&&next.type!=='dhw_tank'&&
-            next.type!=='heating_circuit'&&branches<=2)traceReturn(next.id,seen);
-        }
-      };
-      traceReturn(tank.id);
-    }
-
-    for(const edge of plan.connections){
-      if(mappedFlow(edge)===true&&!stoppedReturnEdges.has(edge.id)&&
-        !stoppedChargeCircuits.has(edge.from)&&
-        !stoppedChargeCircuits.has(edge.to))flowing.add(edge.id);
-    }
-    const activePumps=plan.components.filter(node=>pumpState(node)===true);
-    for(const pump of activePumps){
-      const queue=[pump.id],visited=new Set();
-      while(queue.length){
-        const id=queue.shift();
-        if(visited.has(id))continue;
-        visited.add(id);
-        for(const {edge,neighbor} of adjacent.get(id)||[]){
-          if(mappedFlow(edge)===false||stoppedReturnEdges.has(edge.id)||
-            stoppedChargeCircuits.has(edge.from)||stoppedChargeCircuits.has(edge.to))continue;
-          const next=nodes[neighbor];
-          if(!next||blocked(next))continue;
-          flowing.add(edge.id);
-          // Avoid treating a different heat generator or heating zone as
-          // evidence that its whole branch is flowing.
-          const unknownSource=(isSource(next)||next.type==='heating_circuit')
-            && pumpEntity(next)==null&&next.id!==pump.id;
-          if(!unknownSource&&!visited.has(neighbor))queue.push(neighbor);
-        }
-      }
-    }
-    return flowing;
+    return HPC_NETWORK.flowStates(plan,hass);
   }
 
-
-  // SVG artwork in the same coordinates and visual language as the original
-  // heat-source/puffer drawings. All geometry is our own, no ETA image assets.
   function chipArt(x,y,width,height,node,on) {
     // Original SVG artwork inspired by the supplied ETA reference: a silver
     // left service body, yellow door with recessed dark viewing chamber and
@@ -8738,115 +9018,65 @@ const HPC_INTEGRATED = (() => {
       // A return enters on the LEFT of the buffer, so do not place a fake
       // tee on the right-hand heating collector. Draw its real return route.
     }
-    const links=plan.connections.map(edge=>{
-      // Original heating circuits own their valve, emitter and shared risers.
-      // Do not draw duplicate pipes over those native routes. Connections to
-      // additional (non-native) components still have to be drawn normally.
+    const routeRecords=plan.connections.map(edge=>{
+      // The original circuit artwork already contains its shared risers,
+      // valves and radiators. Only supplemental routes need drawing.
       if((all[edge.from]?.type==='heating_circuit'||
           all[edge.to]?.type==='heating_circuit')&&
-          anchored.has(edge.from)&&anchored.has(edge.to))return '';
-      // Draw only routes not already owned by the original heating circuits.
+          anchored.has(edge.from)&&anchored.has(edge.to))return null;
       const fromShape=loc(edge.from),toShape=loc(edge.to);
+      if(!fromShape||!toShape)return null;
       const p=port(all[edge.from],fromShape,edge.from_port);
       const q=port(all[edge.to],toShape,edge.to_port);
-      let d;
       const fromSide=portSide(all[edge.from],fromShape,edge.from_port);
       const toSide=portSide(all[edge.to],toShape,edge.to_port);
-      if(p.x>q.x+8||fromSide==='L'||toSide==='R'){
-        // Always leave and enter a vessel on the physical port side.
-        // A heat-exchanger outlet on the LEFT must not traverse the tank.
-        const farX=p.x+(fromSide==='L'?-36:38);
-        const entryX=q.x+(toSide==='R'?36:-36);
-        const laneY=p.y<q.y-120
-          ?Math.max(fromShape.y+fromShape.h+32,toShape.y-32)
-          :p.y>q.y+120
-          ?Math.min(fromShape.y-32,toShape.y+toShape.h+32)
-          :Math.max(fromShape.y+fromShape.h,toShape.y+toShape.h)+38;
-        d='M'+p.x+' '+p.y+' H'+farX+' V'+laneY+' H'+entryX+' V'+q.y+' H'+q.x;
-      }else{
-        const mid=(p.x+q.x)/2;
-        d='M'+p.x+' '+p.y+' H'+mid+' V'+q.y+' H'+q.x;
-      }
-      // The coil is always entered from its left side, using an overhead
-      // routing lane. Do not cross through the tank or a pump symbol.
-      if(all[edge.to]?.type==='dhw_tank'&&edge.to_port==='coil_in'){
-        const outsideX=Math.max(p.x+36,toShape.x+toShape.w+42);
-        const aboveY=Math.max(10,Math.min(toShape.y-24,fromShape.y-25,16));
-        const entryX=q.x-34;
-        d='M'+p.x+' '+p.y+' H'+outsideX+' V'+aboveY+
-          ' H'+entryX+' V'+q.y+' H'+q.x;
-      }
-      // Take the WW branch off the common header at a T fitting, just
-      // like another heating circuit. The coil inlet/outlet remain on the
-      // left; no pipe may cross the tank or create a second parallel header.
       const supplyTee=supplyTees.get(edge.id);
       const returnTee=returnTees.get(edge.id);
-      // The DHW coil is drawn above the buffer. A return to its right-hand
-      // collector must travel AROUND the vessel: never through the tank.
-      // Use the same outer pipe lane for charging pumps and their coil return.
-      const bufferCoilReturn=all[edge.from]?.type==='dhw_tank'&&
-        edge.from_port==='coil_out'&&all[edge.to]?.type==='buffer'&&
-        edge.to_port==='bottom_in';
-      const bufferCoilSupply=all[edge.from]?.type==='buffer'&&
-        all[edge.to]?.type==='pump'&&toShape.inline&&
-        edge.from_port==='top_out'&&edge.to_port==='in';
-      if(bufferCoilReturn&&!returnTee){
-        // A return enters the buffer on the LEFT. Take the coil outlet
-        // around the entire storage envelope rather than across the tank.
-        const exitX=p.x-70;
-        const below=Math.max(toShape.y+toShape.h+32,fromShape.y+fromShape.h+34);
-        const entryX=q.x-35;
-        d='M'+p.x+' '+p.y+' H'+exitX+' V'+below+
-          ' H'+entryX+' V'+q.y+' H'+q.x;
-      }else if(bufferCoilSupply&&!supplyTee){
-        // Source outlet -> inline pump input: all pipe pieces meet at the
-        // actual port centres (no hidden gap or pump bypass).
-        const laneX=Math.min(q.x-30,p.x+35);
-        d='M'+p.x+' '+p.y+' H'+laneX+' V'+q.y+' H'+q.x;
-      }
-      if(supplyTee){
-        // The tee only joins an actual header. Keep the horizontal segment
-        // from the buffer outlet and run the complete pipe through its pump.
-        const viaX=Math.max(supplyTee.x,p.x+20);
-        const entryX=q.x-30;
-        d='M'+p.x+' '+p.y+' H'+viaX+' V'+q.y+' H'+entryX+' H'+q.x;
-      }else if(returnTee){
-        // Join the actual left-hand return inlet, without a right-side
-        // collector pretending to be a buffer entry.
-        const exitX=p.x-70;
-        const bufferShape=all[edge.to]?.type==='buffer'?toShape:null;
-        const below=bufferShape?Math.max(bufferShape.y+bufferShape.h+32,fromShape.y+fromShape.h+34):
-          Math.max(555,fromShape.y+fromShape.h+35);
-        const entryX=q.x-35;
-        d='M'+p.x+' '+p.y+' H'+exitX+' V'+below+
-          ' H'+entryX+' V'+q.y+' H'+q.x;
-      }
-      const inferred=(()=>{
-        const node=all[edge.from],field=edge.from_port;
-        if(field==="flow")return node.sensors.flow;
-        if(field==="top_out")return node.sensors.top;
-        if(field==="mid_out")return node.sensors.middle;
-        if(field==="bottom_out")return node.sensors.bottom;
-        return "";
-      })();
-      const s=HPC_FREE.state(hass,edge.temperature_entity||inferred);
-      const color=s?HPC_FREE.color(s):null;
-      const on=flowing.has(edge.id);
-      // A visible T junction at both coil legs identifies this as a branch
-      // of the heating distribution. Do not animate it independently:
-      // the edge flow state still controls both legs.
-      const branch=branchFeedEdges.has(edge.id)||branchReturnEdges.has(edge.id);
-      const junction=supplyTee||returnTee;
-      const tee=junction?'<circle class="hpi-coil-branch" cx="'+junction.x+'" cy="'+junction.y+'" r="5" fill="var(--card-background-color,#fff)" stroke="'+(on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+'" stroke-width="2"/>':'';
-      return '<g class="hpi-link" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"><title>'+HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'
-        +'<path class="pipe'+(on?' on':'')+'" d="'+d+'"'+(color?' style="--pc:'+color+'"':'')+'/>'
-        +'<path class="flow'+(on?' on':'')+'" d="'+d+'"/>'+tee+'</g>';
+      const d=HPC_NETWORK.route({
+        edge,fromNode:all[edge.from],toNode:all[edge.to],
+        fromShape,toShape,p,q,fromSide,toSide,supplyTee,returnTee
+      });
+      const from=all[edge.from],field=edge.from_port;
+      const inferred=field==='flow'?from.sensors.flow:
+        field==='top_out'?from.sensors.top:
+        field==='mid_out'?from.sensors.middle:
+        field==='bottom_out'?from.sensors.bottom:'';
+      const reading=HPC_FREE.state(hass,edge.temperature_entity||inferred);
+      return {edge,d,on:flowing.has(edge.id),
+        color:reading?HPC_FREE.color(reading):null,
+        junction:supplyTee||returnTee};
+    }).filter(Boolean);
+    // Resolve all route overlaps together, rather than having every boiler,
+    // tank or heating circuit draw a second copy of the same collector.
+    const physicalPipes=HPC_NETWORK.mergeRoutes(routeRecords);
+    const links=routeRecords.map(({edge,on,color,junction})=>{
+      const paths=physicalPipes.get(edge.id)||{pipe:'',flow:''};
+      const tee=junction?'<circle class="hpi-coil-branch" cx="'+junction.x+
+        '" cy="'+junction.y+'" r="5" fill="var(--card-background-color,#fff)" stroke="'+
+        (on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+
+        '" stroke-width="2"/>':'';
+      return '<g class="hpi-link" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"><title>'+
+        HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'+
+        '<path class="pipe'+(paths.flow?' on':'')+'" d="'+paths.pipe+'"'+
+        (color?' style="--pc:'+color+'"':'')+'/>'+
+        '<path class="flow'+(paths.flow?' on':'')+'" d="'+paths.flow+'"/>'+tee+'</g>';
     }).join('');
     const nodes=extras.map(node=>{
       const b=points.get(node.id);if(!b)return '';
       const s=HPC_FREE.state(hass,node.sensors.state||node.sensors.pump);
       const on=HPC_FREE.active(s);
       const title=HPC_FREE.esc(node.name);
+      if(node.type==='diverter'&&b.inline){
+        const cx=b.x+b.w/2,cy=b.y+b.h/2;
+        const outlet=HPC_NETWORK.diverterActivePort(node,hass);
+        const label=outlet?outlet.toUpperCase():'?';
+        return '<g class="tap hpi-inline-diverter" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.position||'')+'">'
+          +'<title>'+title+'</title>'
+          +'<circle class="valve" cx="'+cx+'" cy="'+cy+'" r="20"/>'
+          +'<path class="valve-arrow" d="M'+(cx-12)+' '+cy+' H'+cx+' L'+(cx+10)+' '+(cy-10)+' M'+cx+' '+cy+' L'+(cx+10)+' '+(cy+10)+'"/>'
+          +'<text class="hpi-valve-port" x="'+(cx+23)+'" y="'+(cy-23)+'">'+label+'</text>'
+          +'</g>';
+      }
       if(node.type==='pump'&&b.inline){
         const cx=b.x+b.w/2,cy=b.y+b.h/2;
         // Keep the device interactive, including entity details, but do not
@@ -9056,8 +9286,8 @@ const HPC_INTEGRATED = (() => {
       ?'<g class="tap hpi-gas-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
         +additionalSourceArt('gas_boiler',{x:50,y:195},!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource)+'</g>'
       :'';
-    const firstBuffer=plan.components.find(c=>c.type==='buffer');
-    const firstDhw=plan.components.find(c=>c.type==='dhw_tank');
+    const firstBuffer=HPC_NETWORK.orderedBuffers(plan)[0];
+    const firstDhw=plan.components.find(c=>c.type==='dhw_tank'&&anchored.has(c.id));
     return {defs,body:'<g id="hpc-integrated">'+links+nodes+accessories+pipeLabels+lift+primaryChip+primaryOil+primaryGas+'</g>',
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
@@ -9428,6 +9658,25 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       if(!this._hass||!p?.components.length)return;
       const svg=this._$('svg');if(!svg)return;
       const model=HPC_INTEGRATED.layout(p,this._hcCount||1);
+      // The original hot-water tank remains in use for direct generator
+      // charging. A coil loaded from the buffer is rendered in the consumer
+      // column using the exact same tank pictogram, not twice.
+      const nativeDhw=svg.querySelector('rect.tank[x="520"][y="40"]')?.closest('g.tap');
+      if(nativeDhw){
+        nativeDhw.style.display=p.components.some(n=>
+          n.type==='dhw_tank'&&model.anchored.has(n.id))?'':'none';
+      }
+      // An explicit graph with no heating circuits must not inherit the
+      // original demo's first radiator. Keep original heater art otherwise.
+      if(!p.components.some(n=>n.type==='heating_circuit')){
+        const unusedCircuit=svg.querySelector('#p-hc-vl')?.closest('g[transform]');
+        if(unusedCircuit)unusedCircuit.style.display='none';
+      }
+      // The original heat-pump layout has a fixed illustrative 3-way valve.
+      // In explicit graph mode it would be a duplicate (or an invented valve).
+      // Use only the user's configured changeover component instead.
+      const inheritedValve=svg.querySelector('#valve-arrow')?.closest('g.tap');
+      if(inheritedValve)inheritedValve.style.display='none';
       const ids=new Set();
       for(const n of p.components){
         Object.values(n.sensors||{}).forEach(id=>{if(id)ids.add(id);});
@@ -9688,9 +9937,23 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     }
     _applyPlan(plan,extra={},options={}){
       const current=this._config||{};
+      const normalized=HPC_FREE.normalize(plan);
+      const previouslySaved=current.plan;
+      // Do not let an editor action silently erase a component or connection
+      // whose type/port comes from a newer extension or an older schema.
+      const hasLostEntries=source=>source&&(
+        Array.isArray(source.components)&&HPC_FREE.normalize(source).components.length!==source.components.length||
+        Array.isArray(source.connections)&&HPC_FREE.normalize(source).connections.length!==source.connections.length);
+      if(hasLostEntries(previouslySaved)||hasLostEntries(plan)){
+        this._migrationWarnings=[
+          'Nicht unterstützte Bauteile oder Leitungen erkannt. Die bestehende Konfiguration bleibt unverändert.'
+        ];
+        this._renderFlex();
+        return;
+      }
       // Always record the schema version for a saved graph. The migration
       // snapshot is kept unchanged, so rollback remains possible.
-      this._save({...current,...extra,plan:HPC_FREE.normalize(plan),
+      this._save({...current,...extra,plan:normalized,
         hpc_schema_version:HPC_MIGRATION.VERSION},options);
     }
     _legacyPlan(){
@@ -9896,6 +10159,22 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               ['column',t('Gliederheizkörper','Column radiators')]]
               .map(([id,label])=>`<option value="${id}" ${(selected.options?.emitter||'radiator')===id?'selected':''}>${label}</option>`).join('')}
           </select></label>`:""}
+        ${selected.type==="diverter"?`<div class="hpc-ems">
+           <strong>${t("Umschaltventil","Changeover valve")}</strong>
+           <p>${t("Lege fest, an welchem Ventilausgang die Warmwasserladung angeschlossen ist. Ohne eindeutig zugeordneten Ventilzustand bleibt der Fluss in beiden Abgängen inaktiv.","Choose the DHW outlet. Without an unambiguous valve state both outlets remain without flow animation.")}</p>
+           <label class="hpc-field">${t("Warmwasser-Ausgang","DHW outlet")}
+             <select data-diverter-port="${esc(selected.id)}">
+               <option value="a" ${selected.options?.dhw_port!=='b'?'selected':''}>A</option>
+               <option value="b" ${selected.options?.dhw_port==='b'?'selected':''}>B</option>
+             </select></label>
+           <label class="hpc-field">${t("Ventilwert für Warmwasser","Valve value for DHW")}
+             <input data-diverter-dhw="${esc(selected.id)}" maxlength="60"
+               value="${esc(selected.options?.dhw_state||'')}" placeholder="WW"/></label>
+           <label class="hpc-field">${t("Ventilwert für Heizen","Valve value for heating")}
+             <input data-diverter-heating="${esc(selected.id)}" maxlength="60"
+               value="${esc(selected.options?.heating_state||'')}" placeholder="Heizen"/></label>
+           <p>${t("Bei Zahlenwerten wie 0 oder 100 bitte beide tatsächlich gemessenen Ventilstellungen eintragen.","For numerical states such as 0 or 100, enter the actual measured valve values.")}</p>
+         </div>`:""}
         ${selected.type==="wood_chip_boiler"?`<label class="hpc-field">${t("ETA Kesselmodell","ETA boiler model")}
           <select data-eta-model="${esc(selected.id)}">
             ${[["ehack","ETA eHACK"],["hack","ETA HACK"],["hack_vr","ETA HACK VR"]]
@@ -10280,11 +10559,27 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           return this._applyPlan(HPC_FREE.sample(),{hpc_legacy_imported:true});
         }
         if(action==="add-component"){
-          // Adding a component must never silently import classic entities
-          // or replace a previously saved plan without a migration preview.
-          const node=HPC_FREE.newNode(root.querySelector("#hpc-free-type")?.value,p);
-          if(!node)return;this._selectedId=node.id;
-          return this._applyPlan({components:[...p.components,node],connections:p.connections});
+          // An empty graph may coexist with an older, already configured card.
+          // Preserve those generators, tanks and entities when the user chooses
+          // the explicit "add component" action. Never fabricate pipework.
+          const legacyFields=this._config?.generator_type||
+            this._config?.boiler_type||this._config?.buffer===true||
+            Number(this._config?.hc_count)>0||
+            Object.values(this._config?.entities||{}).some(Boolean);
+          const imported=!p.components.length&&legacyFields
+            ?HPC_MIGRATION.upgrade(this._config,{classic:true}):null;
+          const base=imported?.changed?imported.config.plan:p;
+          const node=HPC_FREE.newNode(root.querySelector("#hpc-free-type")?.value,base);
+          if(!node)return;
+          this._selectedId=node.id;
+          const retained=imported?.changed?{
+            hpc_migration_backup:imported.config.hpc_migration_backup,
+            hpc_migration_notes:imported.config.hpc_migration_notes,
+            hpc_migration_review:imported.config.hpc_migration_review,
+            hpc_legacy_imported:true
+          }:{};
+          return this._applyPlan({components:[...base.components,node],
+            connections:base.connections},retained);
         }
         if(action==="remove-component"&&selected){
           this._selectedId=null;
@@ -10357,6 +10652,21 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(['Gaskessel','Gas boiler'].includes(node.name))node.name='Ölkessel';
         node.options={boiler_kind:node.options?.boiler_kind||'standard'};
         // Shared flow/return ports and existing sensor assignments survive.
+      });
+      fieldUpdate('[data-diverter-port]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.diverterPort);
+        if(node?.type==='diverter')node.options={...node.options,
+          dhw_port:el.value==='b'?'b':'a'};
+      });
+      fieldUpdate('[data-diverter-dhw]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.diverterDhw);
+        if(node?.type==='diverter')node.options={...node.options,
+          dhw_state:el.value.slice(0,60)};
+      });
+      fieldUpdate('[data-diverter-heating]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.diverterHeating);
+        if(node?.type==='diverter')node.options={...node.options,
+          heating_state:el.value.slice(0,60)};
       });
       fieldUpdate('[data-wp-style]',(plan,el)=>{
         const node=plan.components.find(c=>c.id===el.dataset.wpStyle);

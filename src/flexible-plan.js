@@ -1,17 +1,17 @@
 const HPC_FREE = (function makeFreeHelpers() {
   const types = [
-    {type:"wood_gasifier",de:"Holzvergaser",en:"Wood gasifier",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","mixer"],ports:["flow:R:.25","return:L:.75"]},
-    {type:"oil_boiler",de:"Ölkessel",en:"Oil boiler",group:"source",fields:["state","flow","return","power","pump","starts"],ports:["flow:R:.25","return:L:.75","dhw:R:.56"]},
-    {type:"pellet_boiler",de:"Pelletkessel",en:"Pellet boiler",group:"source",fields:["state","flow","return","exhaust","pump","fuel_level"],ports:["flow:R:.25","return:L:.75"]},
-    {type:"wood_chip_boiler",de:"ETA Hackschnitzelkessel",en:"ETA Wood-chip boiler",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","fuel_feed","ash_removal","fuel_level","particle_state","particle_voltage","particle_current"],ports:["flow:R:.25","return:L:.75"]},
-    {type:"gas_boiler",de:"Gaskessel",en:"Gas boiler",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
-    {type:"heat_pump",de:"Wärmepumpe",en:"Heat pump",group:"source",fields:["state","flow","return","power","pump"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"wood_gasifier",de:"Holzvergaser",en:"Wood gasifier",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","mixer","volume"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"oil_boiler",de:"Ölkessel",en:"Oil boiler",group:"source",fields:["state","flow","return","power","pump","starts","volume"],ports:["flow:R:.25","return:L:.75","dhw:R:.56"]},
+    {type:"pellet_boiler",de:"Pelletkessel",en:"Pellet boiler",group:"source",fields:["state","flow","return","exhaust","pump","fuel_level","volume"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"wood_chip_boiler",de:"ETA Hackschnitzelkessel",en:"ETA Wood-chip boiler",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","fuel_feed","ash_removal","fuel_level","particle_state","particle_voltage","particle_current","volume"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"gas_boiler",de:"Gaskessel",en:"Gas boiler",group:"source",fields:["state","flow","return","power","pump","volume"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"heat_pump",de:"Wärmepumpe",en:"Heat pump",group:"source",fields:["state","flow","return","power","pump","volume"],ports:["flow:R:.25","return:L:.75"]},
     {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:L:.8","return_in:L:.8","bottom_out:R:.8"]},
     {type:"dhw_tank",de:"Warmwasserspeicher",en:"Hot-water tank",group:"storage",fields:["top","middle","bottom"],ports:["coil_in:L:.28","coil_out:L:.74","hot_out:R:.24","cold_in:R:.78"]},
-    {type:"heating_circuit",de:"Heizkreis (gemischt/ungemischt)",en:"Heating circuit",group:"load",fields:["flow","return","target","pump","mixer","mixer_opening","mixer_closing"],ports:["flow_in:L:.25","return_out:L:.75"]},
+    {type:"heating_circuit",de:"Heizkreis (gemischt/ungemischt)",en:"Heating circuit",group:"load",fields:["flow","return","target","pump","volume","mixer","mixer_opening","mixer_closing"],ports:["flow_in:L:.25","return_out:L:.75"]},
     {type:"pump",de:"Umwälzpumpe",en:"Circulation pump",group:"control",fields:["state","power","volume"],ports:["in:L:.5","out:R:.5"]},
     {type:"mixer",de:"3-Wege-Mischer / Rücklaufanhebung",en:"3-way mixing valve",group:"control",fields:["position","state"],ports:["a:L:.25","b:L:.75","ab:R:.5"]},
-    {type:"diverter",de:"3-Wege-Umschaltventil",en:"3-way diverter valve",group:"control",fields:["position","state"],ports:["a:L:.25","b:L:.75","ab:R:.5"]},
+    {type:"diverter",de:"3-Wege-Umschaltventil",en:"3-way diverter valve",group:"control",fields:["position","state"],ports:["a:R:.25","b:R:.75","ab:L:.5"]},
     {type:"electric_heater",de:"Heizstab / Heizregister",en:"Electric heater",group:"control",fields:["state","power","flow","target"],ports:["in:L:.5","out:R:.5"]},
     // The electrostatic filter belongs to the flue-gas path, NOT the water circuit.
     {type:"particle_separator",de:"Elektrostatischer Partikelabscheider",en:"Electrostatic particle separator",group:"control",fields:["state","voltage","current"],ports:[]},
@@ -71,10 +71,14 @@ const HPC_FREE = (function makeFreeHelpers() {
       const index=counters[group]||0;counters[group]=index+1;
       const defaults={source:75,control:365,storage:635,load:910};
       const coord=(v,d) => Number.isFinite(v)&&v>=0&&v<=7000?Math.round(v):d;
-      const sensors={};
+      // Retain extension-specific sensor roles on round-trip. Known fields
+      // still use strict Home Assistant entity validation.
+      const sensors=n.sensors&&typeof n.sensors==="object"&&!Array.isArray(n.sensors)
+        ?{...n.sensors}:{};
       for(const key of byType[n.type].fields){
         const id=n.sensors?.[key];
         if(typeof id==="string"&&entityRx.test(id))sensors[key]=id;
+        else delete sensors[key];
       }
       // Heights are measured from the top of the tank, 0..100 %. Arbitrarily
       // many additional sensor points can be inserted between the fixed legacy slots.
@@ -100,6 +104,10 @@ const HPC_FREE = (function makeFreeHelpers() {
           ?{eta_model:["ehack","hack","hack_vr"].includes(n.options?.eta_model)?n.options.eta_model:"ehack",
             particle_separator:n.options?.particle_separator===true,
             silo:n.options?.silo===true}
+        :n.type==="diverter"
+          ?{dhw_port:n.options?.dhw_port==="b"?"b":"a",
+            dhw_state:typeof n.options?.dhw_state==="string"?n.options.dhw_state.slice(0,60):"",
+            heating_state:typeof n.options?.heating_state==="string"?n.options.heating_state.slice(0,60):""}
         :n.type==="heating_circuit"
           ?{emitter:HFC_EMITTERS.includes(n.options?.emitter)?n.options.emitter:"radiator",
             mixed:typeof n.options?.mixed==="boolean"?n.options.mixed:
@@ -123,8 +131,9 @@ const HPC_FREE = (function makeFreeHelpers() {
         ["ems-esp","eta","eta-system"].includes(n.discovery?.provider)&&
         /^[a-zA-Z0-9._:\/-]{1,150}$/.test(n.discovery.id)
         ?{provider:n.discovery.provider,id:n.discovery.id}:undefined;
-      components.push({id:n.id,type:n.type,name:String(n.name||display(n.type)).slice(0,75),
-        x:coord(n.x,defaults[group]),y:coord(n.y,70+index*(group==="storage"?240:180)),sensors,level_sensors,options,
+      components.push({...n,id:n.id,type:n.type,name:String(n.name||display(n.type)).slice(0,75),
+        x:coord(n.x,defaults[group]),y:coord(n.y,70+index*(group==="storage"?240:180)),
+        sensors,level_sensors,options:{...(n.options&&typeof n.options==="object"?n.options:{}),...options},
         ...(discovery?{discovery}:{})});
     }
     const byId=Object.fromEntries(components.map(c=>[c.id,c]));
@@ -139,7 +148,7 @@ const HPC_FREE = (function makeFreeHelpers() {
       if(e.from===e.to||!ports(byId[e.from].type).some(p=>p.id===e.from_port)||
          !ports(byId[e.to].type).some(p=>p.id===toPort))continue;
       edgeIds.add(e.id);
-      connections.push({id:e.id,from:e.from,from_port:e.from_port,to:e.to,to_port:toPort,
+      connections.push({...e,id:e.id,from:e.from,from_port:e.from_port,to:e.to,to_port:toPort,
         flow_entity:entityRx.test(e.flow_entity||"")?e.flow_entity:"",
         temperature_entity:entityRx.test(e.temperature_entity||"")?e.temperature_entity:""});
     }
@@ -223,6 +232,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     if(control&&!newNode)return null;
     if(newNode){
       newNode.name=(kind==='pump'?'WW-Ladepumpe ':'WW-Umschaltventil ')+tank.name;
+      if(kind==='diverter')newNode.options={dhw_port:'a',dhw_state:'',heating_state:''};
       plan.components.push(newNode);
     }
     const supplyPort=source.type==='buffer'?'top_out':source.type==='oil_boiler'?'dhw':'flow';

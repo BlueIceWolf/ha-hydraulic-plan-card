@@ -207,9 +207,12 @@
       secondBuffer?.getAttribute('height')===nativeBuffer?.getAttribute('height')&&
       thirdBuffer?.getAttribute('height')===nativeBuffer?.getAttribute('height'),
       'Added tanks use the original 120 x 200 tank proportions');
-    check(Number(secondBuffer?.getAttribute('y'))<650 &&
-      Number(thirdBuffer?.getAttribute('x'))<815,
-      'Storage is arranged compactly beside the original radiator column');
+    check(Number(secondBuffer?.getAttribute('x'))>640 &&
+      Number(thirdBuffer?.getAttribute('x'))>
+        Number(secondBuffer?.getAttribute('x'))+120 &&
+      secondBuffer?.getAttribute('y')===thirdBuffer?.getAttribute('y') &&
+      Number(secondBuffer?.getAttribute('y'))>=555,
+      'Series buffer inlets face prior buffer outlets, with no overlap of native radiators');
 
 
     const automaticBefore=freeSvg.querySelector('g[data-hpi-node="puffer2"] rect.tank')?.getAttribute('x');
@@ -615,11 +618,115 @@
       'Hot-water charging supply and coil return use distinct real ports');
     dual.remove();
 
+    const secondGenerator=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[
+        {id:'first_wood',type:'wood_gasifier',name:'Holzvergaser',sensors:{}},
+        {id:'second_oil',type:'oil_boiler',name:'Ölkessel',sensors:{}},
+        {id:'common_buffer',type:'buffer',name:'Puffer',sensors:{}}
+      ],connections:[
+        {id:'second_supply',from:'second_oil',from_port:'flow',
+          to:'common_buffer',to_port:'top_in'},
+        {id:'second_return',from:'common_buffer',from_port:'bottom_out',
+          to:'second_oil',to_port:'return'}
+      ]}},hassOf());
+    const secondarySupply=secondGenerator.shadowRoot.querySelector(
+      'g.hpi-link[data-hpi-edge="second_supply"] path.pipe')?.getAttribute('d');
+    const secondaryReturn=secondGenerator.shadowRoot.querySelector(
+      'g.hpi-link[data-hpi-edge="second_return"] path.pipe')?.getAttribute('d');
+    // Extra boilers use their declared 25% / 75% port heights within the
+    // 235px cabinet. The original primary boiler uses separate legacy ports.
+    check(secondarySupply?.startsWith('M290 533.75')&&
+      secondaryReturn?.includes('651.25') &&
+      !secondarySupply?.startsWith('M290 250'),
+      'Second boiler supplies and returns at its own real pictogram ports, not the first generator');
+    secondGenerator.remove();
+
+    // A warm-water coil loaded from the buffer belongs among consumers.
+    // The native tank is hidden, while its original-style SVG pictogram is
+    // reused at the hydraulic charging position to the right of the buffer.
+    const bufferCharge=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[
+        {id:'bh',type:'buffer',name:'Puffer',sensors:{}},
+        {id:'bp',type:'pump',name:'WW Ladepumpe',sensors:{state:'switch.buffer_ww_pump'}},
+        {id:'bt',type:'dhw_tank',name:'Warmwasserspeicher',sensors:{}}
+      ],connections:[
+        {id:'bflow',from:'bh',from_port:'top_out',to:'bp',to_port:'in'},
+        {id:'pflow',from:'bp',from_port:'out',to:'bt',to_port:'coil_in'},
+        {id:'breturn',from:'bt',from_port:'coil_out',to:'bh',to_port:'bottom_in'}
+      ]}},hassOf({'switch.buffer_ww_pump':state('switch.buffer_ww_pump','on')}));
+    const bufferChargeSvg=bufferCharge.shadowRoot.getElementById('svg');
+    const chargedTank=bufferChargeSvg.querySelector('[data-hpi-node="bt"] rect.tank');
+    const nativeCoilGraphic=bufferChargeSvg
+      .querySelector('rect.tank[x="520"][y="40"]')?.closest('g.tap');
+    check(Number(chargedTank?.getAttribute('x'))>=1000 &&
+      (!nativeCoilGraphic||nativeCoilGraphic.style.display==='none'),
+      'Buffer-fed warm-water tank uses the original pictogram in consumer column without duplication'
+      +' (tank x='+chargedTank?.getAttribute('x')+', native='+nativeCoilGraphic?.style.display+')');
+    const chargedPump=bufferChargeSvg.querySelector('g.hpi-inline-pump[data-hpi-node="bp"]');
+    check(!!chargedPump &&
+      Number(chargedPump.querySelector('circle.pump')?.getAttribute('cx'))>640,
+      'Charging pump is directly in buffer supply pipe, not a separate rectangular tile');
+    bufferCharge.hass=hassOf({'switch.buffer_ww_pump':state('switch.buffer_ww_pump','off')});
+    check(!bufferCharge.shadowRoot.querySelector('g[data-hpi-edge="pflow"] path.flow.on') &&
+      !bufferCharge.shadowRoot.querySelector('g[data-hpi-edge="breturn"] path.flow.on'),
+      'Buffer-fed WW charging pump off: both hydraulic legs stop together');
+    bufferCharge.remove();
+
+    const valveFeedCard=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[
+        {id:'heat_source',type:'oil_boiler',name:'Ölkessel',sensors:{pump:'switch.vpump'}},
+        {id:'changeover',type:'diverter',name:'3-Wege-Umschaltventil',
+          sensors:{position:'sensor.valve_position'},
+          options:{dhw_port:'a',dhw_state:'WW',heating_state:'Heizen'}},
+        {id:'dhw_store',type:'dhw_tank',name:'Warmwasser',sensors:{}}
+      ],connections:[
+        {id:'valve_feed',from:'heat_source',from_port:'dhw',to:'changeover',to_port:'ab'},
+        {id:'valve_ww',from:'changeover',from_port:'a',to:'dhw_store',to_port:'coil_in'},
+        {id:'valve_return',from:'dhw_store',from_port:'coil_out',to:'heat_source',to_port:'return'}
+      ]}},hassOf({'sensor.valve_position':state('sensor.valve_position','WW'),
+        'switch.vpump':state('switch.vpump','on')}));
+    const inlineValve=valveFeedCard.shadowRoot.querySelector(
+      'g.hpi-inline-diverter[data-hpi-node="changeover"]');
+    check(!!inlineValve&&!!inlineValve.querySelector('circle.valve')&&
+      !inlineValve.querySelector('rect.unit')&&
+      inlineValve.textContent.includes('A'),
+      'WW changeover is a small original-style valve directly on its pipe, with selected outlet');
+    check(!valveFeedCard.shadowRoot.querySelector('#valve-arrow')
+      ?.closest('g.tap')?.getClientRects().length,
+      'User-defined changeover replaces the original illustrative 3-way valve instead of duplicating it');
+    valveFeedCard.hass=hassOf({
+      'sensor.valve_position':state('sensor.valve_position','Heizen'),
+      'switch.vpump':state('switch.vpump','on')});
+    check(!valveFeedCard.shadowRoot.querySelector(
+      'g.hpi-link[data-hpi-edge="valve_ww"] path.flow.on')&&
+      !valveFeedCard.shadowRoot.querySelector(
+      'g.hpi-link[data-hpi-edge="valve_return"] path.flow.on'),
+      'Changeover to heating disables the entire DHW coil and its return');
+    valveFeedCard.remove();
+
+    const diverterEditor=document.createElement('hydraulic-plan-card-editor');
+    diverterEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[{id:'ww_valve',type:'diverter',name:'Umschaltventil',
+        sensors:{position:'sensor.ww_valve'},options:{dhw_port:'a'}}],connections:[]}});
+    document.body.append(diverterEditor);diverterEditor.hass=hassOf();
+    let diverterSaved;
+    diverterEditor.addEventListener('config-changed',e=>diverterSaved=e.detail.config);
+    const valvePort=diverterEditor.querySelector('[data-diverter-port="ww_valve"]');
+    const valveValue=diverterEditor.querySelector('[data-diverter-dhw="ww_valve"]');
+    if(valvePort){valvePort.value='b';valvePort.dispatchEvent(new Event('change',{bubbles:true}));}
+    if(valveValue){valveValue.value='0';valveValue.dispatchEvent(new Event('change',{bubbles:true}));}
+    check(!!valvePort&&!!valveValue &&
+      diverterSaved?.plan.components[0].options.dhw_port==='b'&&
+      diverterSaved?.plan.components[0].options.dhw_state==='0',
+      'Diverter routing and manufacturer-specific valve states are editable in native card setup');
+    diverterEditor.remove();
     const storageOnly=await mount({type:'custom:hydraulic-plan-card',
       generator_type:'oil',preset:'none',
       plan:{components:[{id:'tankonly',type:'buffer',name:'Puffer',sensors:{}}],connections:[]}},hassOf());
     check(!storageOnly.shadowRoot.querySelector('#hp-box')?.closest('g.tap')?.getClientRects().length,
       'Buffer-only plans never display a fictitious boiler or heat pump');
+    check(!storageOnly.shadowRoot.querySelector('#p-hc-vl')?.closest('g[transform]')?.getClientRects().length,
+      'Buffer-only plans also hide the native placeholder radiator');
     storageOnly.remove();
 
     // Multiple heating circuits must share the original pair of risers.
@@ -978,6 +1085,22 @@
     etaEditor.remove();
 
 
+
+    const futureEditor=document.createElement('hydraulic-plan-card-editor');
+    futureEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      hpc_schema_version:3,
+      plan:{components:[{id:'future_device',type:'future_valve',name:'Neuer Ventiltyp'}],
+        connections:[]}});
+    document.body.append(futureEditor);futureEditor.hass=hassOf();
+    let rejectedConfig;
+    futureEditor.addEventListener('config-changed',event=>rejectedConfig=event.detail.config);
+    const addFutureTest=futureEditor.querySelector('[data-action="add-component"]');
+    addFutureTest?.click();
+    check(!!addFutureTest&&!rejectedConfig&&
+      futureEditor._config.plan.components[0].type==='future_valve'&&
+      (futureEditor.textContent||'').includes('Nicht unterstützte Bauteile'),
+      'Editor never discards unknown future components when adding another item');
+    futureEditor.remove();
 
     wood.remove(); oil.remove(); hybrid.remove();
   } catch (err) {

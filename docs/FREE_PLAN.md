@@ -9,7 +9,7 @@ In the card editor:
 1. Add the kinds of components that exist in your installation.
 2. Assign each component's Home Assistant sensors, including the **pump state** where available.
 3. Connect named component ports to define the **intended** hydraulic topology.
-4. The diagram automatically places components into readable source, storage, pump/valve and heating-circuit areas.
+4. The diagram automatically places components into readable source, storage and consumer areas. A buffer-fed hot-water coil sits with consumers, while its pump is an inline pipe symbol.
 
 **No X/Y coordinates are required or offered in the editor.** Older cards with x/y values keep their configuration, but those coordinates are ignored by the integrated auto-layout. Additional buffers are placed in their order along the directed series connections. Long drawings scroll horizontally; full screen supports vertical scrolling as well.
 
@@ -19,7 +19,7 @@ Each pipe can optionally map its own `flow_entity`; this overrides any inferred 
 
 A mixer position of 0% or 100% is **not** automatically treated as a closed valve, since 3-way valves can route flow in either end position. Use actual pump, valve-port and flow sensors where possible.
 
-The algorithm is a conservative diagram heuristic, not a hydraulic solver. It does **not** calculate flow rates, mixer port routes, pressure losses, temperature transfer or hydraulic safety interlocks. If no pump/flow status is known, the route is not animated.
+An explicitly assigned positive flow reading is stronger evidence than a pump command; a measured zero blocks circulation. A changeover valve uses the selected A/B port and its measured position, not a guessed 0/100 convention. The algorithm is a conservative diagram heuristic, not a hydraulic solver. It does **not** calculate flow rates, mixer port routes, pressure losses, temperature transfer or hydraulic safety interlocks. If no pump/flow status is known, the route is not animated.
 
 ## Buffer stratification
 
@@ -32,3 +32,7 @@ The editor includes a sample with Fröling-style wood gasifier, three series buf
 ## Safety and maintenance
 
 The card is read-only. It should not actuate valves, interlocks, boilers or emergency systems. Keep the original Heat Pump Hydraulic Card installed while evaluating this alpha, and do not rely on the diagram alone for service decisions.
+
+## Schema migration
+
+The current integrated-graph schema is **v3**. Previous v1/v2 graph configurations are upgraded only when a lossless mapping can be established. The editor retains an immutable original backup and a restore action. Ambiguous DHW coil inlet/outlet wiring blocks automatic migration until manually reviewed. See [Hydraulikarchitektur](HYDRAULIC_ARCHITECTURE.md).
