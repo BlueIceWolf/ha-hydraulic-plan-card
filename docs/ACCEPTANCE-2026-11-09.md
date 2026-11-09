@@ -9,7 +9,7 @@
 - Layout- und Anlagen-Testharnesses stellen die originalen Wärmepumpen-Galeriekonstanten bereit.
 - `HPC_FREE.normalize` und `HPC_MIGRATION.check` unterstützen existierende gemischtschreibweise IDs konsistent; unbekannte Plan-Metadaten werden übernommen.
 - `HPC_NETWORK.flowStates` begrenzt Pumpenwirkung an Speichern/Erzeugern und berücksichtigt nicht verfügbare Fremdpumpen. Separate WW-Lade- und Heizkreise unterdrücken einander nicht.
-- Entsprechende Änderungen stehen auch im installierbaren `dist/ha-hydraulic-plan-card.js`; Regressionsprüfungen für Umkehrfall und nicht verfügbare WW-Pumpe wurden ergänzt.
+- Die früher fest gezeichneten Heizkreis-Sammel- und Steigleitungen wurden für den integrierten Plan deaktiviert. Stattdessen werden ihre Vor- und Rücklaufpfade aus dem gemeinsamen Rohr-Router gespeist. Der Router berücksichtigt inzwischen die Bauteilgrenzen beim Umfahren.\n- Der installierbare `dist/ha-hydraulic-plan-card.js` stimmt nach der Nachsynchronisierung wieder mit den sechs Quellmodulen überein; HACS, Syntax sowie Chromium- und Firefox-Tests liefen für Commit `9a2a897` erfolgreich.\n- README sowie die Anleitungen für Kessel und Komponenten wurden auf Deutsch neu gefasst; ein englischer Einstieg ist ergänzt.
 
 ## Einzelprüfung der 29 ursprünglichen Abnahmekriterien
 
@@ -32,7 +32,7 @@
 | 13 | Pellet-/Hackgut-Zusatzpiktogramme | Testabdeckung | Kessel- und Lagersymbole in Browser-Tests |
 | 14 | Partikelabscheider korrekt zugeordnet | Testabdeckung | Abgasgerät unabhängig vom Heizwasserkreis getestet |
 | 15 | Vorlauf/Rücklauf korrekt | Teilweise | Ports und Richtungen geprüft; nicht jede Netztopologie gegen reale Hydraulik validiert |
-| 16 | Keine doppelten gemeinsamen Rohrsegmente | Teilweise | `HPC_NETWORK.mergeRoutes` testet physische Überlappungen; originale Rohrgrafiken noch nicht vollständig auf gemeinsamen Router reduziert |
+| 16 | Keine doppelten gemeinsamen Rohrsegmente | Testabdeckung | Gemeinsam genutzte Rohrsegmente werden zusammengeführt; äußere Original-Heizkreisleitungen beziehen ihre Pfade jetzt ebenfalls aus dem Router. Sondertopologien ohne Bildreferenzen noch nicht freigegeben |
 | 17 | Keine offenen oder unnötigen Rohre | Offen | Systematische Prüfung unvollständiger/offener Graphen und aller Layoutvarianten fehlt |
 | 18 | Pumpen direkt in Leitungen | Testabdeckung | WW-Ladepumpe und Kessel-/Heizkreispiktogramme im Browser geprüft |
 | 19 | Hydraulisch plausible Flussanimation | Teilweise | Pumpengrenzen und Sensorstatus getestet; vollständige geschlossene-Weg-Prüfung fehlt |
@@ -45,11 +45,11 @@
 | 26 | Keine Entitätszuordnungen verloren | Teilweise | Snapshot, Rollback und Erweiterungsfelder getestet; nicht jede bekannte/unspezifizierte Konfigurationsform |
 | 27 | Migrationsprobleme sichtbar | Testabdeckung | `HPC_MIGRATION.check` meldet unbekannte Bauteile/Leitungen und verhindert unsicheres automatisches Umschreiben |
 | 28 | Automatische Tests UND visuelle Regression erfolgreich | Offen | Playwright/Netzwerk vorhanden; reproduzierbare Bildreferenzen für A–F und alle Themes/Breiten fehlen |
-| 29 | Dokumentation/Beispiele aktualisiert | Teilweise | Bestehende Dokumentation; vollständige überprüfte Beispielmatrix und Release-Anleitung fehlen |
+| 29 | Dokumentation/Beispiele aktualisiert | Teilweise | Deutsche README und deutsche Komponenten-/Kesselhilfen überarbeitet; englischer Einstieg vorhanden. Vollständig getestete Beispielmatrix und Release-Anleitung fehlen noch |
 
 ## Freigabesperren
 
-1. **Architektur:** Die native Heizkreisleitungsgrafik und der zusätzliche Netzwerk-Router sind nicht vollständig als ein einziger geometrischer Rohrgraph konsolidiert. Originalgrafik erhalten, aber doppelte oder implizite Verbindungen in komplexen Topologien nicht abschließend ausgeschlossen.
+1. **Architektur und Sonderfälle:** Der gemeinsame Router steuert jetzt auch die äußeren Original-Heizkreisleitungen. Die Hauptansicht setzt aber weiterhin Teile des klassischen Layouts ein. Ob alle Sondertopologien ohne doppelte, implizite oder kollidierende Leitungen dargestellt werden, ist noch nicht umfassend belegt.
 2. **Hydraulik:** Die Flussinferenz begrenzt fremde Pumpenkreise, weist aber nicht generell nach, dass jede animierte Verbindung Bestandteil eines vollständig geschlossenen Kreislaufs ist. Einige historische Tests arbeiten mit bewusst unvollständigen Rohrgraphen.
 3. **Visuelle QA:** Vergleichbare feste Screenshot-Referenzen für die sechs Testanlagen, Bildschirmbreiten und Themes fehlen.
 4. **Migration:** Reale alte Kundenkonfigurationen und vollständige v1/v2/v3-Varianten fehlen als Abnahme-Fixtures.
