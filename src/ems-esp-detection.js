@@ -35,8 +35,17 @@ const HPC_EMS = (() => {
         JSON.stringify(device.identifiers||[]),JSON.stringify(gateway.identifiers||[])].join(' ').toLowerCase();
       const isEms=/ems[-_\s]?esp|emsesp/.test(meta);
       const group=registry.device_id||short.replace(/boiler_.*/,'boiler');
+      // A gateway may advertise a list of *supported* boiler models, not
+      // the model actually installed. Keep it for classification diagnostics
+      // but never print that long catalogue as a component name.
+      const label=String(device.name_by_user||device.name||'').trim();
+      const model=String(device.model||'').trim();
+      const generic=/^ems[-_\\s]?esp(?:\\s+(?:boiler|kessel|heizung))?$/i.test(label);
+      const familyList=model.includes(',')||model.length>60;
+      const displayName=!generic&&label?label:(!familyList&&model?model:'EMS-ESP Heizung');
       if(!found.has(group))found.set(group,{group,entities:{},evidence:[],marker:false,
-        description:[device.name_by_user||device.name||'',device.model||'',device.manufacturer||''].join(' ').trim()});
+        displayName,genericName:generic||!label,
+        description:[label,model,device.manufacturer||''].join(' ').trim()});
       const candidate=found.get(group);
       candidate.marker ||= isEms;
       candidate.evidence.push({id,role:itemRole,suffix});
@@ -67,7 +76,7 @@ const HPC_EMS = (() => {
       // gateway evidence it would conflict with ETA and other integrations.
       if(!item.marker)continue;
       output.push({
-        id:item.group,name:item.description||'EMS-ESP Boiler',
+        id:item.group,name:item.displayName||'EMS-ESP Heizung',genericName:item.genericName,
         source:item.marker?'EMS-ESP':'MQTT (EMS-ESP möglicherweise)',
         confirmed:item.marker,
         type:fuel,entities:item.entities,count,
