@@ -8410,7 +8410,9 @@ const HPC_NETWORK = (() => {
         const n = nodes.get(id);
         if (!n || n.type === 'dhw_tank') return false;
         if (blocked(n)) return true;
-        if (isSource(n) || n.type === 'heating_circuit') return false;
+        // A reservoir is a hydraulic boundary. Never traverse unrelated
+        // return branches while checking a dedicated WW-coil supply.
+        if (isSource(n) || n.type === 'buffer' || n.type === 'heating_circuit') return false;
         return (incoming.get(id) || []).some(e =>
           !valvePortOpen(e) || mappedFlow(e) === false || stoppedSupply(e.from));
       };
