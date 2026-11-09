@@ -8426,7 +8426,71 @@ const HPC_NETWORK = (() => {
     return d;
   }
 
-  return { graph, orderedBuffers, flowStates, route };
+
+  // Split collinear routes into physical pipe segments. Shared supply and
+  // return headers are drawn exactly once; active branches illuminate only
+  // those segments for which a valid circulation path exists.
+  function mergeRoutes(routes) {
+    const all = [], grouped = new Map();
+    for (const [routeIndex, route] of routes.entries()) {
+      const tokens = route.d.match(/[MHV]|-?\d+(?:\.\d+)?/g) || [];
+      let x = 0, y = 0, segmentIndex = 0;
+      for (let i = 0; i < tokens.length;) {
+        const op = tokens[i++];
+        if (op === 'M') { x = Number(tokens[i++]); y = Number(tokens[i++]); continue; }
+        if (op !== 'H' && op !== 'V') throw Error('Unsupported pipe routing command');
+        const nx = op === 'H' ? Number(tokens[i++]) : x;
+        const ny = op === 'V' ? Number(tokens[i++]) : y;
+        const role = /^(?:return_out|coil_out|bottom_out|return)$/.test(route.edge.from_port) ||
+          /^(?:return|return_in|bottom_in)$/.test(route.edge.to_port) ? 'return' : 'flow';
+        if (Number.isFinite(nx) && Number.isFinite(ny) &&
+            Math.abs(nx-x)+Math.abs(ny-y)>0.001) {
+          const axis=op==='H'?'h':'v',fixed=op==='H'?y:x;
+          const from=op==='H'?x:y,to=op==='H'?nx:ny;
+          const key=role+'|'+axis+'|'+fixed.toFixed(3);
+          const segment={key,axis,fixed,from,to,low:Math.min(from,to),
+            high:Math.max(from,to),routeIndex,segmentIndex:segmentIndex++,active:route.on};
+          if (!grouped.has(key)) grouped.set(key,[]);
+          grouped.get(key).push(segment);
+          all.push(segment);
+        }
+        x=nx;y=ny;
+      }
+    }
+    const pieces=routes.map(()=>[]);
+    for (const [key,segments] of grouped) {
+      const boundaries=[...new Set(segments.flatMap(s=>[s.low,s.high]))].sort((a,b)=>a-b);
+      for (let i=1;i<boundaries.length;i++) {
+        const a=boundaries[i-1],b=boundaries[i];
+        if (b-a<0.001) continue;
+        const owners=segments.filter(s=>s.low<=a+0.001&&s.high>=b-0.001);
+        if (!owners.length) continue;
+        // The first user-defined connection owns the shared line segment.
+        // A hot and a cold header never share a physical segment identity.
+        owners.sort((a,b)=>a.routeIndex-b.routeIndex||a.segmentIndex-b.segmentIndex);
+        const owner=owners[0], forward=owner.to>=owner.from;
+        const start=forward?a:b, finish=forward?b:a;
+        const d=owner.axis==='h'
+          ?'M'+start+' '+owner.fixed+' H'+finish
+          :'M'+owner.fixed+' '+start+' V'+finish;
+        pieces[owner.routeIndex].push({
+          segmentIndex:owner.segmentIndex,
+          distance:Math.abs(start-owner.from),
+          d,active:owners.some(s=>s.active)
+        });
+      }
+    }
+    return new Map(routes.map((route,index)=>{
+      const sorted=pieces[index].sort((a,b)=>
+        a.segmentIndex-b.segmentIndex||a.distance-b.distance);
+      return [route.edge.id,{
+        pipe:sorted.map(s=>s.d).join(' '),
+        flow:sorted.filter(s=>s.active).map(s=>s.d).join(' ')
+      }];
+    }));
+  }
+
+  return { graph, orderedBuffers, flowStates, route, mergeRoutes };
 })();
 
 const HPC_INTEGRATED = (() => {
