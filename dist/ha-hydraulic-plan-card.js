@@ -7550,7 +7550,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     {type:"heating_circuit",de:"Heizkreis (gemischt/ungemischt)",en:"Heating circuit",group:"load",fields:["flow","return","target","pump","volume","mixer","mixer_opening","mixer_closing"],ports:["flow_in:L:.25","return_out:L:.75"]},
     {type:"pump",de:"Umwälzpumpe",en:"Circulation pump",group:"control",fields:["state","power","volume"],ports:["in:L:.5","out:R:.5"]},
     {type:"mixer",de:"3-Wege-Mischer / Rücklaufanhebung",en:"3-way mixing valve",group:"control",fields:["position","state"],ports:["a:L:.25","b:L:.75","ab:R:.5"]},
-    {type:"diverter",de:"3-Wege-Umschaltventil",en:"3-way diverter valve",group:"control",fields:["position","state"],ports:["a:L:.25","b:L:.75","ab:R:.5"]},
+    {type:"diverter",de:"3-Wege-Umschaltventil",en:"3-way diverter valve",group:"control",fields:["position","state"],ports:["a:R:.25","b:R:.75","ab:L:.5"]},
     {type:"electric_heater",de:"Heizstab / Heizregister",en:"Electric heater",group:"control",fields:["state","power","flow","target"],ports:["in:L:.5","out:R:.5"]},
     // The electrostatic filter belongs to the flue-gas path, NOT the water circuit.
     {type:"particle_separator",de:"Elektrostatischer Partikelabscheider",en:"Electrostatic particle separator",group:"control",fields:["state","voltage","current"],ports:[]},
