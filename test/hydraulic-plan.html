@@ -12,6 +12,8 @@
   const check = (condition, name) => {
     messages.push((condition ? 'OK: ' : 'FAIL: ') + name);
     if (!condition) failures.push(name);
+    // Stream checkpoints so a timeout exposes the last completed assertion.
+    document.getElementById('log').textContent = messages.join('\\n');
   };
   const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
   const state = (id, value, unit) => ({
