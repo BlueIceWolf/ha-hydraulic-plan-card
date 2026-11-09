@@ -236,8 +236,8 @@
       'Existing first tank gets the five-point temperature gradient');
     check(freeSvg?.querySelector('rect.tank[x="520"][y="320"]')?.getAttribute('fill')==='url(#hpi-puffer1)',
       'Original tank fill adopts the configurable temperature gradient');
-    check(freeSvg?.querySelectorAll('g.hpi-link path.flow.on').length===2,
-      'Explicitly mapped active pump animates all connected pipes');
+    check(freeSvg?.querySelectorAll('g.hpi-link path.flow.on').length===0,
+      'A pump command never animates unclosed, partially configured pipe paths');
     free.hass=hassOf({
       [ids.pump]:state(ids.pump,'off'),
       'sensor.buffer_25':state('sensor.buffer_25',65,'°C'),
@@ -828,14 +828,15 @@
       {id:'l2',from:'pump',from_port:'out',to:'mix',to_port:'a'},
       {id:'l3',from:'mix',from_port:'ab',to:'buffer2',to_port:'top_in'},
       {id:'l4',from:'buffer2',from_port:'bottom_out',to:'buffer',to_port:'bottom_in'},
+      {id:'l5',from:'buffer',from_port:'bottom_out',to:'source',to_port:'return'},
     ];
     const flowCard=await mount({type:'custom:hydraulic-plan-card',preset:'none',
       plan:{components:flowNodes,connections:flowEdges}},
       hassOf({'sensor.test_mix_position':state('sensor.test_mix_position',0,'%')}));
     const activeFlow=()=>flowCard.shadowRoot.querySelectorAll('g.hpi-link path.flow.on').length;
-    check(activeFlow()===4,'Running mapped pump animates connected flow even when mixer is at 0%');
+    check(activeFlow()===5,'Complete pump-driven flow and return remain active when mixer is at 0%');
     flowCard.hass=hassOf({'sensor.test_mix_position':state('sensor.test_mix_position',100,'%')});
-    check(activeFlow()===4,'Running mapped pump animates connected flow when mixer is at 100%');
+    check(activeFlow()===5,'Complete pump-driven flow and return remain active when mixer is at 100%');
     flowCard.hass=hassOf({[ids.pump]:state(ids.pump,'off'),
       'sensor.test_mix_position':state('sensor.test_mix_position',100,'%')});
     check(activeFlow()===0,'Stopped pump disables inferred flow irrespective of mixer position');
