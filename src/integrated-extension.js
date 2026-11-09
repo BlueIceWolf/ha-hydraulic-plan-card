@@ -235,9 +235,10 @@ const HPC_INTEGRATED = (() => {
     if(shape.type==='buffer'){
       // Ports are defined by flow DIRECTION: every inlet is on the left,
       // every outlet is on the right, including consumer return inlets.
+      const def=HPC_FREE.ports(node.type).find(p=>p.id===key);
       const y=shape.y+shape.h*(key.includes('bottom')||key==='return_in'?.875:
         key.includes('mid')?.54:.20);
-      const right=key.includes('out');
+      const right=def?.side==='R';
       return{x:shape.x+(right?shape.w:0),y};
     }
     if(shape.type==='dhw_tank'){
@@ -256,7 +257,8 @@ const HPC_INTEGRATED = (() => {
   }
   function portSide(node,shape,key) {
     if(shape.type==='source')return 'R';
-    if(shape.type==='buffer')return key.endsWith('_out')?'R':'L';
+    if(shape.type==='buffer')
+      return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'L';
     if(shape.type==='dhw_tank')return key.startsWith('coil_')?'L':'R';
     if(shape.type==='heating_circuit')return 'L';
     return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'R';
@@ -745,5 +747,5 @@ const HPC_INTEGRATED = (() => {
     return {defs,body:'<g id="hpc-integrated">'+links+nodes+accessories+pipeLabels+lift+primaryChip+primaryOil+primaryGas+'</g>',
       nativePipes,firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
-  return {layout,coreConfig,svg,tankPoints,flowStates,isSource};
+  return {layout,coreConfig,svg,tankPoints,flowStates,isSource,port,portSide};
 })();

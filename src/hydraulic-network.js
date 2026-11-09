@@ -397,7 +397,8 @@ const HPC_NETWORK = (() => {
     const h = (x, y) => String(x) + ' ' + String(y);
     if(edge.kind==='return_lift'){
       const x=Math.max(p.x,q.x)+42;
-      return 'M'+h(p.x,p.y)+' H'+x+' V'+q.y+' H'+q.x;
+      const d='M'+h(p.x,p.y)+' H'+x+' V'+q.y+' H'+q.x;
+      return avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to);
     }
     // Keep the ORIGINAL mixer and radiator connectors exactly in the hot
     // and return routes. Their artwork is retained, not an independent pipe.
@@ -408,9 +409,12 @@ const HPC_NETWORK = (() => {
       const joinY=fromShape.y+165;
       let d='M'+h(p.x,p.y)+' H'+bendX+' V'+(p.y+20)+
         ' H'+(bendX-20)+' V'+joinY+' H'+joinX;
-      if(Math.abs(q.y-joinY)<.01)return d+' H'+q.x;
-      const laneX=Math.min(joinX-35,q.x-35);
-      return d+' H'+laneX+' V'+q.y+' H'+q.x;
+      if(Math.abs(q.y-joinY)<.01)d+=' H'+q.x;
+      else {
+        const laneX=Math.min(joinX-35,q.x-35);
+        d+=' H'+laneX+' V'+q.y+' H'+q.x;
+      }
+      return avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to);
     }
     let d;
     if (p.x > q.x + 8 || fromSide === 'L' || toSide === 'R') {

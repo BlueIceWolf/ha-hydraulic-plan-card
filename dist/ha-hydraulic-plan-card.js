@@ -8672,7 +8672,8 @@ const HPC_NETWORK = (() => {
     const h = (x, y) => String(x) + ' ' + String(y);
     if(edge.kind==='return_lift'){
       const x=Math.max(p.x,q.x)+42;
-      return 'M'+h(p.x,p.y)+' H'+x+' V'+q.y+' H'+q.x;
+      const d='M'+h(p.x,p.y)+' H'+x+' V'+q.y+' H'+q.x;
+      return avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to);
     }
     // Keep the ORIGINAL mixer and radiator connectors exactly in the hot
     // and return routes. Their artwork is retained, not an independent pipe.
@@ -8683,9 +8684,12 @@ const HPC_NETWORK = (() => {
       const joinY=fromShape.y+165;
       let d='M'+h(p.x,p.y)+' H'+bendX+' V'+(p.y+20)+
         ' H'+(bendX-20)+' V'+joinY+' H'+joinX;
-      if(Math.abs(q.y-joinY)<.01)return d+' H'+q.x;
-      const laneX=Math.min(joinX-35,q.x-35);
-      return d+' H'+laneX+' V'+q.y+' H'+q.x;
+      if(Math.abs(q.y-joinY)<.01)d+=' H'+q.x;
+      else {
+        const laneX=Math.min(joinX-35,q.x-35);
+        d+=' H'+laneX+' V'+q.y+' H'+q.x;
+      }
+      return avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to);
     }
     let d;
     if (p.x > q.x + 8 || fromSide === 'L' || toSide === 'R') {
@@ -9070,9 +9074,10 @@ const HPC_INTEGRATED = (() => {
     if(shape.type==='buffer'){
       // Ports are defined by flow DIRECTION: every inlet is on the left,
       // every outlet is on the right, including consumer return inlets.
+      const def=HPC_FREE.ports(node.type).find(p=>p.id===key);
       const y=shape.y+shape.h*(key.includes('bottom')||key==='return_in'?.875:
         key.includes('mid')?.54:.20);
-      const right=key.includes('out');
+      const right=def?.side==='R';
       return{x:shape.x+(right?shape.w:0),y};
     }
     if(shape.type==='dhw_tank'){
@@ -9091,7 +9096,8 @@ const HPC_INTEGRATED = (() => {
   }
   function portSide(node,shape,key) {
     if(shape.type==='source')return 'R';
-    if(shape.type==='buffer')return key.endsWith('_out')?'R':'L';
+    if(shape.type==='buffer')
+      return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'L';
     if(shape.type==='dhw_tank')return key.startsWith('coil_')?'L':'R';
     if(shape.type==='heating_circuit')return 'L';
     return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'R';
@@ -9580,7 +9586,7 @@ const HPC_INTEGRATED = (() => {
     return {defs,body:'<g id="hpc-integrated">'+links+nodes+accessories+pipeLabels+lift+primaryChip+primaryOil+primaryGas+'</g>',
       nativePipes,firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
-  return {layout,coreConfig,svg,tankPoints,flowStates,isSource};
+  return {layout,coreConfig,svg,tankPoints,flowStates,isSource,port,portSide};
 })();
 
 // EMS-ESP exposes its heating appliances via Home Assistant MQTT Discovery.

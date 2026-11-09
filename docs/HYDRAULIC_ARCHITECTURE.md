@@ -1,6 +1,6 @@
 # Hydraulikarchitektur (Entwicklungsstand)
 
-Diese Architektur erweitert die ursprüngliche **Heat Pump Hydraulic Card** und ersetzt **nicht** deren SVG-Stil, Piktogramme, Wärmepumpenauswahl oder Heizkreisdarstellung. Sie ist Bestandteil der laufenden Revision auf dem Entwicklungsbranch, kein Hinweis auf eine bereits stabile HACS-Version.
+Diese Architektur erweitert die ursprüngliche **Heat Pump Hydraulic Card** und ersetzt **nicht** deren SVG-Stil, Piktogramme, Wärmepumpenauswahl oder Heizkreisdarstellung. Die Karte ist weiterhin eine Testversion und keine stabile HACS-Freigabe.
 
 ## Verantwortung der Module
 
@@ -33,9 +33,11 @@ Die Anordnung orientiert sich an echten Verbindungen; vorhandene alte `x`/`y`-Fe
 
 ## Rohrsegment-Routing
 
-`HPC_NETWORK.route()` erstellt eine orthogonale Leitung zwischen zwei realen Anschlussports. `mergeRoutes()` zerlegt die geometrischen Leitungswege in horizontale und vertikale Teilstücke, erkennt kollineare Überlappungen und gibt gemeinsame **physische Rohrsegmente einmalig** aus. Vorlauf und Rücklauf bleiben eigene Segmente. Es darf dadurch nicht ein zweiter Strich über einer vorhandenen Sammelleitung liegen.
+`HPC_NETWORK.route()` erstellt eine orthogonale Leitung zwischen zwei realen Anschlussports. Die Seite eines Anschlusses stammt aus der Portdefinition des Bauteils: Ausgänge liegen rechts, sofern der jeweilige Port nicht ausdrücklich anders definiert ist. Beispielsweise zeigen die Pufferspeicher-Ausgänge `top_out`, `mid_out` und `bottom_out` nach rechts; der Heizkreis-Rücklauf `return_out` bleibt links, weil das Original-Heizkörpersymbol dort angeschlossen ist. Die Position und Seite dürfen nicht aus einem vermuteten Standard für alle Bauteile abgeleitet werden.
 
-Die Darstellung nutzt weiterhin die Rohr- und Fluss-CSS-Klassen des Originals. Für die originalen Heizkreise liefert der gemeinsame Router jetzt die externen Vorlauf- und Rücklaufpfade: `_syncNativeCircuitFlow` ersetzt die alten Pfaddaten durch die berechneten Segmente und leert die früheren festen Steig- und Sammelleitungen. Die Heizkörper-, Pumpen- und Mischerzeichnungen bleiben erhalten. Beim Routing werden die Begrenzungen aller bekannten Bauteile berücksichtigt; gemeinsame horizontale und vertikale Segmente werden nur einmal gezeichnet. Ob diese Wege in jeder denkbaren Anlagenvariante sauber verlaufen, ist damit **noch nicht visuell nachgewiesen**.
+`mergeRoutes()` zerlegt die geometrischen Leitungswege in horizontale und vertikale Teilstücke, erkennt kollineare Überlappungen und gibt gemeinsame **physische Rohrsegmente einmalig** aus. Vorlauf und Rücklauf bleiben eigene Segmente. Es darf dadurch nicht ein zweiter Strich über einer vorhandenen Sammelleitung liegen.
+
+Die Darstellung nutzt weiterhin die Rohr- und Fluss-CSS-Klassen des Originals. Für die originalen Heizkreise liefert der gemeinsame Router jetzt die externen Vorlauf- und Rücklaufpfade: `_syncNativeCircuitFlow` ersetzt die alten Pfaddaten durch die berechneten Segmente und leert die früheren festen Steig- und Sammelleitungen. Die Heizkörper-, Pumpen- und Mischerzeichnungen bleiben erhalten. Auch die Sonderwege für Heizkreis-Rückläufe und Rücklaufanhebungen müssen die Bauteilgrenzen beim Routing berücksichtigen. Gemeinsame horizontale und vertikale Segmente werden nur einmal gezeichnet. Ob diese Wege in jeder denkbaren Anlagenvariante sauber verlaufen, ist damit **noch nicht visuell nachgewiesen**.
 
 ## Durchfluss
 

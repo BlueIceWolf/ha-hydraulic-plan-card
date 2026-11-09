@@ -151,6 +151,42 @@ const b=HPC_INTEGRATED.layout(HPC_FREE.normalize(scenarios[1]),2);
 check(b.points.get('puffer_2').x>b.anchored.get('puffer_1').x+
   b.anchored.get('puffer_1').w,
   'Series: second buffer follows the first buffer hot outlet');
+const buffer=HPC_FREE.normalize({components:[n('tank','buffer')],connections:[]}).components[0];
+const bufferShape={x:100,y:100,w:120,h:200,type:'buffer'};
+for(const [key,expected] of [['top_in','L'],['top_out','R'],['mid_in','L'],
+  ['mid_out','R'],['bottom_in','L'],['bottom_out','R']]){
+  const point=HPC_INTEGRATED.port(buffer,bufferShape,key);
+  check(HPC_INTEGRATED.portSide(buffer,bufferShape,key)===expected&&
+    point.x===(expected==='R'?220:100),
+    'Buffer '+key+' uses its declared '+expected+' connection side');
+}
+const circuit=HPC_FREE.normalize({components:[n('circuit','heating_circuit')],connections:[]}).components[0];
+check(HPC_INTEGRATED.portSide(circuit,{x:400,y:330,w:155,h:140,type:'heating_circuit'},
+  'return_out')==='L',
+  'A heating-circuit output remains on its explicitly declared left side');
+const returnEdge=e('circuit_return','circuit','return_out','tank','bottom_in');
+const returnRoute=HPC_NETWORK.route({
+  edge:returnEdge,fromNode:circuit,toNode:buffer,
+  fromShape:{x:400,y:330,w:155,h:140,type:'heating_circuit'},
+  toShape:bufferShape,p:{x:411,y:455},q:{x:100,y:275},
+  fromSide:'L',toSide:'L',
+  obstacles:[{id:'pump',x:240,y:440,w:80,h:70}]
+});
+const routeSegments=returnRoute.match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
+let routeX=0,routeY=0,routeAvoidsPump=true;
+for(let i=0;i<routeSegments.length;){
+  const op=routeSegments[i++];
+  if(op==='M'){routeX=Number(routeSegments[i++]);routeY=Number(routeSegments[i++]);continue;}
+  const nextX=op==='H'?Number(routeSegments[i++]):routeX;
+  const nextY=op==='V'?Number(routeSegments[i++]):routeY;
+  if((routeX===nextX&&routeX>231&&routeX<329&&
+      Math.max(routeY,nextY)>431&&Math.min(routeY,nextY)<519)||
+     (routeY===nextY&&routeY>431&&routeY<519&&
+      Math.max(Math.min(routeX,nextX),231)<Math.min(Math.max(routeX,nextX),329)))
+    routeAvoidsPump=false;
+  routeX=nextX;routeY=nextY;
+}
+check(routeAvoidsPump,'Heating-circuit return routes avoid intervening components');
 const d=HPC_INTEGRATED.layout(HPC_FREE.normalize(scenarios[3]),1);
 check(d.points.get('ww').x>d.anchored.get('puffer').x+400&&
   d.points.get('ladepumpe').inline===true,
