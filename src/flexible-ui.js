@@ -551,6 +551,22 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               ['column',t('Gliederheizkörper','Column radiators')]]
               .map(([id,label])=>`<option value="${id}" ${(selected.options?.emitter||'radiator')===id?'selected':''}>${label}</option>`).join('')}
           </select></label>`:""}
+        ${selected.type==="diverter"?`<div class="hpc-ems">
+           <strong>${t("Umschaltventil","Changeover valve")}</strong>
+           <p>${t("Lege fest, an welchem Ventilausgang die Warmwasserladung angeschlossen ist. Ohne eindeutig zugeordneten Ventilzustand bleibt der Fluss in beiden Abgängen inaktiv.","Choose the DHW outlet. Without an unambiguous valve state both outlets remain without flow animation.")}</p>
+           <label class="hpc-field">${t("Warmwasser-Ausgang","DHW outlet")}
+             <select data-diverter-port="${esc(selected.id)}">
+               <option value="a" ${selected.options?.dhw_port!=='b'?'selected':''}>A</option>
+               <option value="b" ${selected.options?.dhw_port==='b'?'selected':''}>B</option>
+             </select></label>
+           <label class="hpc-field">${t("Ventilwert für Warmwasser","Valve value for DHW")}
+             <input data-diverter-dhw="${esc(selected.id)}" maxlength="60"
+               value="${esc(selected.options?.dhw_state||'')}" placeholder="WW"/></label>
+           <label class="hpc-field">${t("Ventilwert für Heizen","Valve value for heating")}
+             <input data-diverter-heating="${esc(selected.id)}" maxlength="60"
+               value="${esc(selected.options?.heating_state||'')}" placeholder="Heizen"/></label>
+           <p>${t("Bei Zahlenwerten wie 0 oder 100 bitte beide tatsächlich gemessenen Ventilstellungen eintragen.","For numerical states such as 0 or 100, enter the actual measured valve values.")}</p>
+         </div>`:""}
         ${selected.type==="wood_chip_boiler"?`<label class="hpc-field">${t("ETA Kesselmodell","ETA boiler model")}
           <select data-eta-model="${esc(selected.id)}">
             ${[["ehack","ETA eHACK"],["hack","ETA HACK"],["hack_vr","ETA HACK VR"]]
@@ -1028,6 +1044,21 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(['Gaskessel','Gas boiler'].includes(node.name))node.name='Ölkessel';
         node.options={boiler_kind:node.options?.boiler_kind||'standard'};
         // Shared flow/return ports and existing sensor assignments survive.
+      });
+      fieldUpdate('[data-diverter-port]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.diverterPort);
+        if(node?.type==='diverter')node.options={...node.options,
+          dhw_port:el.value==='b'?'b':'a'};
+      });
+      fieldUpdate('[data-diverter-dhw]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.diverterDhw);
+        if(node?.type==='diverter')node.options={...node.options,
+          dhw_state:el.value.slice(0,60)};
+      });
+      fieldUpdate('[data-diverter-heating]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.diverterHeating);
+        if(node?.type==='diverter')node.options={...node.options,
+          heating_state:el.value.slice(0,60)};
       });
       fieldUpdate('[data-wp-style]',(plan,el)=>{
         const node=plan.components.find(c=>c.id===el.dataset.wpStyle);
