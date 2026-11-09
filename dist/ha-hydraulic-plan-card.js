@@ -8091,8 +8091,12 @@ const HPC_MIGRATION = (() => {
         continue;
       }
       ids.add(n.id);
+      // Empty optional selectors are a normal older editor state, not a
+      // lost sensor. Unknown keys and genuinely invalid identifiers still
+      // block automatic rewriting.
       for(const [key,value] of Object.entries(n.sensors||{}))
-        if(!HPC_FREE.byType[n.type].fields.includes(key)||!validEntity(value))
+        if(!HPC_FREE.byType[n.type].fields.includes(key)||
+          (value!==''&&value!==null&&!validEntity(value)))
           warnings.push('Sensorzuordnung an '+n.id+' benötigt eine manuelle Prüfung.');
       if(n.level_sensors!==undefined&&!Array.isArray(n.level_sensors))
         warnings.push('Fühlerliste an '+n.id+' muss geprüft werden.');
