@@ -670,6 +670,8 @@
       plan:{components:[{id:'tankonly',type:'buffer',name:'Puffer',sensors:{}}],connections:[]}},hassOf());
     check(!storageOnly.shadowRoot.querySelector('#hp-box')?.closest('g.tap')?.getClientRects().length,
       'Buffer-only plans never display a fictitious boiler or heat pump');
+    check(!storageOnly.shadowRoot.querySelector('#p-hc-vl')?.closest('g[transform]')?.getClientRects().length,
+      'Buffer-only plans also hide the native placeholder radiator');
     storageOnly.remove();
 
     // Multiple heating circuits must share the original pair of risers.
