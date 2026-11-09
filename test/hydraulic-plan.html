@@ -1131,9 +1131,10 @@
       'switch.heizkreispumpe':state('switch.heizkreispumpe','off'),
       'switch.ww_pumpe':state('switch.ww_pumpe','on')
     });
-    check(!nativeSvg.querySelector('#f-hc-vl')?.classList.contains('on')&&
-      !nativeSvg.querySelector('#f-hc-rl')?.classList.contains('on')&&
-      !!nativeSvg.querySelector('g[data-hpi-edge="shared_ww_rl"] path.flow.on'),
+    const refreshedNative=sharedNative.shadowRoot.getElementById('svg');
+    check(!refreshedNative.querySelector('#f-hc-vl')?.classList.contains('on')&&
+      !refreshedNative.querySelector('#f-hc-rl')?.classList.contains('on')&&
+      !!refreshedNative.querySelector('g[data-hpi-edge="shared_ww_rl"] path.flow.on'),
       'Original radiator return stops independently while WW loading coil continues');
     sharedNative.remove();
 
