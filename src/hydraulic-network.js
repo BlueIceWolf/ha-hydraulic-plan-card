@@ -461,7 +461,8 @@ const HPC_NETWORK = (() => {
           b<=cross+6+0.001))continue;
         // The first user-defined connection owns the shared line segment.
         // A hot and a cold header never share a physical segment identity.
-        owners.sort((a,b)=>a.routeIndex-b.routeIndex||a.segmentIndex-b.segmentIndex);
+        owners.sort((a,b)=>Number(b.active)-Number(a.active)||
+          a.routeIndex-b.routeIndex||a.segmentIndex-b.segmentIndex);
         const owner=owners[0], forward=owner.to>=owner.from;
         const start=forward?a:b, finish=forward?b:a;
         const d=owner.axis==='h'
