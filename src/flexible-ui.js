@@ -935,11 +935,27 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           return this._applyPlan(HPC_FREE.sample(),{hpc_legacy_imported:true});
         }
         if(action==="add-component"){
-          // Adding a component must never silently import classic entities
-          // or replace a previously saved plan without a migration preview.
-          const node=HPC_FREE.newNode(root.querySelector("#hpc-free-type")?.value,p);
-          if(!node)return;this._selectedId=node.id;
-          return this._applyPlan({components:[...p.components,node],connections:p.connections});
+          // An empty graph may coexist with an older, already configured card.
+          // Preserve those generators, tanks and entities when the user chooses
+          // the explicit "add component" action. Never fabricate pipework.
+          const legacyFields=this._config?.generator_type||
+            this._config?.boiler_type||this._config?.buffer===true||
+            Number(this._config?.hc_count)>0||
+            Object.values(this._config?.entities||{}).some(Boolean);
+          const imported=!p.components.length&&legacyFields
+            ?HPC_MIGRATION.upgrade(this._config,{classic:true}):null;
+          const base=imported?.changed?imported.config.plan:p;
+          const node=HPC_FREE.newNode(root.querySelector("#hpc-free-type")?.value,base);
+          if(!node)return;
+          this._selectedId=node.id;
+          const retained=imported?.changed?{
+            hpc_migration_backup:imported.config.hpc_migration_backup,
+            hpc_migration_notes:imported.config.hpc_migration_notes,
+            hpc_migration_review:imported.config.hpc_migration_review,
+            hpc_legacy_imported:true
+          }:{};
+          return this._applyPlan({components:[...base.components,node],
+            connections:base.connections},retained);
         }
         if(action==="remove-component"&&selected){
           this._selectedId=null;
