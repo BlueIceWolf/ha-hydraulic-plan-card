@@ -1,22 +1,81 @@
-# Heating generators — model and limitations
+# Wärmeerzeuger und Kessel / Heating generators
 
-## Generators
+[Zur deutschen Anleitung](../README.md) · [English guide](README.en.md)
 
-`generator_type: heat_pump` retains the upstream heat-pump layout. A boiler may be mapped with `boiler_state`, `boiler_flow`, etc., and its type can be selected with `boiler_type`.
+Die Hydraulic Plan Card zeigt vorhandene Heizungsdaten in Home Assistant an. Sie kommuniziert nicht selbst mit dem Kessel und ersetzt weder dessen Regelung noch eine fachliche Prüfung der Anlage.
 
-`generator_type: wood_gasifier | oil | pellet | gas | electric` replaces the left heat-source illustration with a boiler and uses the mapped `boiler_*` entities. For boiler-only systems set `preset: none`, unless a deliberate heat-pump hybrid configuration is required.
+## Kessel in einer klassischen Kartenkonfiguration
 
-`boiler_name` overrides the displayed boiler label. The editor presents the recognized Home Assistant entity kinds; it does not automatically invent missing values.
+Mit `generator_type` wird das Gerät links im bekannten Hydraulikschema ausgewählt:
 
-## Measurements and hydraulics
+| Einstellung | Gerät |
+| --- | --- |
+| `heat_pump` | Wärmepumpe |
+| `wood_gasifier` | Holzvergaser |
+| `oil` | Ölkessel |
+| `gas` | Gaskessel |
+| `pellet` | Pelletkessel |
+| `electric` | Elektrokessel |
 
-- `boiler_state` supports an on/off entity, power-like numeric state, or known running text. An unknown state is **not** evidence of firing. Without a state entity, positive `boiler_power` or `boiler_heater` is used.
-- `boiler_pump` should map a true boiler loading pump. **If mapped and off, the boiler branch is not animated as circulating**. If absent, the historical upstream approximation follows the burner status. It is not a flow measurement.
-- `boiler_mixer` represents a 0–100% mixing valve position. The drawing shows the sensor position only. Actual direction depends on valve construction, ports and pipe connections.
-- `boiler_return` and `boiler_flow` are actual temperature sensors; they must not be used to infer missing temperatures.
-- `boiler_exhaust`, `boiler_o2`, `boiler_fan`, `boiler_heater`, `boiler_hours`, `boiler_burner_starts` and `boiler_fuel_level` are optional. Their readings appear in the details drawer when available.
-- Use separate `buffer_heater` or `buffer_heater_top/middle/bottom` entities for immersion heaters installed in a buffer. These features already exist in the upstream card.
+Ein zusätzlicher Kessel bei einer Wärmepumpe lässt sich über `boiler_type` und `boiler_name` benennen. Für reine Kesselanlagen ist `preset: none` normalerweise die passende Ausgangsbasis. Die tatsächlich benötigten Entitäten werden manuell zugeordnet.
 
-## Deliberate non-features in the alpha
+```yaml
+type: custom:hydraulic-plan-card
+title: Heizung
+preset: none
+generator_type: wood_gasifier
+power_sources: manual
+buffer: true
+entities:
+  boiler_state: binary_sensor.kessel_in_betrieb
+  boiler_flow: sensor.kessel_vorlauf
+  boiler_return: sensor.kessel_ruecklauf
+  boiler_exhaust: sensor.kessel_abgas
+  boiler_pump: switch.kesselladepumpe
+  buffer_top: sensor.puffer_oben
+  buffer_bottom: sensor.puffer_unten
+```
 
-No fully editable pipe topology, no automatic boiler integration presets, no hardware actuation, no safety-critical logic, no inferred energy/flow readings, and no true simulation of hydraulic flow. The current drawing is a **live schematic** of a constrained topology. Boiler status, pump status and heating circuit states must be assessed separately.
+Die Sensoren im Beispiel existieren nicht automatisch. Bitte die eigenen Entitäten aus Home Assistant einsetzen.
+
+## Welche Messwerte werden verwendet?
+
+| Feld | Bedeutung |
+| --- | --- |
+| `boiler_state` | Brenner- oder Betriebsstatus |
+| `boiler_power` | angezeigte Kesselleistung |
+| `boiler_flow` / `boiler_return` | Vorlauf- und Rücklauftemperatur |
+| `boiler_exhaust` | Abgastemperatur |
+| `boiler_o2` | Restsauerstoff |
+| `boiler_fan` | Gebläsezustand oder -drehzahl |
+| `boiler_pump` | Zustand der Kesselladepumpe |
+| `boiler_mixer` | Mischerposition beziehungsweise Rücklaufanhebung |
+| `boiler_heater` | elektrische Zusatzheizung |
+| `boiler_hours` / `boiler_burner_starts` | Betriebsstunden und Brennerstarts |
+| `boiler_fuel_level` | Vorratsanzeige, sofern vorhanden |
+
+Es dürfen Felder fehlen. Nicht gemessene Temperaturen, Leistungswerte oder Volumenströme werden nicht als echte Messwerte ausgegeben.
+
+Eine ausgeschaltete, ausdrücklich zugeordnete Ladepumpe sperrt die Flussanimation ihres Zweigs. Ein angezeigter Pumpenbetrieb ist aber kein Nachweis für tatsächlichen Durchfluss. Auch aus einer Mischerstellung von 0 oder 100 Prozent folgt keine sichere Durchflusssperre.
+
+## ETA und EMS-ESP
+
+Bei unterstützten ETA-eHACK-, HACK- und HACK-VR-Geräten kann der Editor passende Entitäten aus Home Assistant erkennen und zur Übernahme anbieten. Der Partikelabscheider gehört zum Abgasweg des Hackschnitzelkessels, nicht zum Heizwasser; ein Brennstofflager wird ebenfalls als Zubehör des Kessels dargestellt.
+
+Auch bei EMS-ESP können bekannte Kesseldaten vorgeschlagen werden. Der Brennerstatus `burngas` ist dabei **kein** zuverlässiger Hinweis auf den Brennstoff. Die Erkennung berücksichtigt weitere Geräteinformationen, beispielsweise ein passendes Kesselmodell oder das Signal des Ölvorwärmers. Falls das nicht eindeutig ist, muss die Heizungsart selbst gewählt werden.
+
+Eine Erkennung verändert keine Heizungsregelung und übernimmt Daten erst nach Bestätigung.
+
+## Erweiterter Komponentenplan
+
+Der neue Editor kann weitere Wärmeerzeuger, Pumpen, Speicher und Anschlüsse in einem gemeinsamen Plan aufnehmen. Die alte Darstellung bleibt Grundlage. Diese Funktionen sind in der Alpha-Phase und bei komplexen Verschaltungen noch nicht vollständig abgenommen.
+
+Details stehen in [Komponenten und Rohrverbindungen](FREE_PLAN.md) und im [Prüfstand des Entwicklungszweigs](https://github.com/BlueIceWolf/ha-hydraulic-plan-card/blob/refactor/finish-unified-hydraulics-20261109/docs/ACCEPTANCE-2026-11-09.md).
+
+---
+
+## English notes
+
+For the classic card layout, choose a `generator_type` from the table above, then map real Home Assistant entities under `entities`. An extra boiler can use `boiler_type` and `boiler_name`. ETA and EMS-ESP discovery suggests available entity mappings but never imports them without confirmation.
+
+Pump states help the card decide which pipes to animate; they are not measured water flow. Complex custom pipe routing is still being developed and tested. This card is a read-only display, not a controller or safety device.
