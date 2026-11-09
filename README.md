@@ -20,7 +20,7 @@ One original SVG schematic is used: extra components extend the existing illustr
 
 ### Flow animation
 
-A flow animation is based on an explicitly mapped pipe signal or an **active connected pump** (loading pump, heating-circuit pump, or a pump entity). The card traces connected paths conservatively and does not animate branches with a mapped pump explicitly off. A mixer at **0% or 100%** is not necessarily closed: its percentage **never by itself** disables flow. Without a mapped pump or flow signal, the card cannot know circulation and displays no invented animation. A pump status is not a flow measurement; this remains a read-only visualization, never a hydraulic solver or safety control.
+A flow animation is based on an explicitly mapped pipe signal or an **active connected pump**, respecting a mapped zero flow rate and the actual three-way diverter outlet (loading pump, heating-circuit pump, or a pump entity). The card traces connected paths conservatively and does not animate branches with a mapped pump explicitly off. A mixer at **0% or 100%** is not necessarily closed: its percentage **never by itself** disables flow. Without a mapped pump or flow signal, the card cannot know circulation and displays no invented animation. A pump status is not a flow measurement; this remains a read-only visualization, never a hydraulic solver or safety control.
 
 ### Layered buffer tanks
 
@@ -28,7 +28,7 @@ Use top/middle/bottom temperature sensors and up to 24 extra sensors at their ac
 
 The editor keeps active fields in place when Home Assistant sensors update. Its illustrative multi-generator template is a *conceptual example*, not a verified drawing of any real installation.
 
-[Integrated-plan details and limitations](docs/FREE_PLAN.md).
+[Integrated-plan details and limitations](docs/FREE_PLAN.md). Die neue gemeinsame Topologie-, Routing-, Durchfluss- und Migrationsarchitektur ist in [Hydraulikarchitektur](docs/HYDRAULIC_ARCHITECTURE.md) beschrieben.
 
 ### Scrolling large heating systems
 
@@ -38,7 +38,7 @@ Complex systems extend the original hydraulic schematic, so the drawing can be w
 
 Bei aktivem Home Assistant verwendet der Komponenten-Editor die **originalen Home-Assistant-Formulare (ha-form)** mit echter Entitätsauswahl, gruppierten Standardfeldern und aufklappbaren weiteren Sensorfeldern. Auch Darstellung, Layout, Animationen, Vollbildansicht, Diagnose und Schnellbedienung lassen sich über die nativen Felder einstellen. Im Browser-Demo ohne Home Assistant bleiben einfache Eingabefelder als Fallback.
 
-**Ein gemeinsames Hydraulikbild:** Die erste Wärmepumpe beziehungsweise der erste Kessel, der erste Pufferspeicher, der erste Warmwasserspeicher und die Heizkreise nutzen weiterhin die ursprüngliche SVG-Zeichnung. Holzvergaser, Öl-, Pellet- und Gaskessel sowie weitere Wärmepumpen werden als zusätzliche, zur bestehenden Darstellung passende Geräte im **selben** SVG ergänzt. Es entstehen keine separaten Karten oder manuell zu positionierenden Bauteile. Die Auswahl enthält dazu eigens gezeichnete Piktogramme; der Ölkessel hat Brenner und Öltropfen als Merkmal, ohne Markenlogos oder fremde Bilddateien.
+**Ein gemeinsames Hydraulikbild:** Die erste Wärmepumpe beziehungsweise der erste Kessel, der erste Pufferspeicher und die Heizkreise nutzen weiterhin die ursprüngliche SVG-Zeichnung. Direkt vom Erzeuger geladene Warmwasserspeicher behalten den ursprünglichen Platz; Puffer-Ladepumpen-Anbindungen erscheinen als Verbraucher rechts. Holzvergaser, Öl-, Pellet- und Gaskessel sowie weitere Wärmepumpen werden als zusätzliche, zur bestehenden Darstellung passende Geräte im **selben** SVG ergänzt. Es entstehen keine separaten Karten oder manuell zu positionierenden Bauteile. Die Auswahl enthält dazu eigens gezeichnete Piktogramme; der Ölkessel hat Brenner und Öltropfen als Merkmal, ohne Markenlogos oder fremde Bilddateien.
 
 ### ETA Hackschnitzelkessel (eHACK, HACK und HACK VR)
 
@@ -162,7 +162,7 @@ Mehrere Pufferspeicher werden automatisch nach ihrer gespeicherten Verbindungsto
 
 ## Migration und Sicherung
 
-Das Planformat verwendet `hpc_schema_version: 2`. Ältere **gültige** Komponentenpläne
+Das Planformat verwendet `hpc_schema_version: 3`. Ältere **gültige** Komponentenpläne
 werden beim Öffnen des Editors einmalig und ohne Änderung der bestätigten Topologie
 migriert; der originale Stand wird in `hpc_migration_backup` gesichert. Veraltete
 Pufferrücklauf-Anschlüsse (`return_in`) werden auf den linken `bottom_in`-Port
