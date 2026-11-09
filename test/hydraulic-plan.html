@@ -752,21 +752,22 @@
           to:'buffer_test',to_port:'bottom_in'}
       ]}},hassOf());
     const bufferSvg=bufferBridged.shadowRoot.getElementById('svg');
-    check(bufferSvg.querySelectorAll('#p-hc-up2').length===1 &&
-      bufferSvg.querySelectorAll('#f-hc-up2').length===1 &&
-      bufferSvg.querySelector('#p-hc-up2')?.getAttribute('d')?.includes('M660 503') &&
-      bufferSvg.querySelector('#f-hc-up2')?.getAttribute('d')?.includes('M660 503'),
-      'Supply riser has a short crossing gap, leaving the return uninterrupted');
+    check(!!bufferSvg.querySelector('#p-hc-vl')?.getAttribute('d') &&
+      !!bufferSvg.querySelector('#p-hc-rl')?.getAttribute('d') &&
+      bufferSvg.querySelector('#p-hc-vl2')?.getAttribute('d')==='' &&
+      bufferSvg.querySelector('#p-hc-rl2')?.getAttribute('d')==='',
+      'Only the wired heating circuit has real supply and return routes');
     check(bufferSvg.querySelectorAll('#hpi-riser-bridge-2').length===0 &&
       bufferSvg.querySelectorAll('#hpi-buffer-couplings').length===0 &&
-      bufferSvg.querySelectorAll('#p-hc-down2').length===1 &&
-      bufferSvg.querySelectorAll('#f-hc-down2').length===1 &&
-      bufferSvg.querySelector('#p-hc-down2')?.getAttribute('d')==='M676 745 V495',
-      'One original return collector joins both circuits without extra loops or connection rings');
+      bufferSvg.querySelector('#p-hc-up2')?.getAttribute('d')==='' &&
+      bufferSvg.querySelector('#p-hc-down2')?.getAttribute('d')==='' &&
+      bufferSvg.querySelectorAll('g.hpi-link[data-hpi-edge="buf_hot"]').length===0,
+      'One graph-owned pipe renderer replaces independent legacy risers and duplicated links');
     bufferBridged.hass=hassOf({[ids.bufTop]:state(ids.bufTop,68,'°C')});
     check(bufferBridged.shadowRoot.querySelectorAll('#hpi-riser-bridge-2').length===0 &&
-      bufferBridged.shadowRoot.querySelectorAll('#p-hc-down2').length===1,
-      'Live sensor updates preserve one return line without duplicate loops');
+      !!bufferBridged.shadowRoot.querySelector('#p-hc-rl')?.getAttribute('d') &&
+      bufferBridged.shadowRoot.querySelector('#p-hc-down2')?.getAttribute('d')==='',
+      'Live temperature updates preserve only graph-owned return geometry');
     bufferBridged.remove();
 
     // A stopped domestic-hot-water loading pump closes the entire coil
@@ -802,7 +803,7 @@
       !wwById('heat_flow')&&!wwById('heat_return')&&
       !!wwCard.shadowRoot.querySelector('#p-hc-vl')&&
       !!wwCard.shadowRoot.querySelector('#p-hc-rl'),
-      'WW charging pump off: coil pipes stop and the independent native heating loop is kept');
+      'WW charging pump off: coil stops with independent native heater (active='+wwActive().join(',')+')');
     wwCard.hass=hassOf({[wwPumpId]:state(wwPumpId,'on'),
       [heatPumpId]:state(heatPumpId,'on')});
     check(wwById('ww_flow')&&wwById('ww_return'),
@@ -810,7 +811,7 @@
     wwCard.hass=hassOf({[wwPumpId]:state(wwPumpId,'off'),
       [heatPumpId]:state(heatPumpId,'on')});
     check(!wwById('ww_flow')&&!wwById('ww_return'),
-      'WW charging pump switching off stops return animation immediately');
+      'WW charging pump switches off including return (active='+wwActive().join(',')+')');
     wwCard.remove();
 
     // Mixer percentage is a valve position; it must NOT suppress a pump-driven
