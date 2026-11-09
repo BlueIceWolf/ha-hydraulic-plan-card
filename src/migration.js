@@ -54,6 +54,7 @@ const HPC_MIGRATION = (() => {
       if(n.options&&typeof n.options==='object'){
         const supported={dhw_tank:['connection_style'],
           wood_gasifier:['return_lift'],wood_chip_boiler:['eta_model','particle_separator','silo'],
+          diverter:['dhw_port','dhw_state','heating_state'],
           heating_circuit:['emitter','mixed'],pellet_boiler:['boiler_kind','silo'],
           oil_boiler:['boiler_kind'],gas_boiler:['boiler_kind'],
           heat_pump:['unit_style','unit_size','source_type']}[n.type]||[];
