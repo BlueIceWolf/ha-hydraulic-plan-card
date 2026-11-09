@@ -91,6 +91,12 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         nativeDhw.style.display=p.components.some(n=>
           n.type==='dhw_tank'&&model.anchored.has(n.id))?'':'none';
       }
+      // An explicit graph with no heating circuits must not inherit the
+      // original demo's first radiator. Keep original heater art otherwise.
+      if(!p.components.some(n=>n.type==='heating_circuit')){
+        const unusedCircuit=svg.querySelector('#p-hc-vl')?.closest('g[transform]');
+        if(unusedCircuit)unusedCircuit.style.display='none';
+      }
       const ids=new Set();
       for(const n of p.components){
         Object.values(n.sensors||{}).forEach(id=>{if(id)ids.add(id);});
