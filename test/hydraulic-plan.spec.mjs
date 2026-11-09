@@ -10,7 +10,12 @@ test('boiler types, hydraulic states and coexistence work in browser', async ({ 
   const result = page.locator('#result');
   let timeoutError;
   try {
+    try {
     await expect(result).toHaveText(/^(PASS|FAIL)$/, { timeout: 20000 });
+  } catch (error) {
+    const checkpoint = (await page.locator('#log').textContent().catch(() => 'unavailable')) || '(no checkpoint)';
+    throw new Error(`Hydraulic test did not complete. Last checkpoint:\n${checkpoint}\nBrowser errors:\n${browserErrors.join('\n') || '(none)'}\n${error}`);
+  }
   } catch (error) {
     timeoutError = error;
   } finally {
