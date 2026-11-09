@@ -63,6 +63,13 @@ pass=check(v2.changed&&v2.config.hpc_schema_version===3&&
 pass=check(!HPC_MIGRATION.upgrade(v2.config).changed,'v3 remains idempotent')&&pass;
 const future=structuredClone(original);future.hpc_schema_version=4;
 pass=check(!HPC_MIGRATION.upgrade(future).changed,'future schema is never downgraded')&&pass;
+const futureNode=structuredClone(v2.config);
+futureNode.plan.components.push({id:'unknown_future',type:'future_valve',name:'Neues Bauteil'});
+const unchangedFuture=JSON.stringify(futureNode);
+const guarded=HPC_MIGRATION.upgrade(futureNode);
+pass=check(!guarded.changed&&guarded.warnings.length>0&&
+  JSON.stringify(futureNode)===unchangedFuture,
+  'v3 unknown extension is reported without modifying original config')&&pass;
 document.querySelector('#result').textContent=pass?'PASS':'FAIL';
 document.querySelector('#log').textContent=log.join('\n');
 </script></html>
