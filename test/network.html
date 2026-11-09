@@ -236,6 +236,23 @@ const confirmedSerial=HPC_FREE.connectBufferSeries(parallelBase);
 check(HPC_FREE.connectBuffersParallel(confirmedSerial,'oil_source')===null&&
   confirmedSerial.connections.length===4,
   'User-defined serial topology cannot be silently replaced by a parallel guess');
+// The wood-gasifier return lift takes its hot leg from the existing
+// supply header and rejoins the existing return header. A bypass must not
+// paint a second pipe over either header.
+const bypassRoutes=HPC_NETWORK.mergeRoutes([
+  {edge:{id:'hot',from_port:'flow',to_port:'top_in'},
+    d:'M290 250 H400 V320 H520',on:true},
+  {edge:{id:'return',from_port:'bottom_out',to_port:'return'},
+    d:'M520 380 H290',on:true},
+  {edge:{id:'lift',kind:'return_lift',from_port:'flow',to_port:'return'},
+    d:'M290 250 H332 V380 H290',on:true}
+]);
+check(bypassRoutes.get('lift').pipe.includes('V380') &&
+  !bypassRoutes.get('lift').pipe.includes('M290 250 H332') &&
+  !bypassRoutes.get('lift').pipe.includes('M332 380 H290') &&
+  bypassRoutes.get('hot').pipe.includes('M290 250 H332'),
+  'Return lift draws only the missing bypass leg, sharing hot supply and cold return');
+
 document.querySelector('#result').textContent=checks.every(line=>line.startsWith('OK'))?'PASS':'FAIL';
 document.querySelector('#log').textContent=checks.join('\n');
 </script></body></html>
