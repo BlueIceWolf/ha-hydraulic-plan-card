@@ -381,7 +381,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // Live HA data changes frequently. Never replace the whole configuration form;
       // this would interrupt typing, select popovers and drag operations.
       if(this._free()||this._unconfigured()){
-        const candidateSignature=JSON.stringify({ems:HPC_EMS.detect(hass).map(x=>[x.id,x.type,x.count,Object.values(x.entities)]),eta:HPC_ETA.detect(hass).map(x=>[x.id,x.model,x.count,Object.values(x.entities)])});
+        const candidateSignature=JSON.stringify({ems:HPC_EMS.detect(hass).map(x=>[x.id,x.type,x.count,Object.values(x.entities)]),emsCircuits:HPC_EMS.detectCircuits(hass).map(x=>[x.id,x.count,Object.values(x.entities)]),eta:HPC_ETA.detect(hass).map(x=>[x.id,x.model,x.count,Object.values(x.entities)])});
         if(first||!this._freeUi?.isConnected||candidateSignature!==this._emsSignature){
           this._emsSignature=candidateSignature;
           this._renderFlex();
@@ -457,6 +457,19 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         ...(this._migrationWarnings||[])];
       const configured=true;
       const emsCandidates=HPC_EMS.detect(this._hass);
+      const emsCircuitCandidates=HPC_EMS.detectCircuits(this._hass);
+      const matchedEmsCircuit=(c,plan=p)=>{
+        const ids=new Set(Object.values(c.entities));
+        return plan.components.find(node=>node.type==='heating_circuit'&&(
+          node.discovery?.provider==='ems-esp'&&node.discovery.id===c.id||
+          Object.values(node.sensors||{}).some(id=>ids.has(id))||
+          /^(?:heizkreis|hk)\s*[1-6]$/i.test(node.name||'')&&
+          Number((node.name||'').match(/[1-6]$/)?.[0])===c.number));
+      };
+      const pendingEmsCircuits=emsCircuitCandidates.filter(c=>{
+        const node=matchedEmsCircuit(c);
+        return !node||Object.entries(c.entities).some(([key,id])=>id&&!node.sensors?.[key]);
+      });
       const etaCandidates=HPC_ETA.detect(this._hass);
       const etaParts=HPC_ETA_SYSTEM.detect(this._hass);
       const chosenEtaPart=etaParts.find(c=>!p.components.some(n=>
@@ -483,6 +496,12 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         ${chosenEms.type==="unknown"?`<p>${t("Der Brennstoff lässt sich aus den verfügbaren Geräten nicht sicher erkennen. Bitte den richtigen Kesseltyp auswählen.","Fuel type cannot be reliably inferred. Select the proper boiler type first.")}</p>`:""}
         <button type="button" data-action="ems-apply" ${chosenEms.type==="unknown"?"disabled":""}>${chosenEms.count?t("Kessel übernehmen und Messwerte zuordnen","Add boiler and assign values"):t("Erkannten Kessel hinzufügen","Add detected boiler")}</button>
       </section>`:"";
+      const emsCircuitInfo=pendingEmsCircuits.length?`<section class="hpc-ems">
+        <h3>${t("EMS-ESP-Heizkreise erkannt","EMS-ESP heating circuits found")}</h3>
+        <p>${pendingEmsCircuits.map(c=>esc(c.name)+" ("+c.count+" "+t("Messwerte","values")+")").join(" · ")}</p>
+        <p>${t("Erkannte Sensoren werden ergänzt. Eigene Namen und Zuordnungen bleiben erhalten. Rohrleitungen werden nicht automatisch verbunden.","Detected values will be added without changing existing names or mappings. Pipework is never inferred.")}</p>
+        <button type="button" data-action="ems-circuits-apply">${t("Heizkreise übernehmen","Add heating circuits")}</button>
+      </section>`:'';
       const etaLabel=chosenEta?({ehack:'ETA eHACK',hack:'ETA HACK',hack_vr:'ETA HACK VR'}[chosenEta.model]||'ETA Hackschnitzelkessel'):'';
       const etaInfo=chosenEta?`<section class="hpc-ems">
         <h3>${t("ETA Hackschnitzelkessel automatisch erkannt","ETA wood-chip boiler detected")}</h3>
@@ -717,6 +736,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             </div>`:""}
           </details>
           ${emsInfo}
+          ${emsCircuitInfo}
           ${etaInfo}
           ${etaPartInfo}
           ${chosenEta||chosenEtaPart?`<div class="hpc-actions"><button type="button" class="hpc-primary" data-action="eta-scan-all">${t("ETA-Anlage automatisch erkennen","Detect ETA system automatically")}</button></div>`:""}
@@ -724,11 +744,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <div class="hpc-row"><div class="hpc-add-preview" id="hpc-free-icon">${HPC_FREE.icon("wood_gasifier")}</div><label>${t("Art","Type")}<select id="hpc-free-type">${typeOptions}</select></label>
             <button type="button" class="hpc-primary" data-action="add-component">${t("Hinzufügen","Add")}</button></div>
           <div class="hpc-component-list">${p.components.map(c=>`<button type="button" data-select="${esc(c.id)}"
-            aria-pressed="${selected?.id===c.id}">${HPC_FREE.icon(c.type)}<span>${esc(c.name)}<small>${esc(HPC_FREE.display(c.type,lang))}</small></span></button>`).join("")}</div>
+            aria-pressed="${selected?.id===c.id}" title="${esc(c.name)}">${HPC_FREE.icon(c.type)}<span><strong class="hpc-item-name">${esc(c.name)}</strong><small>${esc(HPC_FREE.display(c.type,lang))}</small></span></button>`).join("")}</div>
           <h3>${t("Hydraulikschema","Hydraulic schematic")}</h3>
           <p>${t("Die Bauteile werden passend zu ihren Anschlüssen automatisch im ursprünglichen Hydraulikplan angeordnet. Du musst keine Positionen eingeben. Die Live-Vorschau siehst du im Dashboard.","Components are automatically arranged in the original hydraulic schematic. No manual coordinates are required. The dashboard shows the live preview.")}</p>
           ${chosen}
-          ${dhwTanks.length&&dhwSources.length?`<section class="hpc-ems">
+          ${selected?.type==='dhw_tank'&&dhwSources.length?`<section class="hpc-ems">
             <h3>${t("Warmwasserbereitung anschließen","Connect domestic hot-water charging")}</h3>
             <p>${t("Wähle die Wärmequelle und wie der Speicher geladen wird. Vorlauf und Rücklauf werden zusammen angelegt; vorhandene WW-Leitungen werden nicht überschrieben.","Choose the heat source and charging method. Flow and return are created together. Existing DHW pipes are not overwritten.")}</p>
             <div class="hpc-row">
@@ -736,7 +756,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
                 ${dhwSources.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
               </select></label>
               <label>${t("Warmwasserspeicher","Hot-water tank")}<select id="hpc-dhw-target">
-                ${dhwOptions.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+                ${dhwTanks.filter(c=>c.id===selected.id).map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
               </select></label>
               <label>${t("Leitungsführung","Pipe routing")}<select id="hpc-dhw-style">
                 <option value="branch">${t("Abzweig wie Heizkreis – zur Heizwendel","Branch like heating circuit – into coil")}</option>
@@ -747,7 +767,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
                 <option value="diverter">${t("Über Umschaltventil","Via diverter valve")}</option>
                 <option value="direct">${t("Direkt verbunden","Direct connection")}</option>
               </select></label>
-              <button type="button" data-action="dhw-route" class="hpc-primary" ${dhwOptions.length?'':'disabled'}>${t("WW-Kreis anlegen","Create DHW circuit")}</button>
+              <button type="button" data-action="dhw-route" class="hpc-primary" ${dhwOptions.some(c=>c.id===selected.id)?'':'disabled'}>${t("WW-Kreis anlegen","Create DHW circuit")}</button>
             </div>
             <p>${t("Bei einer Umschaltung muss der tatsächliche Ventilzustand für die Flussanzeige zugeordnet werden. Die Darstellung ersetzt keine hydraulische Prüfung.","For diverting, assign the actual valve state to display flow correctly. This does not replace checking the actual pipework.")}</p>
           </section>`:""}
@@ -994,6 +1014,34 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               node.sensors[key]=id;
           }
           this._selectedId=node.id;
+          return this._applyPlan(copy,{hpc_legacy_imported:true});
+        }
+        if(action==="ems-circuits-apply"&&pendingEmsCircuits.length){
+          if(!window.confirm(t(
+            "Erkannte EMS-ESP-Heizkreise und freie Messwertfelder ergänzen? Bestehende Sensoren und Leitungen bleiben unverändert.",
+            "Add detected EMS-ESP circuits and empty sensor fields? Existing sensors and pipes remain unchanged.")))return;
+          const copy=HPC_FREE.normalize(p);
+          let selectedId=null,added=0;
+          for(const candidate of pendingEmsCircuits){
+            let node=matchedEmsCircuit(candidate,copy);
+            if(!node){
+              if(copy.components.filter(c=>c.type==='heating_circuit').length>=6)continue;
+              node=HPC_FREE.newNode('heating_circuit',copy);
+              if(!node)continue;
+              node.name=candidate.name;
+              copy.components.push(node);
+              added++;
+            }
+            node.discovery={provider:'ems-esp',id:candidate.id};
+            for(const [role,id] of Object.entries(candidate.entities)){
+              if(HPC_FREE.byType.heating_circuit.fields.includes(role)&&
+                !node.sensors[role])node.sensors[role]=id;
+            }
+            if(node.sensors.mixer)node.options={...node.options,mixed:true};
+            selectedId=node.id;
+          }
+          if(!selectedId)return;
+          this._selectedId=selectedId;
           return this._applyPlan(copy,{hpc_legacy_imported:true});
         }
         if(action==="ems-apply"&&chosenEms){

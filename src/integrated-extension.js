@@ -5,6 +5,12 @@ const HPC_INTEGRATED = (() => {
   const sources = new Set(['wood_gasifier','oil_boiler','pellet_boiler','wood_chip_boiler','gas_boiler','heat_pump']);
   const isSource = (node) => sources.has(node.type);
   const isTank = node => node.type==='buffer'||node.type==='dhw_tank';
+  // Keep the user's complete name in the plan. The original 240px boiler
+  // and 155px radiator drawings only have room for a short display caption.
+  const caption = (name,max=25) => {
+    const value=String(name||'').trim();
+    return value.length>max?value.slice(0,max-1).trimEnd()+'…':value;
+  };
   function layout(plan, hcCount=1) {
     const p=HPC_FREE.normalize(plan), anchored=new Map();
     const firstSource=p.components.find(isSource);
@@ -174,7 +180,7 @@ const HPC_INTEGRATED = (() => {
     const derived={...config};
     if(p.components.length)derived.generator_type=src?types[src.type]:'heat_pump';
     else if(src)derived.generator_type=types[src.type];
-    if(src&&src.type!=='heat_pump')derived.boiler_name=src.name;
+    if(src&&src.type!=='heat_pump')derived.boiler_name=caption(src.name,25);
     if(src?.type==='heat_pump'){
       // Original Heat Pump Hydraulic Card artwork renderer reads these exact
       // top-level settings. The component editor exposes the entire gallery.
@@ -200,6 +206,11 @@ const HPC_INTEGRATED = (() => {
       derived.storage='separate';
       derived.hc_count=Math.max(1,circuits.length);
       circuits.forEach((c,index)=>{
+        // The original circuit SVG reads hc_name, hc2_name, ... directly.
+        // Always use the names from the component editor, not a stock
+        // "Heizkreis 1" label left over from the legacy configuration.
+        const nameKey=index?'hc'+(index+1)+'_name':'hc_name';
+        if(c.name)derived[nameKey]=caption(c.name,22);
         const key=index?'hc'+(index+1)+'_type':'hc_type';
         // Use the original Heat Pump Hydraulic Card emitter artwork.
         // Each heating circuit can independently display floor, panel or
