@@ -9068,7 +9068,9 @@ const HPC_INTEGRATED = (() => {
     const all=Object.fromEntries(plan.components.map(c=>[c.id,c]));
     const loc=id=>anchored.get(id)||points.get(id);
     const defs=plan.components.filter(isTank).map(c=>'<linearGradient id="hpi-'+c.id+'" x1="0" y1="0" x2="0" y2="1">'+stops(c,hass)+'</linearGradient>').join('');
-    const flowing=flowStates(plan,hass);
+    const evidence=HPC_NETWORK.flowEvidence(plan,hass);
+    const flowing=new Set([...evidence].filter(([,reading])=>reading.active)
+      .map(([edgeId])=>edgeId));
     // The WW coil is a selectable consumer of the shared heating supply
     // and return. Mark branch junctions without creating fake components.
     const branchTankIds=new Set(plan.components.filter(n=>
@@ -9132,19 +9134,21 @@ const HPC_INTEGRATED = (() => {
         field==='bottom_out'?from.sensors.bottom:'';
       const reading=HPC_FREE.state(hass,edge.temperature_entity||inferred);
       return {edge,d,on:flowing.has(edge.id),
+        evidence:evidence.get(edge.id)?.state||'unknown',
         color:reading?HPC_FREE.color(reading):null,
         junction:supplyTee||returnTee};
     }).filter(Boolean);
     // Resolve all route overlaps together, rather than having every boiler,
     // tank or heating circuit draw a second copy of the same collector.
     const physicalPipes=HPC_NETWORK.mergeRoutes(routeRecords);
-    const links=routeRecords.map(({edge,on,color,junction})=>{
+    const links=routeRecords.map(({edge,on,color,junction,evidence:pipeState})=>{
       const paths=physicalPipes.get(edge.id)||{pipe:'',flow:''};
       const tee=junction?'<circle class="hpi-coil-branch" cx="'+junction.x+
         '" cy="'+junction.y+'" r="5" fill="var(--card-background-color,#fff)" stroke="'+
         (on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+
         '" stroke-width="2"/>':'';
-      return '<g class="hpi-link" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"><title>'+
+      return '<g class="hpi-link" data-hpi-edge="'+HPC_FREE.esc(edge.id)+
+        '" data-flow-evidence="'+HPC_FREE.esc(pipeState)+'"><title>'+
         HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'+
         '<path class="pipe'+(paths.flow?' on':'')+'" d="'+paths.pipe+'"'+
         (color?' style="--pc:'+color+'"':'')+'/>'+
