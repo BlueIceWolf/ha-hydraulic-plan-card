@@ -193,7 +193,11 @@ const HPC_NETWORK = (() => {
       const mid = (p.x + q.x) / 2;
       d = 'M' + h(p.x, p.y) + ' H' + mid + ' V' + q.y + ' H' + q.x;
     }
-    if (toNode.type === 'dhw_tank' && edge.to_port === 'coil_in') {
+    // A direct left-to-right coil connection is routed on the existing
+    // supply level. The overhead bypass is needed only when approaching
+    // the physical left-hand coil inlet from the wrong side.
+    if (toNode.type === 'dhw_tank' && edge.to_port === 'coil_in' &&
+        (p.x >= q.x || fromSide === 'L')) {
       const outsideX = Math.max(p.x + 36, toShape.x + toShape.w + 42);
       const aboveY = Math.max(10, Math.min(toShape.y - 24, fromShape.y - 25, 16));
       d = 'M' + h(p.x, p.y) + ' H' + outsideX + ' V' + aboveY +
