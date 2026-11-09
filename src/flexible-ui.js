@@ -724,11 +724,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <div class="hpc-row"><div class="hpc-add-preview" id="hpc-free-icon">${HPC_FREE.icon("wood_gasifier")}</div><label>${t("Art","Type")}<select id="hpc-free-type">${typeOptions}</select></label>
             <button type="button" class="hpc-primary" data-action="add-component">${t("Hinzufügen","Add")}</button></div>
           <div class="hpc-component-list">${p.components.map(c=>`<button type="button" data-select="${esc(c.id)}"
-            aria-pressed="${selected?.id===c.id}">${HPC_FREE.icon(c.type)}<span>${esc(c.name)}<small>${esc(HPC_FREE.display(c.type,lang))}</small></span></button>`).join("")}</div>
+            aria-pressed="${selected?.id===c.id}" title="${esc(c.name)}">${HPC_FREE.icon(c.type)}<span>${esc(c.name)}<small>${esc(HPC_FREE.display(c.type,lang))}</small></span></button>`).join("")}</div>
           <h3>${t("Hydraulikschema","Hydraulic schematic")}</h3>
           <p>${t("Die Bauteile werden passend zu ihren Anschlüssen automatisch im ursprünglichen Hydraulikplan angeordnet. Du musst keine Positionen eingeben. Die Live-Vorschau siehst du im Dashboard.","Components are automatically arranged in the original hydraulic schematic. No manual coordinates are required. The dashboard shows the live preview.")}</p>
           ${chosen}
-          ${dhwTanks.length&&dhwSources.length?`<section class="hpc-ems">
+          ${selected?.type==='dhw_tank'&&dhwSources.length?`<section class="hpc-ems">
             <h3>${t("Warmwasserbereitung anschließen","Connect domestic hot-water charging")}</h3>
             <p>${t("Wähle die Wärmequelle und wie der Speicher geladen wird. Vorlauf und Rücklauf werden zusammen angelegt; vorhandene WW-Leitungen werden nicht überschrieben.","Choose the heat source and charging method. Flow and return are created together. Existing DHW pipes are not overwritten.")}</p>
             <div class="hpc-row">
@@ -736,7 +736,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
                 ${dhwSources.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
               </select></label>
               <label>${t("Warmwasserspeicher","Hot-water tank")}<select id="hpc-dhw-target">
-                ${dhwOptions.map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+                ${dhwTanks.filter(c=>c.id===selected.id).map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
               </select></label>
               <label>${t("Leitungsführung","Pipe routing")}<select id="hpc-dhw-style">
                 <option value="branch">${t("Abzweig wie Heizkreis – zur Heizwendel","Branch like heating circuit – into coil")}</option>
@@ -747,7 +747,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
                 <option value="diverter">${t("Über Umschaltventil","Via diverter valve")}</option>
                 <option value="direct">${t("Direkt verbunden","Direct connection")}</option>
               </select></label>
-              <button type="button" data-action="dhw-route" class="hpc-primary" ${dhwOptions.length?'':'disabled'}>${t("WW-Kreis anlegen","Create DHW circuit")}</button>
+              <button type="button" data-action="dhw-route" class="hpc-primary" ${dhwOptions.some(c=>c.id===selected.id)?'':'disabled'}>${t("WW-Kreis anlegen","Create DHW circuit")}</button>
             </div>
             <p>${t("Bei einer Umschaltung muss der tatsächliche Ventilzustand für die Flussanzeige zugeordnet werden. Die Darstellung ersetzt keine hydraulische Prüfung.","For diverting, assign the actual valve state to display flow correctly. This does not replace checking the actual pipework.")}</p>
           </section>`:""}
