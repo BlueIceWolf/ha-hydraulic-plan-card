@@ -8493,6 +8493,29 @@ const HPC_NETWORK = (() => {
       return ['off','closed','idle','standby','aus'].includes(status)||
         pump.number===0;
     };
+    const tankCoilStopped=new Set();
+    const blockedUpstream=(nodeId,visited=new Set())=>{
+      if(visited.has(nodeId))return false;
+      visited.add(nodeId);
+      const node=nodes.get(nodeId);
+      if(!node)return false;
+      if(pumpOff(node))return true;
+      if(isSource(node)||node.type==='buffer')return false;
+      return (incoming.get(nodeId)||[]).some(edge=>
+        asFlow(edge.flow_entity).state==='stopped'||
+        atPort(nodes.get(edge.from),edge.from_port)||
+        atPort(node,edge.to_port)||
+        blockedUpstream(edge.from,visited));
+    };
+    for(const tank of plan.components.filter(node=>node.type==='dhw_tank')){
+      const feed=(incoming.get(tank.id)||[]).filter(edge=>edge.to_port==='coil_in');
+      if(feed.some(edge=>
+        asFlow(edge.flow_entity).state==='stopped'||
+        atPort(nodes.get(edge.from),edge.from_port)||
+        blockedUpstream(edge.from))){
+        tankCoilStopped.add(tank.id);
+      }
+    }
     const result=new Map();
     for(const edge of plan.connections){
       const source=nodes.get(edge.from),destination=nodes.get(edge.to);
@@ -8502,7 +8525,8 @@ const HPC_NETWORK = (() => {
         state='stopped';basis=reported.measured?'meter':'switch';
       }else if(atPort(source,edge.from_port)||atPort(destination,edge.to_port)){
         state='stopped';basis='valve';
-      }else if(pumpOff(source)||pumpOff(destination)){
+      }else if(pumpOff(source)||pumpOff(destination)||
+        tankCoilStopped.has(edge.from)&&edge.from_port==='coil_out'){
         state='stopped';basis='pump';
       }else if(active.has(edge.id)){
         const adjacentPumps=[source,destination].filter(n=>n?.type==='pump');
