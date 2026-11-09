@@ -97,6 +97,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const unusedCircuit=svg.querySelector('#p-hc-vl')?.closest('g[transform]');
         if(unusedCircuit)unusedCircuit.style.display='none';
       }
+      // The original heat-pump layout has a fixed illustrative 3-way valve.
+      // In explicit graph mode it would be a duplicate (or an invented valve).
+      // Use only the user's configured changeover component instead.
+      const inheritedValve=svg.querySelector('#valve-arrow')?.closest('g.tap');
+      if(inheritedValve)inheritedValve.style.display='none';
       const ids=new Set();
       for(const n of p.components){
         Object.values(n.sensors||{}).forEach(id=>{if(id)ids.add(id);});
