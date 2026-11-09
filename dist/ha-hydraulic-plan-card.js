@@ -9746,6 +9746,41 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         tank.setAttribute('stroke-width','1.25');
       }
     }
+    _syncNativeCircuitFlow(svg,plan) {
+      // The original radiator, mixer and pump art remains untouched. Only
+      // activation of its existing pipe segments follows the SAME graph used
+      // by additional generators and WW charging loops.
+      const evidence=HPC_NETWORK.flowEvidence(plan,this._hass);
+      const circuits=plan.components.filter(n=>n.type==='heating_circuit').slice(0,6);
+      const allActive=[];
+      for(const [index,circuit] of circuits.entries()){
+        const suffix=index?String(index+1):'';
+        const flow=plan.connections.filter(e=>e.to===circuit.id&&e.to_port==='flow_in');
+        const ret=plan.connections.filter(e=>e.from===circuit.id&&e.from_port==='return_out');
+        const active=flow.length>0&&ret.length>0&&
+          flow.some(e=>evidence.get(e.id)?.active)&&
+          ret.some(e=>evidence.get(e.id)?.active);
+        allActive.push(active);
+        for(const section of ['vl','body','rl']){
+          const path=svg.querySelector('#f-hc-'+section+suffix);
+          if(path)path.classList.toggle('on',active);
+        }
+        const mixer=svg.querySelector('#p-hc-mix'+suffix);
+        if(mixer)mixer.classList.toggle('on',active);
+      }
+      const circulating=allActive.some(Boolean);
+      for(const part of ['trunk-vl','trunk-rl']){
+        const pipe=svg.querySelector('#f-hc-'+part);
+        if(pipe)pipe.classList.toggle('on',circulating);
+      }
+      for(let index=2;index<=circuits.length;index++){
+        const exists=allActive.slice(index-1).some(Boolean);
+        for(const part of ['up','down']){
+          const path=svg.querySelector('#f-hc-'+part+index);
+          if(path)path.classList.toggle('on',exists);
+        }
+      }
+    }
     _syncAdditional(force=false) {
       const p=this._integratedPlan;
       if(!this._hass||!p?.components.length)return;
@@ -9821,6 +9856,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(title)title.textContent=p.components.find(c=>c.id===firstBuffer)?.name||title.textContent;
       }
       this._polishBufferPipes(svg,p,firstBuffer);
+      this._syncNativeCircuitFlow(svg,p);
       if(firstDhw){
         svg.querySelector('rect.tank[x="520"][y="40"]')?.setAttribute('fill','url(#hpi-'+firstDhw+')');
         const title=svg.querySelector('text.tank-title[x="580"][y="30"]');
