@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><title>Hydraulic network regression</title></head><body>
+<pre id="result">RUNNING</pre><pre id="log"></pre>
+<script>
+const HFC_EMITTERS=['radiator','underfloor','column'];
+const HFC_UNIT_STYLES=['auto'];
+const HFC_UNIT_SIZES=['standard'];
+</script>
+<script src="../src/flexible-plan.js"></script>
+<script src="../src/hydraulic-network.js"></script>
+<script>
+const checks=[];
+function check(condition,label){
+  checks.push((condition?'OK ':'FAIL ')+label);
+  if(!condition)console.error('Hydraulic network: '+label);
+}
+const state=(raw,unit='')=>({state:String(raw),attributes:{unit_of_measurement:unit}});
+const hass=(values={})=>({states:Object.fromEntries(Object.entries(values)
+  .map(([name,value])=>[name,Array.isArray(value)?state(...value):state(value)]))});
+const nodes=[
+  {id:'buffer3',type:'buffer',name:'Puffer 3',sensors:{}},
+  {id:'buffer1',type:'buffer',name:'Puffer 1',sensors:{}},
+  {id:'buffer2',type:'buffer',name:'Puffer 2',sensors:{}},
+  {id:'pump1',type:'pump',name:'Ladepumpe',sensors:{state:'switch.ladepumpe',volume:'sensor.durchfluss'}},
+  {id:'ww',type:'dhw_tank',name:'Warmwasser',sensors:{}}
+];
+const links=[
+  {id:'e1',from:'buffer1',from_port:'top_out',to:'buffer2',to_port:'top_in'},
+  {id:'e2',from:'buffer2',from_port:'top_out',to:'buffer3',to_port:'top_in'},
+  {id:'e3',from:'buffer1',from_port:'top_out',to:'pump1',to_port:'in'},
+  {id:'e4',from:'pump1',from_port:'out',to:'ww',to_port:'coil_in'},
+  {id:'e5',from:'ww',from_port:'coil_out',to:'buffer1',to_port:'bottom_in'}
+];
+const plan=HPC_FREE.normalize({components:nodes,connections:links});
+check(HPC_NETWORK.orderedBuffers(plan).map(n=>n.id).join(',')==='buffer1,buffer2,buffer3',
+  'Series buffers are sorted by actual hot-water topology, not insertion order');
+const graph=HPC_NETWORK.graph(plan);
+check(graph.incoming.get('ww').map(e=>e.id).join(',')==='e4'&&
+  graph.outgoing.get('ww').map(e=>e.id).join(',')==='e5',
+  'Hydraulic graph retains real coil inlet and outlet directions');
+const on=HPC_NETWORK.flowStates(plan,hass({'switch.ladepumpe':'on','sensor.durchfluss':[245,'l/h']}));
+check(['e3','e4','e5'].every(id=>on.has(id)),
+  'Charging pump and measured flow enable both coil legs');
+const zero=HPC_NETWORK.flowStates(plan,hass({'switch.ladepumpe':'on','sensor.durchfluss':[0,'l/h']}));
+check(!zero.has('e3')&&!zero.has('e4')&&!zero.has('e5'),
+  'Measured zero blocks running pump and entire coil return');
+const off=HPC_NETWORK.flowStates(plan,hass({'switch.ladepumpe':'off','sensor.durchfluss':[240,'l/h']}));
+check(!off.has('e3')&&!off.has('e4')&&!off.has('e5'),
+  'Explicitly stopped charging pump blocks both pipes even with stale positive flow');
+const unknown=HPC_NETWORK.flowStates(plan,hass());
+check(!unknown.size,'No sensor means unknown, never fabricated circulation');
+const measuredZero=structuredClone(plan);
+measuredZero.connections.find(e=>e.id==='e4').flow_entity='sensor.coil_flow';
+const stopped=HPC_NETWORK.flowStates(measuredZero,hass({
+  'switch.ladepumpe':'on','sensor.durchfluss':[240,'l/h'],'sensor.coil_flow':[0,'l/h']}));
+check(!stopped.has('e4')&&!stopped.has('e5'),
+  'Coil flow meter zero blocks return independently of pump command');
+const metadata={components:[{id:'boiler',type:'oil_boiler',name:'Old boiler',
+  sensors:{custom_future:'sensor.custom_extra'},options:{future_setting:'keep'},
+  custom_details:{a:1}}],
+  connections:[]};
+const roundTrip=HPC_FREE.normalize(metadata);
+check(roundTrip.components[0].custom_details.a===1 &&
+  roundTrip.components[0].options.future_setting==='keep'&&
+  roundTrip.components[0].sensors.custom_future==='sensor.custom_extra',
+  'Unknown extension fields remain intact during editor normalization');
+const geom=HPC_NETWORK.route({edge:{from_port:'coil_out',to_port:'bottom_in'},
+  fromNode:{type:'dhw_tank'},toNode:{type:'buffer'},
+  fromShape:{x:1080,y:40,w:120,h:200},toShape:{x:520,y:320,w:120,h:200},
+  p:{x:1080,y:215},q:{x:520,y:495},fromSide:'L',toSide:'L'});
+check(geom.startsWith('M1080 215 H1010')&&geom.endsWith('H520'),
+  'Return route takes the outside tank connection, not the vessel interior');
+document.querySelector('#result').textContent=checks.every(line=>line.startsWith('OK'))?'PASS':'FAIL';
+document.querySelector('#log').textContent=checks.join('\n');
+</script></body></html>
