@@ -630,9 +630,12 @@
       ]}},hassOf({'switch.buffer_ww_pump':state('switch.buffer_ww_pump','on')}));
     const bufferChargeSvg=bufferCharge.shadowRoot.getElementById('svg');
     const chargedTank=bufferChargeSvg.querySelector('[data-hpi-node="bt"] rect.tank');
+    const nativeCoilGraphic=bufferChargeSvg
+      .querySelector('rect.tank[x="520"][y="40"]')?.closest('g.tap');
     check(Number(chargedTank?.getAttribute('x'))>=1000 &&
-      bufferChargeSvg.querySelector('rect.tank[x="520"][y="40"]')?.closest('g.tap')?.style.display==='none',
-      'Buffer-fed warm-water tank uses the original pictogram in consumer column without duplication');
+      (!nativeCoilGraphic||nativeCoilGraphic.style.display==='none'),
+      'Buffer-fed warm-water tank uses the original pictogram in consumer column without duplication'
+      +' (tank x='+chargedTank?.getAttribute('x')+', native='+nativeCoilGraphic?.style.display+')');
     const chargedPump=bufferChargeSvg.querySelector('g.hpi-inline-pump[data-hpi-node="bp"]');
     check(!!chargedPump &&
       Number(chargedPump.querySelector('circle.pump')?.getAttribute('cx'))>640,
