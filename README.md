@@ -8,7 +8,7 @@
 
 Die Karte baut auf der [Heat Pump Hydraulic Card von Sturmi77](https://github.com/Sturmi77/heatpump-hydraulic-card) auf. Die bekannte Darstellung der Wärmepumpe, die Heizkörper und die Mischer bleiben erhalten. Dazu kommen weitere Wärmeerzeuger und die Möglichkeit, auch umfangreichere Heizungsanlagen abzubilden.
 
-> **Noch in Entwicklung:** Die aktuelle Version auf `main` ist `0.2.0-alpha.6`. Die erweiterte Rohrführung und die Übernahme älterer Konfigurationen werden auf einem separaten Zweig überarbeitet. Bitte sichere deine Kartenkonfiguration, bevor du eine Testversion installierst.
+> **Noch in Entwicklung:** `main` enthält weiterhin den Teststand `0.2.0-alpha.6`, keine stabile Freigabe. Die gemeinsame Rohrführung und die Migration sind integriert, aber die vollständige hydraulische und visuelle Abnahme ist noch offen. Sichere deine Kartenkonfiguration vor einem Update.
 
 ## Was kann die Karte?
 
@@ -84,9 +84,9 @@ Das ist keine Messung des tatsächlichen Durchflusses und keine hydraulische Sim
 
 ## Geräte automatisch erkennen
 
-Bei unterstützten Geräten kann der Editor bereits vorhandene Entitäten aus Home Assistant zur Übernahme vorschlagen, unter anderem bei passenden **ETA-Hackschnitzelkesseln** und **EMS-ESP-Kesseln**. Die Vorschläge müssen bestätigt werden; die Karte fügt nicht eigenmächtig einen Kessel hinzu.
+Bei unterstützten Geräten kann der Editor vorhandene Home-Assistant-Entitäten zur Übernahme vorschlagen, unter anderem bei **ETA-Hackschnitzelkesseln** und **EMS-ESP-Geräten**. Eine EMS-ESP-Wärmepumpe kann dabei ausdrücklich ausgewählt werden. Eine Kompatibilitätsliste im Gerätenamen gilt nicht als Nachweis des installierten Modells.
 
-Ob ein EMS-ESP-Gerät mit Öl oder Gas arbeitet, lässt sich nicht immer sicher aus einer einzelnen Entität ableiten. Im Zweifel wählst du den Kesseltyp selbst. Manuelle Sensorzuordnungen bleiben wichtig.
+Die Übernahme erfolgt erst nach deiner Bestätigung. Der allgemeine EMS-ESP-Brennerstatus wird nicht als Verdichterstatus behandelt, und thermische Kesselleistung wird nicht als elektrische Wärmepumpenleistung zugeordnet. Öl oder Gas wird nur bei eindeutigen Geräteinformationen vorgeschlagen; andernfalls wählst du den Typ selbst. Manuelle Namen und Sensorzuordnungen bleiben erhalten.
 
 ## Vor einem Update
 
@@ -96,11 +96,7 @@ Der neuere Komponentenplan arbeitet mit einer versionierten Konfiguration. Der E
 
 ## Entwicklungsstand
 
-Der Umbau findet im Zweig [`refactor/finish-unified-hydraulics-20261109`](https://github.com/BlueIceWolf/ha-hydraulic-plan-card/tree/refactor/finish-unified-hydraulics-20261109) statt. Der dazugehörige [Pull Request #21](https://github.com/BlueIceWolf/ha-hydraulic-plan-card/pull/21) ist **noch nicht freigegeben**.
-
-Offen sind insbesondere die endgültig gemeinsame Rohrführung zwischen ursprünglicher und erweiterter Darstellung, die sichere Bewertung komplexer Flusswege, vollständige visuelle Vergleichstests und zusätzliche Tests mit älteren realen Kartenkonfigurationen.
-
-Der genaue Prüfstand mit allen 29 Abnahmepunkten steht im [Abnahmeprotokoll](https://github.com/BlueIceWolf/ha-hydraulic-plan-card/blob/refactor/finish-unified-hydraulics-20261109/docs/ACCEPTANCE-2026-11-09.md). Die [Architekturdokumentation](docs/HYDRAULIC_ARCHITECTURE.md) richtet sich an Mitentwickler.
+Die gemeinsame Darstellung und die EMS-ESP-Erkennung werden auf `main` weiterentwickelt. Die Karte bleibt eine Testversion: Für komplexe Anlagen, vollständige visuelle Referenzen und alle unterstützten Alt-Konfigurationen ist die Abnahme noch nicht abgeschlossen. Issue [#20](https://github.com/BlueIceWolf/ha-hydraulic-plan-card/issues/20) und das [Abnahmeprotokoll](docs/ACCEPTANCE-2026-11-09.md) führen die offenen Nachweise auf. Die [Architekturdokumentation](docs/HYDRAULIC_ARCHITECTURE.md) richtet sich an Mitentwickler.
 
 ### Fehler melden oder mitentwickeln
 
@@ -116,9 +112,12 @@ Für die lokalen Prüfungen werden Node.js ab Version 22 und Playwright verwende
 
 ```bash
 npm ci
+npm run build
 npm run syntax
 npm run test
 ```
+
+`npm run build` erzeugt den installierbaren Bundle aus den Quellmodulen. Die CI prüft, dass der erzeugte Bundle eingecheckt ist.
 
 ## Herkunft und Lizenz
 

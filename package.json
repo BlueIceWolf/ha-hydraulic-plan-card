@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/serve.mjs",
+    "build": "node scripts/build-bundle.mjs",
     "syntax": "node --check dist/ha-hydraulic-plan-card.js && node --check demo/setups.js && node scripts/check-html-scripts.mjs && node scripts/check-bundle-sync.mjs",
     "test": "playwright test",
     "test:chromium": "playwright test --project=chromium",

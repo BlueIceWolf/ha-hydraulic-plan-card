@@ -39,6 +39,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run build
+      - run: git diff --exit-code -- dist/ha-hydraulic-plan-card.js
       - run: npm run syntax
       - run: npx playwright install --with-deps ${{ matrix.browser }}
       - run: npm run test:${{ matrix.browser }}

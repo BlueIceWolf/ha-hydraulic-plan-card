@@ -557,6 +557,48 @@
     unknownHass.entities=Object.fromEntries(Object.keys(unknownHass.states).filter(id=>id.includes('boiler_'))
       .map(id=>[id,{device_id:'gas1',platform:'mqtt',unique_id:'ems-esp_'+id}]));
     unknownHass.devices={gas1:{name:'EMS-ESP Boiler',manufacturer:'EMS-ESP'}};
+    // The EMS gateway's boiler device can advertise a whole catalogue of
+    // supported heat pumps. This does not identify the installed appliance.
+    // The user must be allowed to choose a heat pump explicitly.
+    const hpModelList='Enviline, Compress 6000AW, Hybrid 3000-7000iAW, '+
+      'SupraEco/Geo 5xx, WLW196i/WSW196i';
+    const emsHpHass=hassOf({
+      'binary_sensor.boiler_burngas':state('binary_sensor.boiler_burngas','on'),
+      'sensor.boiler_curflowtemp':state('sensor.boiler_curflowtemp',36,'°C'),
+      'sensor.boiler_rettemp':state('sensor.boiler_rettemp',30,'°C'),
+      'sensor.boiler_heatingpowerw':state('sensor.boiler_heatingpowerw',4500,'W')
+    });
+    emsHpHass.entities=Object.fromEntries(Object.keys(emsHpHass.states)
+      .filter(id=>id.includes('boiler_'))
+      .map(id=>[id,{device_id:'ems_hp',platform:'mqtt',unique_id:'ems-esp_'+id}]));
+    emsHpHass.devices={ems_hp:{name:'ems-esp Boiler',model:hpModelList,
+      manufacturer:'Buderus'}};
+    const hpImportEditor=document.createElement('hydraulic-plan-card-editor');
+    hpImportEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[],connections:[]}});
+    document.body.append(hpImportEditor);hpImportEditor.hass=emsHpHass;
+    const hpPicker=hpImportEditor.querySelector('#hpc-ems-type');
+    check(hpImportEditor.querySelector('.hpc-ems')?.textContent.includes('EMS-ESP Heizung')&&
+      !!hpPicker?.querySelector('option[value="heat_pump"]')&&
+      hpPicker.value===''&&!hpImportEditor.textContent.includes(hpModelList),
+      'EMS-ESP catalogue is shown with a short generic name and original heat-pump option');
+    hpPicker.value='heat_pump';
+    hpPicker.dispatchEvent(new Event('change',{bubbles:true}));
+    let hpImported;
+    hpImportEditor.addEventListener('config-changed',ev=>hpImported=ev.detail.config);
+    hpImportEditor.querySelector('[data-action="ems-apply"]')?.click();
+    const importedHp=hpImported?.plan.components.find(c=>c.type==='heat_pump');
+    check(importedHp?.name==='Wärmepumpe'&&
+      importedHp.sensors.flow==='sensor.boiler_curflowtemp'&&
+      importedHp.sensors.return==='sensor.boiler_rettemp'&&
+      !importedHp.sensors.state&&!importedHp.sensors.power&&
+      importedHp.discovery?.provider==='ems-esp',
+      'Heat-pump import keeps water temperatures but never mistakes the burner for the compressor');
+    check(!!hpImportEditor.querySelector('[data-wp-style]')&&
+      !!hpImportEditor.querySelector('[data-wp-size]')&&
+      !hpImportEditor.querySelector('[data-action="ems-apply"]'),
+      'Imported heat pump retains the original outdoor-unit design picker without duplicate import');
+    hpImportEditor.remove();
     const onlyModelHass=hassOf({
       'sensor.boiler_heating_block':state('sensor.boiler_heating_block',0)
     });
@@ -568,8 +610,10 @@
     onlyModelEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
       plan:{components:[],connections:[]}});
     document.body.append(onlyModelEditor);onlyModelEditor.hass=onlyModelHass;
-    check(onlyModelEditor.querySelector('.hpc-ems')?.textContent.includes('Ölkessel') &&
-      onlyModelEditor.querySelector('.hpc-ems')?.textContent.includes('0 zuordenbare'),
+    const onlyModelInfo=onlyModelEditor.querySelector('.hpc-ems')?.textContent||'';
+    check(onlyModelEditor.querySelector('#hpc-ems-type')?.value==='oil_boiler' &&
+      onlyModelInfo.includes('0 mögliche Messwerte gefunden.') &&
+      onlyModelInfo.includes('Das Gerät ist erkannt, stellt aber noch keine passenden Messwerte bereit.'),
       'Identified oil boiler is offered without misreading heating block as temperature');
     onlyModelEditor.remove();
 

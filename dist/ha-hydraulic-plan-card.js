@@ -9620,8 +9620,17 @@ const HPC_EMS = (() => {
         JSON.stringify(device.identifiers||[]),JSON.stringify(gateway.identifiers||[])].join(' ').toLowerCase();
       const isEms=/ems[-_\s]?esp|emsesp/.test(meta);
       const group=registry.device_id||short.replace(/boiler_.*/,'boiler');
+      // A gateway may advertise a list of *supported* boiler models, not
+      // the model actually installed. Keep it for classification diagnostics
+      // but never print that long catalogue as a component name.
+      const label=String(device.name_by_user||device.name||'').trim();
+      const model=String(device.model||'').trim();
+      const generic=/^ems[-_\s]?esp(?:\s+(?:boiler|kessel|heizung))?$/i.test(label);
+      const familyList=model.includes(',')||model.length>60;
+      const displayName=!generic&&label?label:(!familyList&&model?model:'EMS-ESP Heizung');
       if(!found.has(group))found.set(group,{group,entities:{},evidence:[],marker:false,
-        description:[device.name_by_user||device.name||'',device.model||'',device.manufacturer||''].join(' ').trim()});
+        displayName,genericName:generic||!label,
+        description:[label,model,device.manufacturer||''].join(' ').trim()});
       const candidate=found.get(group);
       candidate.marker ||= isEms;
       candidate.evidence.push({id,role:itemRole,suffix});
@@ -9652,7 +9661,7 @@ const HPC_EMS = (() => {
       // gateway evidence it would conflict with ETA and other integrations.
       if(!item.marker)continue;
       output.push({
-        id:item.group,name:item.description||'EMS-ESP Boiler',
+        id:item.group,name:item.displayName||'EMS-ESP Heizung',genericName:item.genericName,
         source:item.marker?'EMS-ESP':'MQTT (EMS-ESP möglicherweise)',
         confirmed:item.marker,
         type:fuel,entities:item.entities,count,
@@ -9719,7 +9728,50 @@ const HPC_EMS = (() => {
     return [...groups.values()].map(c=>({...c,count:Object.keys(c.entities).length}))
       .sort((a,b)=>a.number-b.number||a.id.localeCompare(b.id));
   }
-  return {detect,detectCircuits};
+
+  // EMS-ESP publishes the storage temperature on the boiler device, usually
+  // as "wwtemp" or "dhwtemp". There may be no separate "DHW tank" device.
+  // Only a measured storage temperature can identify a tank here: a target
+  // temperature or a tap-water activity flag is not a tank sensor.
+  function detectDhw(hass) {
+    if(!hass?.states)return [];
+    const registries=hass.entities||{},devices=hass.devices||{};
+    const hasEmsBoiler=detect(hass).length>0;
+    const groups=new Map();
+    const clean=value=>String(value||'').toLowerCase()
+      .normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
+      .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+    for(const [id,state] of Object.entries(hass.states)){
+      if(!id.startsWith('sensor.'))continue;
+      const raw=clean(id.split('.').slice(1).join('.'));
+      const reg=registries[id]||{};
+      const device=devices[reg.device_id]||{};
+      const gateway=devices[device.via_device_id]||{};
+      const meta=[reg.unique_id,device.name,device.name_by_user,device.model,
+        device.manufacturer,gateway.name,gateway.manufacturer,
+        JSON.stringify(device.identifiers||[])].join(' ').toLowerCase();
+      const explicitEMS=/ems[-_\s]?esp|emsesp/.test(meta);
+      const scoped=/(?:^|_)(?:boiler|dhw|tapwater|hotwater|ww|wwc\d?)(?:_|$)/.test(raw);
+      if(!explicitEMS&&!(hasEmsBoiler&&scoped))continue;
+      // Exact EMS-ESP measurement keys; avoid "wwseltemp", "dhwsettemp",
+      // flow temperatures, circulation and the "tapwater_active" boolean.
+      const key=raw.replace(/^.*?(?:boiler_)?(?=(?:ww|dhw|tapwater|hotwater))/, '');
+      const measurement=/^(?:wwtemp|wwcurtemp|wwtanktemp|wwstoragetemp|wwstoredtemp|dhwtemp|dhwcurtemp|dhwtanktemp|dhwstoragetemp|tapwatertemp|hotwatertemp)$/.test(key) ||
+        /(?:^|_)(?:ww|dhw|warmwasser)_(?:ist|actual|current|storage|tank)_?temp(?:eratur|erature)?$/.test(raw);
+      if(!measurement)continue;
+      const unit=String(state?.attributes?.unit_of_measurement||'').toLowerCase();
+      if(unit&&!['°c','c','°f','f','k'].includes(unit))continue;
+      const group='dhw:'+(reg.device_id||'ems-esp');
+      if(!groups.has(group))groups.set(group,{
+        id:group,type:'dhw_tank',name:'Warmwasserspeicher',
+        source:'EMS-ESP',entities:{},count:0
+      });
+      const candidate=groups.get(group);
+      if(!candidate.entities.top)candidate.entities.top=id;
+    }
+    return [...groups.values()].map(c=>({...c,count:Object.keys(c.entities).length}));
+  }
+  return {detect,detectCircuits,detectDhw};
 })();
 
 
@@ -10303,7 +10355,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // Live HA data changes frequently. Never replace the whole configuration form;
       // this would interrupt typing, select popovers and drag operations.
       if(this._free()||this._unconfigured()){
-        const candidateSignature=JSON.stringify({ems:HPC_EMS.detect(hass).map(x=>[x.id,x.type,x.count,Object.values(x.entities)]),emsCircuits:HPC_EMS.detectCircuits(hass).map(x=>[x.id,x.count,Object.values(x.entities)]),eta:HPC_ETA.detect(hass).map(x=>[x.id,x.model,x.count,Object.values(x.entities)])});
+        const candidateSignature=JSON.stringify({ems:HPC_EMS.detect(hass).map(x=>[x.id,x.type,x.count,Object.values(x.entities)]),emsCircuits:HPC_EMS.detectCircuits(hass).map(x=>[x.id,x.count,Object.values(x.entities)]),emsDhw:HPC_EMS.detectDhw(hass).map(x=>[x.id,x.count,Object.values(x.entities)]),eta:HPC_ETA.detect(hass).map(x=>[x.id,x.model,x.count,Object.values(x.entities)])});
         if(first||!this._freeUi?.isConnected||candidateSignature!==this._emsSignature){
           this._emsSignature=candidateSignature;
           this._renderFlex();
@@ -10380,6 +10432,18 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const configured=true;
       const emsCandidates=HPC_EMS.detect(this._hass);
       const emsCircuitCandidates=HPC_EMS.detectCircuits(this._hass);
+      const emsDhwCandidates=HPC_EMS.detectDhw(this._hass);
+      const pendingEmsDhw=emsDhwCandidates.filter(candidate=>{
+        const ids=new Set(Object.values(candidate.entities));
+        const current=p.components.find(node=>node.type==='dhw_tank'&&(
+          node.discovery?.provider==='ems-esp'&&node.discovery.id===candidate.id||
+          Object.values(node.sensors||{}).some(id=>ids.has(id))));
+        // There is usually only one EMS-ESP-controlled DHW tank. Never
+        // create a duplicate beside an existing, manually configured tank.
+        if(current)return Object.entries(candidate.entities).some(([key,id])=>id&&!current.sensors?.[key]);
+        return !p.components.some(n=>n.type==='dhw_tank') &&
+          Object.keys(candidate.entities).length>0;
+      });
       const matchedEmsCircuit=(c,plan=p)=>{
         const ids=new Set(Object.values(c.entities));
         return plan.components.find(node=>node.type==='heating_circuit'&&(
@@ -10402,27 +10466,34 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const chosenEms=emsCandidates.find(c=>!HPC_DISCOVERY.matchedNode(p,c,'ems-esp',emsCandidates));
       const chosenEta=etaCandidates.find(c=>!HPC_DISCOVERY.matchedNode(p,c,'eta',etaCandidates));
       const emsTypeLabel=(type)=>type==="oil_boiler"?t("Ölkessel","Oil boiler"):
-        type==="gas_boiler"?t("Gaskessel","Gas boiler"):t("Kessel (Brennstoff prüfen)","Boiler (verify fuel)");
+        type==="gas_boiler"?t("Gaskessel","Gas boiler"):
+        type==="heat_pump"?t("Wärmepumpe","Heat pump"):t("Heizgerät (Typ prüfen)","Heating device (verify type)");
       const emsInfo=chosenEms?`<section class="hpc-ems">
         <h3>${t("Heizung über EMS-ESP erkannt","Heating device detected via EMS-ESP")}</h3>
         <p class="hpc-row">${HPC_FREE.icon(chosenEms.type==="unknown"?"manifold":chosenEms.type)}<strong>${esc(chosenEms.name)}</strong> · ${esc(chosenEms.source)}</p>
-        <label class="hpc-field">${t("Kesseltyp prüfen","Verify boiler type")}
+        <label class="hpc-field">${t("Wärmeerzeuger auswählen","Select heating appliance")}
           <select id="hpc-ems-type">
-            <option value="" ${chosenEms.type==="unknown"?"selected":""}>${t("Bitte Kesseltyp wählen","Select boiler type")}</option>
+            <option value="" ${chosenEms.type==="unknown"?"selected":""}>${t("Bitte Wärmeerzeuger wählen","Select appliance type")}</option>
             ${[["oil_boiler",t("Ölkessel","Oil boiler")],["gas_boiler",t("Gaskessel","Gas boiler")],
-              ["pellet_boiler",t("Pelletkessel","Pellet boiler")],["wood_gasifier",t("Holzvergaser","Wood gasifier")]]
+              ["pellet_boiler",t("Pelletkessel","Pellet boiler")],["wood_gasifier",t("Holzvergaser","Wood gasifier")],
+              ["heat_pump",t("Wärmepumpe","Heat pump")]]
               .map(([id,name])=>`<option value="${id}" ${chosenEms.type===id?"selected":""}>${name}</option>`).join("")}
           </select></label>
-        <p>${chosenEms.count} ${t("zuordenbare Messwerte gefunden. Die Erkennung liest nur Home-Assistant-Entitäten und verändert deine Heizung nicht.","assignable values found. Detection only reads Home Assistant entities and never changes heating controls.")}</p>
+        <p>${chosenEms.count} ${t("mögliche Messwerte gefunden. Je nach Geräteart werden nur passende Werte übernommen.","possible values found. Only values suitable for the chosen appliance will be assigned.")}</p>
         ${chosenEms.count===0?`<p>${t("Das Gerät ist erkannt, stellt aber noch keine passenden Messwerte bereit. Bitte die EMS-ESP-Veröffentlichung prüfen.","Device recognized, but no matching measured values are available yet. Check EMS-ESP publishing settings.")}</p>`:""}
-        ${chosenEms.type==="unknown"?`<p>${t("Der Brennstoff lässt sich aus den verfügbaren Geräten nicht sicher erkennen. Bitte den richtigen Kesseltyp auswählen.","Fuel type cannot be reliably inferred. Select the proper boiler type first.")}</p>`:""}
-        <button type="button" data-action="ems-apply" ${chosenEms.type==="unknown"?"disabled":""}>${chosenEms.count?t("Kessel übernehmen und Messwerte zuordnen","Add boiler and assign values"):t("Erkannten Kessel hinzufügen","Add detected boiler")}</button>
+        ${chosenEms.type==="unknown"?`<p>${t("Die Geräteart ist nicht eindeutig erkennbar. Bitte den Wärmeerzeuger selbst auswählen. Eine Modellliste ist kein Nachweis des installierten Geräts.","The appliance type is unclear. Select it yourself; a list of supported models does not identify the installed device.")}</p>`:""}
+        <button type="button" data-action="ems-apply" ${chosenEms.type==="unknown"?"disabled":""}>${chosenEms.count?t("Wärmeerzeuger übernehmen und Werte zuordnen","Add appliance and assign values"):t("Wärmeerzeuger hinzufügen","Add detected appliance")}</button>
       </section>`:"";
       const emsCircuitInfo=pendingEmsCircuits.length?`<section class="hpc-ems">
         <h3>${t("EMS-ESP-Heizkreise erkannt","EMS-ESP heating circuits found")}</h3>
         <p>${pendingEmsCircuits.map(c=>esc(c.name)+" ("+c.count+" "+t("Messwerte","values")+")").join(" · ")}</p>
         <p>${t("Erkannte Sensoren werden ergänzt. Eigene Namen und Zuordnungen bleiben erhalten. Rohrleitungen werden nicht automatisch verbunden.","Detected values will be added without changing existing names or mappings. Pipework is never inferred.")}</p>
         <button type="button" data-action="ems-circuits-apply">${t("Heizkreise übernehmen","Add heating circuits")}</button>
+      </section>`:'';
+      const emsDhwInfo=pendingEmsDhw.length?`<section class="hpc-ems">
+        <h3>${t("EMS-ESP-Warmwasser erkannt","EMS-ESP hot-water storage found")}</h3>
+        <p>${t("Speichertemperatur gefunden. Bestehende Messwerte und Rohrverbindungen bleiben erhalten.","Storage temperature found. Existing sensor choices and pipework will be preserved.")}</p>
+        <button type="button" data-action="ems-dhw-apply">${t("Warmwasserspeicher übernehmen","Add hot-water tank")}</button>
       </section>`:'';
       const etaLabel=chosenEta?({ehack:'ETA eHACK',hack:'ETA HACK',hack_vr:'ETA HACK VR'}[chosenEta.model]||'ETA Hackschnitzelkessel'):'';
       const etaInfo=chosenEta?`<section class="hpc-ems">
@@ -10659,6 +10730,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           </details>
           ${emsInfo}
           ${emsCircuitInfo}
+          ${emsDhwInfo}
           ${etaInfo}
           ${etaPartInfo}
           ${chosenEta||chosenEtaPart?`<div class="hpc-actions"><button type="button" class="hpc-primary" data-action="eta-scan-all">${t("ETA-Anlage automatisch erkennen","Detect ETA system automatically")}</button></div>`:""}
@@ -10938,6 +11010,34 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           this._selectedId=node.id;
           return this._applyPlan(copy,{hpc_legacy_imported:true});
         }
+        if(action==="ems-dhw-apply"&&pendingEmsDhw.length){
+          const copy=HPC_FREE.normalize(p);
+          let last=null;
+          for(const candidate of pendingEmsDhw){
+            const ids=new Set(Object.values(candidate.entities));
+            let tank=copy.components.find(node=>node.type==='dhw_tank'&&(
+              node.discovery?.provider==='ems-esp'&&node.discovery.id===candidate.id||
+              Object.values(node.sensors||{}).some(id=>ids.has(id))));
+            if(!tank){
+              // Keep user-created tanks untouched rather than adding a
+              // second, unconnected boiler-controlled storage.
+              if(copy.components.some(node=>node.type==='dhw_tank'))continue;
+              tank=HPC_FREE.newNode('dhw_tank',copy);
+              if(!tank)continue;
+              tank.name=candidate.name;
+              copy.components.push(tank);
+            }
+            tank.discovery={provider:'ems-esp',id:candidate.id};
+            for(const [key,id] of Object.entries(candidate.entities)){
+              if(HPC_FREE.byType.dhw_tank.fields.includes(key)&&!tank.sensors[key])
+                tank.sensors[key]=id;
+            }
+            last=tank;
+          }
+          if(!last)return;
+          this._selectedId=last.id;
+          return this._applyPlan(copy,{hpc_legacy_imported:true});
+        }
         if(action==="ems-circuits-apply"&&pendingEmsCircuits.length){
           if(!window.confirm(t(
             "Erkannte EMS-ESP-Heizkreise und freie Messwertfelder ergänzen? Bestehende Sensoren und Leitungen bleiben unverändert.",
@@ -10968,7 +11068,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         }
         if(action==="ems-apply"&&chosenEms){
           const type=root.querySelector('#hpc-ems-type')?.value;
-          if(!['oil_boiler','gas_boiler','pellet_boiler','wood_gasifier'].includes(type))return;
+          if(!['oil_boiler','gas_boiler','pellet_boiler','wood_gasifier','heat_pump'].includes(type))return;
           const detectedIds=new Set(Object.values(chosenEms.entities));
           // Match by persistent device ID first, then by actual sensor IDs.
           // Never pick the first unrelated boiler merely because the fuel
@@ -10981,20 +11081,31 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           const node=match?copy.components.find(c=>c.id===match.id):HPC_FREE.newNode(type,copy);
           if(!node)return;
           if(!match){
-            node.name=chosenEms.name.slice(0,75);
+            node.name=chosenEms.genericName?emsTypeLabel(type):chosenEms.name.slice(0,75);
             copy.components.push(node);
           }
           // User-selected fuel type is authoritative; this also repairs old
           // auto-imports labeled as gas despite an existing oil burner.
           if(node.type!==type){
+            const previousType=node.type;
             node.type=type;
             node.sensors=Object.fromEntries(Object.entries(node.sensors||{})
-              .filter(([key])=>HPC_FREE.byType[type].fields.includes(key)));
-            node.options={boiler_kind:'standard'};
+              .filter(([key])=>HPC_FREE.byType[type].fields.includes(key)&&
+                // Do not rebrand a former burner flag or thermal power
+                // measurement as the heat pump compressor/electric power.
+                !(type==='heat_pump'&&previousType!=='heat_pump'&&
+                  ['state','power'].includes(key))));
+            node.options=type==='heat_pump'?{unit_style:'auto'}:{boiler_kind:'standard'};
           }
           node.discovery={provider:'ems-esp',id:String(chosenEms.id)};
+          // EMS-ESP calls its burner status "burngas" even on boilers that
+          // are not gas-fired. That is never a compressor-running signal.
+          // "boilerpowerw" is not confirmed electric input power, either.
+          // Only the water temperatures are unambiguous for a heat pump.
+          const allowed=type==='heat_pump'?new Set(['flow','return']):null;
           for(const [key,id] of Object.entries(chosenEms.entities)){
-            if(HPC_FREE.byType[node.type].fields.includes(key)&&!node.sensors[key])
+            if((!allowed||allowed.has(key))&&
+              HPC_FREE.byType[node.type].fields.includes(key)&&!node.sensors[key])
               node.sensors[key]=id;
           }
           this._selectedId=node.id;

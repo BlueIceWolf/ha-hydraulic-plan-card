@@ -4,7 +4,7 @@
 
 Hydraulic Plan Card brings a live heating-system diagram into Home Assistant. It builds on [Sturmi77's Heat Pump Hydraulic Card](https://github.com/Sturmi77/heatpump-hydraulic-card), keeping the familiar heat-pump, radiator and mixer artwork while adding boilers, buffer tanks, pumps and other parts of the system.
 
-**Release status:** `main` currently provides `0.2.0-alpha.6`. A larger routing and migration refactor is being tested in [pull request #21](https://github.com/BlueIceWolf/ha-hydraulic-plan-card/pull/21). It is not a stable release.
+**Release status:** `main` still provides the test build `0.2.0-alpha.6`, not a stable release. The shared routing and migration changes are integrated, but the complete hydraulic and visual acceptance is still open.
 
 ## What you can show
 
@@ -36,10 +36,10 @@ The card is a read-only visualisation, not a hydraulic simulator or safety contr
 
 Before upgrading an existing card, back up its YAML or your Home Assistant configuration. The newer component editor includes versioned migration and restoration safeguards; unusual old installations still need manual checking.
 
-Current release blockers and the 29 acceptance checks are tracked in the [acceptance report](https://github.com/BlueIceWolf/ha-hydraulic-plan-card/blob/refactor/finish-unified-hydraulics-20261109/docs/ACCEPTANCE-2026-11-09.md).
+Open acceptance checks, including complex plants, visual references and older configurations, are tracked in [issue #20](https://github.com/BlueIceWolf/ha-hydraulic-plan-card/issues/20) and the [acceptance report](ACCEPTANCE-2026-11-09.md).
 
 If you spot duplicate pipes, incorrect return connections or animations in the wrong circuit, please [open an issue](https://github.com/BlueIceWolf/ha-hydraulic-plan-card/issues). A diagram screenshot, anonymised configuration, card version and explanation of the real pipework are useful.
 
-Developers can run `npm ci`, `npm run syntax` and `npm run test`. See the [hydraulic architecture notes](HYDRAULIC_ARCHITECTURE.md) and [boiler notes](BOILERS.md).
+Developers can run `npm ci`, `npm run build`, `npm run syntax` and `npm run test`. The build regenerates the installable bundle from the source modules. See the [hydraulic architecture notes](HYDRAULIC_ARCHITECTURE.md) and [boiler notes](BOILERS.md).
 
 Based on the MIT-licensed Heat Pump Hydraulic Card by Sturmi77. [License](../LICENSE).

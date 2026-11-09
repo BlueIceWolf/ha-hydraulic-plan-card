@@ -1,8 +1,8 @@
 # Abnahmeprotokoll – Hydraulic Plan Card (09.11.2026)
 
-**Status: NICHT FREIGEGEBEN.** Dieses Protokoll ist eine ehrliche Soll-Ist-Prüfung der 29 Kriterien aus der vollständigen Entwicklerspezifikation vom 09.11.2026. Grüne Tests allein sind keine Freigabe für `main`. Prüfstände beziehen sich auf `refactor/finish-unified-hydraulics-20261109`.
+**Status: NICHT FREIGEGEBEN.** Dieses Protokoll ist eine ehrliche Soll-Ist-Prüfung der 29 Kriterien aus der vollständigen Entwicklerspezifikation vom 09.11.2026. Grüne Tests allein sind keine Freigabe. Der Prüfstand liegt auf `main`; die vollständige Abnahme ist weiterhin offen.
 
-## Nachgewiesene Korrekturen im Zweig
+## Nachgewiesene Korrekturen auf `main`
 
 - Die komplette vorhandene Playwright-Suite wird in Chromium und Firefox ausgeführt; `playwright.config.mjs` schließt zusätzliche `*.spec.mjs` nicht mehr aus.
 - Der JavaScript-Syntaxfehler durch doppelte `nativeSvg`-Deklaration im Browserharness ist beseitigt.
@@ -11,6 +11,9 @@
 - `HPC_NETWORK.flowStates` begrenzt Pumpenwirkung an Speichern/Erzeugern und berücksichtigt nicht verfügbare Fremdpumpen. Separate WW-Lade- und Heizkreise unterdrücken einander nicht.
 - Die früher fest gezeichneten Heizkreis-Sammel- und Steigleitungen wurden für den integrierten Plan deaktiviert. Stattdessen werden ihre Vor- und Rücklaufpfade aus dem gemeinsamen Rohr-Router gespeist. Der Router berücksichtigt inzwischen die Bauteilgrenzen beim Umfahren.
 - Der installierbare `dist/ha-hydraulic-plan-card.js` stimmt nach der Nachsynchronisierung wieder mit den sechs Quellmodulen überein; HACS, Syntax sowie Chromium- und Firefox-Tests liefen für Commit `9a2a897` erfolgreich.
+- `npm run build` erzeugt den installierbaren Bundle reproduzierbar aus den Quellmodulen. Die CI prüft nach dem Build, dass keine nicht eingecheckten Bundle-Änderungen übrig sind.
+- Die EMS-ESP-Übernahme bietet Wärmepumpen an, behandelt Kompatibilitätslisten nicht als installiertes Modell und ordnet Brennerstatus oder thermische Leistung nicht als Verdichterstatus bzw. elektrische Leistung zu.
+- Die EMS-ESP-Browserregression prüft die sichtbare Editor-Auswahl und Zuordnung, statt interne, im Karten-IIFE gekapselte Implementierungsnamen direkt anzusprechen.
 - README sowie die Anleitungen für Kessel und Komponenten wurden auf Deutsch neu gefasst; ein englischer Einstieg ist ergänzt.
 
 ## Einzelprüfung der 29 ursprünglichen Abnahmekriterien
@@ -29,7 +32,7 @@
 | 8 | Mehrere Pufferspeicher korrekt | Teilweise | Reihenfolge, Reihen-/Parallel-Graph und Layouttests; komplexe Sammelleitungen noch zu prüfen |
 | 9 | Direkte/gemischte Heizkreise | Testabdeckung | Editor-Mischer-Auswahl, ursprüngliche Heizkreisgrafik, Graph |
 | 10 | Original-Heizkörper und -Mischer | Testabdeckung | SVG-Strukturauswahl gegen Original-Fixure, keine vollständigen Bildreferenzen |
-| 11 | Original-Wärmepumpen-/Außengeräteauswahl | Testabdeckung | Browser prüft Herstellerillustrationen und persistierte Auswahl |
+| 11 | Original-Wärmepumpen-/Außengeräteauswahl | Testabdeckung | Browser prüft Herstellerillustrationen und persistierte Auswahl; EMS-ESP-Wärmepumpenimport ergänzt, vollständige Vergleichsmatrix fehlt |
 | 12 | Holzvergaser-Rücklauf | Teilweise | Rücklaufanhebung und Mischer-Piktogramm getestet; Topologievarianten nicht vollständig |
 | 13 | Pellet-/Hackgut-Zusatzpiktogramme | Testabdeckung | Kessel- und Lagersymbole in Browser-Tests |
 | 14 | Partikelabscheider korrekt zugeordnet | Testabdeckung | Abgasgerät unabhängig vom Heizwasserkreis getestet |
@@ -55,13 +58,15 @@
 2. **Hydraulik:** Die Flussinferenz begrenzt fremde Pumpenkreise, weist aber nicht generell nach, dass jede animierte Verbindung Bestandteil eines vollständig geschlossenen Kreislaufs ist. Einige historische Tests arbeiten mit bewusst unvollständigen Rohrgraphen.
 3. **Visuelle QA:** Vergleichbare feste Screenshot-Referenzen für die sechs Testanlagen, Bildschirmbreiten und Themes fehlen.
 4. **Migration:** Reale alte Kundenkonfigurationen und vollständige v1/v2/v3-Varianten fehlen als Abnahme-Fixtures.
-5. **Release:** Bis diese Punkte erledigt sind, bleibt PR #21 ein Entwurf. Keine Versionsfreigabe und kein Merge nach `main`.
+5. **Release:** Keine stabile Versionsfreigabe und kein Schließen von Issue #20, bevor diese Punkte belegt erledigt sind.
 
 ## Reproduzierbare Prüfungen
 
 ```bash
 npm ci
 npx playwright install --with-deps chromium firefox
+npm run build
+git diff --exit-code -- dist/ha-hydraulic-plan-card.js
 npm run syntax
 npm run test:chromium
 npm run test:firefox
