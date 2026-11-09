@@ -591,6 +591,22 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(!list.length)return "";
         return `<optgroup label="${esc(c.name)}">${list.map(port=>`<option value="${esc(c.id+"|"+port.id)}">${esc(portNames[port.id]||port.id)}</option>`).join("")}</optgroup>`;
       }).join("");
+      const heatingSources=p.components.filter(c=>
+        c.type==='buffer'||HPC_FREE.byType[c.type]?.group==='source'||c.type==='manifold');
+      const heatingSupply=selected?.type==='heating_circuit'
+        ?p.connections.find(edge=>edge.to===selected.id&&edge.to_port==='flow_in'):null;
+      const heatingReturn=selected?.type==='heating_circuit'
+        ?p.connections.find(edge=>edge.from===selected.id&&edge.from_port==='return_out'):null;
+      const heatingComplete=!!heatingSupply&&!!heatingReturn;
+      const automaticRoute=selected?.options?.hydraulic_auto;
+      const currentHeatingSource=automaticRoute?.source||heatingSupply?.from||heatingReturn?.to||
+        (selected?.type==='heating_circuit'?HPC_FREE.preferredHeatingBuffer(p):'')||'';
+      const heatingSourceOptions=heatingSources.map(node=>
+        `<option value="${esc(node.id)}" ${currentHeatingSource===node.id?'selected':''}>${esc(node.name)} · ${esc(HPC_FREE.display(node.type,lang))}</option>`
+      ).join('');
+      const heatingControls=p.components.filter(node=>
+        ['mixer','pump'].includes(node.type)&&
+        !p.connections.some(edge=>edge.from===node.id||edge.to===node.id));
       const sensorField=(id,key,value)=>`<label class="hpc-field">${esc(HPC_FREE.fieldLabel(key,lang))}
         <input type="text" list="hpc-free-entities" autocomplete="off" data-sensor="${esc(id)}" data-field="${esc(key)}"
           value="${esc(value||"")}" placeholder="${t("Home Assistant-Entität","Home Assistant entity")}"/></label>`;
@@ -663,6 +679,64 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               ['column',t('Gliederheizkörper','Column radiators')]]
               .map(([id,label])=>`<option value="${id}" ${(selected.options?.emitter||'radiator')===id?'selected':''}>${label}</option>`).join('')}
           </select></label>`:""}
+        ${selected.type==="heating_circuit"?`<section class="hpc-ems" data-heating-connection>
+          <h3>${t("Heizkreis anschließen","Connect heating circuit")}</h3>
+          ${heatingComplete
+            ?`<p>${t("Vorlauf und Rücklauf sind angeschlossen.","Supply and return are connected.")}</p>`
+            :`<p class="hpc-connection-warning">${t(`Heizkreis ${esc(selected.name)} ist noch nicht vollständig angeschlossen.`,`Heating circuit ${esc(selected.name)} is not fully connected yet.`)}</p>
+              ${heatingSupply?`<p>${t("Vorlauf vorhanden; Rücklauf fehlt.","Supply exists; return is missing.")}</p>`:""}
+              ${heatingReturn?`<p>${t("Rücklauf vorhanden; Vorlauf fehlt.","Return exists; supply is missing.")}</p>`:""}`}
+          <div class="hpc-row">
+            <label>${t("Wärmequelle","Heat source")}<select data-hc-source="${esc(selected.id)}">
+              <option value="">${t("Auswählen","Choose")}</option>${heatingSourceOptions}
+            </select></label>
+            <label>${t("Anschlussart","Connection type")}<select data-hc-kind="${esc(selected.id)}">
+              <option value="direct" ${automaticRoute?.kind==='direct'?'selected':''}>${t("Direkt","Direct")}</option>
+              <option value="pump" ${automaticRoute?.kind==='pump'?'selected':''}>${t("Über vorhandene Pumpengruppe","Via existing pump group")}</option>
+              <option value="mixer" ${automaticRoute?.kind==='mixer'?'selected':''}>${t("Über vorhandenen Mischer","Via existing mixer")}</option>
+              <option value="custom">${t("Benutzerdefinierter Anschluss","Custom connection")}</option>
+            </select></label>
+            <label>${t("Verbindung","Connection")}<select data-hc-mode="${esc(selected.id)}">
+              <option value="automatic" selected>${t("Automatisch","Automatic")}</option>
+              <option value="manual">${t("Manuell","Manual")}</option>
+            </select></label>
+          </div>
+          <label class="hpc-field" data-hc-control-wrap ${['pump','mixer'].includes(automaticRoute?.kind)?'':'hidden'}>${t("Vorhandene Pumpengruppe / Mischer","Existing pump group / mixer")}
+            <select data-hc-control="${esc(selected.id)}">
+              <option value="">${t("Auswählen","Choose")}</option>
+              ${heatingControls.map(node=>`<option value="${esc(node.id)}">${esc(node.name)} · ${esc(HPC_FREE.display(node.type,lang))}</option>`).join('')}
+            </select>
+          </label>
+          <div class="hpc-actions">
+            <button type="button" class="hpc-primary" data-action="hc-connect" data-component="${esc(selected.id)}"
+              ${heatingSources.length?'':'disabled'}>${heatingComplete?t("Verbindung ändern","Change connection"):t("Mit Wärmequelle verbinden","Connect to heat source")}</button>
+          </div>
+          <p>${t("Bei genau einem Pufferspeicher wird ein neuer Heizkreis automatisch mit Vorlauf und Rücklauf verbunden. Bestehende manuelle Leitungen werden nicht verändert.","With exactly one buffer, a new heating circuit is automatically connected with both supply and return. Existing manual pipes are never changed.")}</p>
+          <details class="hpc-advanced-pipes" data-hc-manual-wrap hidden>
+            <summary>${t("Technische Anschlüsse (erweitert)","Technical ports (advanced)")}</summary>
+            <p>${t("Im manuellen Modus Vorlauf und Rücklauf getrennt über „Spezielle Anschlüsse“ konfigurieren.","In manual mode, configure supply and return separately under “Connect individual ports”.")}</p>
+          </details>
+        </section>`:""}
+        ${selected.type==="mixer"?`<div class="hpc-ems">
+          <strong>${t("Hydraulische Mischerwege","Hydraulic mixer paths")}</strong>
+          <p>${t("0 % oder 100 % sperren keinen Weg automatisch. Trage nur einen bestätigten Sperrzustand oder eine bekannte geschlossene Stellung ein.","0% or 100% never close a path by assumption. Enter only a confirmed closed state or known closed position.")}</p>
+          <div class="hpc-row">
+            <label>${t("Sensorwert: Weg A–AB gesperrt","State: path A–AB closed")}
+              <input data-mixer-a-state="${esc(selected.id)}" maxlength="60"
+                value="${esc(selected.options?.a_closed_state||'')}"/></label>
+            <label>${t("Sensorwert: Weg B–AB gesperrt","State: path B–AB closed")}
+              <input data-mixer-b-state="${esc(selected.id)}" maxlength="60"
+                value="${esc(selected.options?.b_closed_state||'')}"/></label>
+          </div>
+          <div class="hpc-row">
+            <label>${t("Stellung, bei der A–AB sicher gesperrt ist (%)","Position where A–AB is confirmed closed (%)")}
+              <input data-mixer-a-position="${esc(selected.id)}" type="number" min="0" max="100" step="0.1"
+                value="${esc(selected.options?.a_closed_at??'')}"/></label>
+            <label>${t("Stellung, bei der B–AB sicher gesperrt ist (%)","Position where B–AB is confirmed closed (%)")}
+              <input data-mixer-b-position="${esc(selected.id)}" type="number" min="0" max="100" step="0.1"
+                value="${esc(selected.options?.b_closed_at??'')}"/></label>
+          </div>
+        </div>`:""}
         ${selected.type==="diverter"?`<div class="hpc-ems">
            <strong>${t("Umschaltventil","Changeover valve")}</strong>
            <p>${t("Lege fest, an welchem Ventilausgang die Warmwasserladung angeschlossen ist. Ohne eindeutig zugeordneten Ventilzustand bleibt der Fluss in beiden Abgängen inaktiv.","Choose the DHW outlet. Without an unambiguous valve state both outlets remain without flow animation.")}</p>
@@ -1163,8 +1237,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             hpc_migration_review:imported.config.hpc_migration_review,
             hpc_legacy_imported:true
           }:{};
-          return this._applyPlan({components:[...base.components,node],
-            connections:base.connections},retained);
+          let next={components:[...base.components,node],
+            connections:base.connections};
+          if(node.type==='heating_circuit'){
+            const bufferId=HPC_FREE.preferredHeatingBuffer(next);
+            if(bufferId)next=HPC_FREE.connectHeatingCircuit(next,node.id,bufferId)||next;
+          }
+          return this._applyPlan(next,retained);
         }
         if(action==="remove-component"&&selected){
           this._selectedId=null;
@@ -1185,6 +1264,47 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           if(!from||!to)return;
           const next=HPC_FREE.connectPair(this._config.plan,from,to);
           if(next.connections.length===this._config.plan.connections.length)return;
+          return this._applyPlan(next);
+        }
+        if(action==="hc-connect"){
+          const circuit=p.components.find(node=>
+            node.id===button.dataset.component&&node.type==='heating_circuit');
+          const sourceId=root.querySelector(`[data-hc-source="${CSS.escape(button.dataset.component)}"]`)?.value;
+          const kind=root.querySelector(`[data-hc-kind="${CSS.escape(button.dataset.component)}"]`)?.value||'direct';
+          const mode=root.querySelector(`[data-hc-mode="${CSS.escape(button.dataset.component)}"]`)?.value||'automatic';
+          const controlId=root.querySelector(`[data-hc-control="${CSS.escape(button.dataset.component)}"]`)?.value||'';
+          if(!circuit)return;
+          if(mode==='manual'||kind==='custom'){
+            const manual=root.querySelector('[data-hc-manual-wrap]');
+            if(manual)manual.hidden=false;
+            const advanced=[...root.querySelectorAll('.hpc-advanced-pipes')]
+              .find(details=>details.querySelector('#hpc-from'));
+            if(advanced)advanced.open=true;
+            return;
+          }
+          if(!sourceId){
+            window.alert(t('Bitte eine Wärmequelle auswählen.','Choose a heat source.'));
+            return;
+          }
+          if(['pump','mixer'].includes(kind)&&!controlId){
+            window.alert(t('Bitte die vorhandene Pumpengruppe oder den Mischer auswählen.',
+              'Choose the existing pump group or mixer.'));
+            return;
+          }
+          const hasCircuitEdges=p.connections.some(edge=>
+            edge.to===circuit.id&&edge.to_port==='flow_in'||
+            edge.from===circuit.id&&edge.from_port==='return_out');
+          const replace=!!circuit.options?.hydraulic_auto&&hasCircuitEdges;
+          if(hasCircuitEdges&&!window.confirm(t(
+            'Vorhandene automatische Heizkreisverbindung gemeinsam ersetzen? Manuelle Leitungen bleiben unverändert.',
+            'Replace the existing automatic heating-circuit pair? Manual pipes remain unchanged.')))return;
+          const next=HPC_FREE.connectHeatingCircuit(p,circuit.id,sourceId,kind,controlId,{replace});
+          if(!next){
+            window.alert(t(
+              'Die vorhandenen Leitungen passen nicht zu dieser Auswahl und wurden nicht verändert. Prüfe den manuellen Anschluss.',
+              'Existing pipes do not match this selection and were left unchanged. Check the manual connection.'));
+            return;
+          }
           return this._applyPlan(next);
         }
         if(action==="connect"){
@@ -1234,6 +1354,17 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       }));
       const fromSelect=root.querySelector("#hpc-from");
       const toSelect=root.querySelector("#hpc-to");
+      root.querySelectorAll('[data-hc-mode]').forEach(select=>
+        select.addEventListener('change',()=>{
+          const manual=select.value==='manual';
+          const wrap=select.closest('[data-heating-connection]')?.querySelector('[data-hc-manual-wrap]');
+          if(wrap)wrap.hidden=!manual;
+        }));
+      root.querySelectorAll('[data-hc-kind]').forEach(select=>
+        select.addEventListener('change',()=>{
+          const wrap=select.closest('[data-heating-connection]')?.querySelector('[data-hc-control-wrap]');
+          if(wrap)wrap.hidden=!['pump','mixer'].includes(select.value);
+        }));
       fromSelect?.addEventListener("change",()=>{
         toSelect.innerHTML='<option value="">–</option>'+portOptions("to",fromSelect.value);
       });
@@ -1265,6 +1396,30 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const node=plan.components.find(c=>c.id===el.dataset.diverterHeating);
         if(node?.type==='diverter')node.options={...node.options,
           heating_state:el.value.slice(0,60)};
+      });
+      for(const [selector,option] of [
+        ['[data-mixer-a-state]','a_closed_state'],
+        ['[data-mixer-b-state]','b_closed_state']
+      ])fieldUpdate(selector,(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.mixerAState||
+          c.id===el.dataset.mixerBState);
+        if(node?.type!=='mixer')return;
+        node.options={...node.options};
+        const value=el.value.trim().slice(0,60);
+        if(value)node.options[option]=value;
+        else delete node.options[option];
+      });
+      for(const [selector,option] of [
+        ['[data-mixer-a-position]','a_closed_at'],
+        ['[data-mixer-b-position]','b_closed_at']
+      ])fieldUpdate(selector,(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.mixerAPosition||
+          c.id===el.dataset.mixerBPosition);
+        if(node?.type!=='mixer')return;
+        node.options={...node.options};
+        const value=el.value===''?NaN:Number(el.value);
+        if(Number.isFinite(value)&&value>=0&&value<=100)node.options[option]=value;
+        else delete node.options[option];
       });
       fieldUpdate('[data-wp-style]',(plan,el)=>{
         const node=plan.components.find(c=>c.id===el.dataset.wpStyle);

@@ -11,6 +11,7 @@
     "test": "playwright test",
     "test:chromium": "playwright test --project=chromium",
     "test:firefox": "playwright test --project=firefox",
+    "test:topologies": "playwright test --project=chromium test/topology-generator.spec.mjs",
     "check": "npm run syntax && npm run test"
   },
   "engines": {

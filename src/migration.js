@@ -15,7 +15,7 @@ const HPC_MIGRATION = (() => {
   const validEntity=id=>typeof id==='string'&&
     /^(sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/.test(id);
   function check(plan) {
-    const warnings=[],ids=new Set(),edges=new Set();
+    const warnings=[],ids=new Set(),edges=new Set(),connectionKeys=new Set();
     const components=plan?.components,connections=plan?.connections;
     if(!Array.isArray(components)||!Array.isArray(connections))
       return ['Komponenten oder Verbindungen fehlen als Liste.'];
@@ -59,6 +59,7 @@ const HPC_MIGRATION = (() => {
         const supported={dhw_tank:['connection_style'],
           wood_gasifier:['return_lift'],wood_chip_boiler:['eta_model','particle_separator','silo'],
           diverter:['dhw_port','dhw_state','heating_state'],
+          mixer:['a_closed_state','b_closed_state','a_closed_at','b_closed_at','closed_ports'],
           heating_circuit:['emitter','mixed'],pellet_boiler:['boiler_kind','silo'],
           oil_boiler:['boiler_kind'],gas_boiler:['boiler_kind'],
           heat_pump:['unit_style','unit_size','source_type']}[n.type]||[];
@@ -70,12 +71,17 @@ const HPC_MIGRATION = (() => {
       const from=components.find(n=>n?.id===e?.from);
       const to=components.find(n=>n?.id===e?.to);
       const targetPort=to?.type==='buffer'&&e?.to_port==='return_in'?'bottom_in':e?.to_port;
+      const connectionKey=[e?.from,e?.from_port,e?.to,targetPort].join('|');
+      const invalidDirection=from&&to&&
+        (HPC_FREE.portRole(from.type,e.from_port)==='in'||
+         HPC_FREE.portRole(to.type,targetPort)==='out');
       if(!e||typeof e.id!=='string'||! /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(e.id)||
         edges.has(e.id)||!from||!to||e.from===e.to||
         !HPC_FREE.ports(from.type).some(p=>p.id===e.from_port)||
-        !HPC_FREE.ports(to.type).some(p=>p.id===targetPort)){
+        !HPC_FREE.ports(to.type).some(p=>p.id===targetPort)||invalidDirection||
+        connectionKeys.has(connectionKey)){
         warnings.push('Eine Leitung kann nicht ohne Datenverlust übernommen werden.');
-      }else edges.add(e.id);
+      }else {edges.add(e.id);connectionKeys.add(connectionKey);}
       if(e&&(e.flow_entity&&!validEntity(e.flow_entity)||
         e.temperature_entity&&!validEntity(e.temperature_entity)))
         warnings.push('Eine Leitungsentität ist ungültig.');

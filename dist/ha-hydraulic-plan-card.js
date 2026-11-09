@@ -7650,7 +7650,16 @@ const HPC_FREE = (function makeFreeHelpers() {
         :n.type==="heating_circuit"
           ?{emitter:HFC_EMITTERS.includes(n.options?.emitter)?n.options.emitter:"radiator",
             mixed:typeof n.options?.mixed==="boolean"?n.options.mixed:
-              !!(n.sensors?.mixer||n.sensors?.mixer_opening||n.sensors?.mixer_closing)}
+              !!(n.sensors?.mixer||n.sensors?.mixer_opening||n.sensors?.mixer_closing),
+            ...(n.options?.hydraulic_auto&&isId(n.options.hydraulic_auto.source)&&
+              ['direct','pump','mixer'].includes(n.options.hydraulic_auto.kind)&&
+              Array.isArray(n.options.hydraulic_auto.edges)
+              ?{hydraulic_auto:{source:n.options.hydraulic_auto.source,
+                kind:n.options.hydraulic_auto.kind,
+                control:isId(n.options.hydraulic_auto.control)
+                  ?n.options.hydraulic_auto.control:'',
+                edges:n.options.hydraulic_auto.edges.filter(isId).slice(0,4)}}
+              :{})}
         :n.type==="pellet_boiler"
           ?{boiler_kind:["standard","low_temp","condensing"].includes(n.options?.boiler_kind)?n.options.boiler_kind:"standard",
             silo:n.options?.silo===true}
@@ -7676,7 +7685,7 @@ const HPC_FREE = (function makeFreeHelpers() {
         ...(discovery?{discovery}:{})});
     }
     const byId=Object.fromEntries(components.map(c=>[c.id,c]));
-    const connections=[], edgeIds=new Set();
+    const connections=[], edgeIds=new Set(), connectionKeys=new Set();
     for(const e of (Array.isArray(raw.connections)?raw.connections:[]).slice(0,180)){
       if(!e||!isId(e.id)||edgeIds.has(e.id)||!byId[e.from]||!byId[e.to])continue;
       // Incoming pipes must terminate on the left side of a buffer.
@@ -7685,8 +7694,13 @@ const HPC_FREE = (function makeFreeHelpers() {
       const toPort=byId[e.to].type==='buffer'&&e.to_port==='return_in'
         ?'bottom_in':e.to_port;
       if(e.from===e.to||!ports(byId[e.from].type).some(p=>p.id===e.from_port)||
-         !ports(byId[e.to].type).some(p=>p.id===toPort))continue;
+         !ports(byId[e.to].type).some(p=>p.id===toPort)||
+         portRole(byId[e.from].type,e.from_port)==='in'||
+         portRole(byId[e.to].type,toPort)==='out')continue;
+      const connectionKey=[e.from,e.from_port,e.to,toPort].join('|');
+      if(connectionKeys.has(connectionKey))continue;
       edgeIds.add(e.id);
+      connectionKeys.add(connectionKey);
       connections.push({...e,id:e.id,from:e.from,from_port:e.from_port,to:e.to,to_port:toPort,
         flow_entity:entityRx.test(e.flow_entity||"")?e.flow_entity:"",
         temperature_entity:entityRx.test(e.temperature_entity||"")?e.temperature_entity:""});
@@ -7749,6 +7763,98 @@ const HPC_FREE = (function makeFreeHelpers() {
       plan.connections.push({id,from,from_port:fromPort,to,to_port:toPort,
         flow_entity:'',temperature_entity:''});
     }
+    return normalize(plan);
+  }
+
+  function preferredHeatingBuffer(input) {
+    const plan=normalize(input);
+    const buffers=new Set(plan.components.filter(node=>node.type==='buffer').map(node=>node.id));
+    if(buffers.size===1)return [...buffers][0];
+    const sourceIds=new Set(plan.components.filter(node=>byType[node.type]?.group==='source')
+      .map(node=>node.id));
+    const fedBuffers=new Set(plan.connections.filter(edge=>
+      sourceIds.has(edge.from)&&buffers.has(edge.to)&&edge.from_port==='flow'&&
+      ['top_in','mid_in'].includes(edge.to_port)).map(edge=>edge.to));
+    return fedBuffers.size===1?[...fedBuffers][0]:null;
+  }
+
+  function connectHeatingCircuit(input,circuitId,sourceId,kind='direct',controlId='',
+                                 {replace=false}={}) {
+    const plan=normalize(input);
+    const circuit=plan.components.find(node=>
+      node.id===circuitId&&node.type==='heating_circuit');
+    const source=plan.components.find(node=>node.id===sourceId&&
+      (node.type==='buffer'||node.type==='manifold'||byType[node.type]?.group==='source'));
+    if(!circuit||!source||circuit.id===source.id||
+       !['direct','pump','mixer'].includes(kind))return null;
+
+    let existing=plan.connections.filter(edge=>
+      edge.to===circuit.id&&edge.to_port==='flow_in'||
+      edge.from===circuit.id&&edge.from_port==='return_out');
+    const automatic=circuit.options?.hydraulic_auto;
+    if(existing.length){
+      if(!replace&&automatic&&automatic.source===sourceId&&
+         automatic.kind===kind&&automatic.control===(controlId||'')&&
+         existing.every(edge=>automatic.edges?.includes(edge.id)))return plan;
+      if(replace&&automatic){
+        const owned=new Set(automatic.edges||[]);
+        if(existing.some(edge=>!owned.has(edge.id)))return null;
+        plan.connections=plan.connections.filter(edge=>!owned.has(edge.id));
+        existing=[];
+      }else if(kind==='direct'){
+        const supplies=existing.filter(edge=>edge.to===circuit.id);
+        const returns=existing.filter(edge=>edge.from===circuit.id);
+        if(supplies.length>1||returns.length>1||
+           supplies.some(edge=>edge.from!==source.id)||
+           returns.some(edge=>edge.to!==source.id))return null;
+      }else return null;
+    }
+
+    const supplyPort=source.type==='buffer'?'top_out':
+      source.type==='manifold'
+        ?['d','e','f'].find(port=>!plan.connections.some(edge=>
+          edge.from===source.id&&edge.from_port===port)):'flow';
+    const returnPort=source.type==='buffer'?'bottom_in':
+      source.type==='manifold'
+        ?['a','b','c'].find(port=>!plan.connections.some(edge=>
+          edge.to===source.id&&edge.to_port===port)):'return';
+    if(!supplyPort||!returnPort)return null;
+    let pairs=[];
+    if(kind==='direct'){
+      pairs=[
+        ...(!existing.some(edge=>edge.to===circuit.id)
+          ?[[source.id,supplyPort,circuit.id,'flow_in']]:[]),
+        ...(!existing.some(edge=>edge.from===circuit.id)
+          ?[[circuit.id,'return_out',source.id,returnPort]]:[])
+      ];
+    }else if(kind==='pump'){
+      const pump=plan.components.find(node=>node.id===controlId&&node.type==='pump');
+      if(!pump||plan.connections.some(edge=>edge.from===pump.id||edge.to===pump.id))return null;
+      pairs=[[source.id,supplyPort,pump.id,'in'],
+        [pump.id,'out',circuit.id,'flow_in'],
+        [circuit.id,'return_out',source.id,returnPort]];
+    }else{
+      const mixer=plan.components.find(node=>node.id===controlId&&node.type==='mixer');
+      if(!mixer||plan.connections.some(edge=>edge.from===mixer.id||edge.to===mixer.id))return null;
+      pairs=[[source.id,supplyPort,mixer.id,'a'],
+        [mixer.id,'ab',circuit.id,'flow_in'],
+        [circuit.id,'return_out',mixer.id,'b'],
+        [mixer.id,'b',source.id,returnPort]];
+    }
+    const used=new Set(plan.connections.map(edge=>
+      [edge.from,edge.from_port,edge.to,edge.to_port].join('|')));
+    const ids=new Set(plan.connections.map(edge=>edge.id)),created=[];
+    for(const [from,fromPort,to,toPort] of pairs){
+      const key=[from,fromPort,to,toPort].join('|');
+      if(used.has(key)||!validConnection(plan,from,fromPort,to,toPort))return null;
+      const id=nextId('leitung',ids);
+      ids.add(id);used.add(key);created.push(id);
+      plan.connections.push({id,from,from_port:fromPort,to,to_port:toPort,
+        flow_entity:'',temperature_entity:''});
+    }
+    circuit.options={...circuit.options,hydraulic_auto:{
+      source:sourceId,kind,control:controlId||'',edges:created
+    }};
     return normalize(plan);
   }
 
@@ -8088,7 +8194,10 @@ const HPC_FREE = (function makeFreeHelpers() {
   </svg>`;
 }
   const css="\n  :host { display:block; --hpc-muted: var(--secondary-text-color, #7b8798); }\n  ha-card { background:var(--ha-card-background,var(--card-background-color,#fff)); padding:14px;overflow:hidden; }\n  .hpc-board {width:100%;overflow:auto;overscroll-behavior:contain;border-radius:12px;\n    border:1px solid var(--divider-color,rgba(110,125,145,.22));\n    background:var(--card-background-color,rgba(0,0,0,.02));}\n  #hpc-free-svg{min-width:650px;display:block;width:100%;height:auto;max-height:72vh;}\n  .hpc-appliance .hpc-unit-border{fill:var(--secondary-background-color,rgba(126,144,160,.1));\n    stroke:var(--divider-color,#9ca3af);stroke-width:2.3;}\n  .hpc-appliance.is-on .hpc-unit-border{stroke:var(--hfc-heat,#ca793e);}\n  .hpc-node.is-selected .hpc-unit-border,.hpc-node.is-selected .hpc-tank-shadow{\n    stroke:var(--primary-color,#2196f3);stroke-width:4;}\n  .hpc-unit-border,.hpc-tank-shadow,.hpc-tank-main{filter:drop-shadow(0 2px 3px rgba(0,0,0,.08))}\n  .hpc-component-icon{stroke:var(--hpc-muted);fill:none;stroke-width:2.8}\n  .hpc-component-icon.is-on{stroke:var(--hfc-hot,#b35b38)}\n  .hpc-component-icon circle,.hpc-component-icon rect{fill:var(--card-background-color,#fff)}\n  .hpc-node{cursor:pointer}.hpc-node:hover .hpc-unit-border{stroke:var(--primary-color,#2196f3)}\n  .hpc-label{font:600 16px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-name{font-size:15px}\n  .hpc-reading{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-reading{font:600 12px var(--ha-font-family-body,system-ui,sans-serif);\n    fill:#fff;stroke:rgba(29,46,62,.85);paint-order:stroke fill;stroke-width:3px;}\n  .hpc-detail{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--secondary-text-color,#7d8590);}\n  .hpc-tank-shadow{fill:var(--card-background-color,#fff);stroke:var(--divider-color,#8e9bab);stroke-width:2.4;}\n  .hpc-tank-main{stroke:var(--divider-color,rgba(70,90,110,.6));stroke-width:1.3}\n  .hpc-tank-shine{fill:none;stroke:rgba(255,255,255,.28);stroke-width:6;stroke-linecap:round}\n  .hpc-tank-tick{fill:none;stroke:rgba(255,255,255,.50);stroke-width:1.1;}\n  .hpc-port{fill:var(--card-background-color,#fff);stroke:var(--hfc-flow-hot,#ad584b);stroke-width:2}\n  .hpc-route{pointer-events:none;}\n  .hpc-pipe-outline{fill:none;stroke:var(--divider-color,rgba(110,125,145,.5));\n    stroke-width:13;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-pipe{fill:none;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-arrow{fill:var(--primary-text-color,#516274);}\n  .hpc-pulse{fill:none;stroke:rgba(255,255,255,.9);stroke-width:3;stroke-dasharray:5 13;\n    animation:hpc-motion 1.35s linear infinite;}\n  @keyframes hpc-motion{to{stroke-dashoffset:-36}}\n  @media(prefers-reduced-motion:reduce){.hpc-pulse{animation:none;}}\n  .hpc-note{font-size:.82em;color:var(--secondary-text-color,#7d8590);margin:10px 3px 4px;}\n  .hpc-editor{font-family:var(--ha-font-family-body,inherit);color:var(--primary-text-color,inherit);}\n  .hpc-editor h3{font-size:1.02em;font-weight:600;margin:18px 0 9px;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding-bottom:6px}\n  .hpc-editor p{font-size:.88em;line-height:1.5;color:var(--secondary-text-color,#7d8590)}\n  .hpc-actions,.hpc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:9px 0}\n  .hpc-editor button,.hpc-editor select,.hpc-editor input{\n    box-sizing:border-box;font:inherit;border-radius:10px;\n    border:1px solid var(--divider-color,rgba(127,127,127,.34));\n    padding:10px 12px;color:var(--primary-text-color,inherit);\n    background:var(--card-background-color,#fff);max-width:100%;min-width:0}\n  .hpc-editor input:focus,.hpc-editor select:focus{outline:2px solid var(--primary-color,#03a9f4);outline-offset:1px}\n  .hpc-editor button{cursor:pointer;font-weight:500}\n  .hpc-editor button:hover{background:var(--secondary-background-color,rgba(127,127,127,.12))}\n  .hpc-editor button.hpc-primary{background:var(--primary-color,#03a9f4);color:#fff;border:0;}\n  .hpc-editor label{display:flex;flex-direction:column;gap:5px;font-size:.86em;font-weight:500;flex:1 1 170px;}\n  .hpc-editor .hpc-checkbox{display:flex;flex-direction:row;align-items:center;gap:11px;flex:1 1 100%;cursor:pointer;padding:11px 12px;border:1px solid var(--divider-color,rgba(127,127,127,.32));border-radius:10px;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-editor .hpc-checkbox input{width:19px;height:19px;margin:0;flex:0 0 auto;accent-color:var(--primary-color,#03a9f4);}\n  .hpc-editor .hpc-field{margin:6px 0;}\n  .hpc-editor .hpc-component-list{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}\n  .hpc-editor .hpc-pictogram{width:29px;height:29px;flex:none;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-add-preview{display:flex;align-items:center;justify-content:center;min-width:46px;min-height:46px;border-radius:12px;background:var(--secondary-background-color,rgba(127,127,127,.09))}\n  .hpc-editor .hpc-add-preview .hpc-pictogram{width:34px;height:34px;color:var(--primary-color,#03a9f4)}\n  .hpc-editor .hpc-config-title{display:flex;align-items:center;gap:9px}\n  .hpc-editor .hpc-config-title .hpc-pictogram{width:25px;height:25px}\n  .hpc-editor .hpc-component-list button{display:inline-flex;align-items:center;gap:8px;text-align:left}\n  .hpc-editor .hpc-component-list button span{display:flex;flex-direction:column;line-height:1.3;min-width:0;max-width:180px}\n  .hpc-editor .hpc-component-list button{max-width:100%;min-width:0}\n  .hpc-editor .hpc-component-list button .hpc-item-name,.hpc-editor .hpc-component-list button small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}\n  .hpc-editor .hpc-component-list button .hpc-item-name{font-weight:600}\n  .hpc-editor .hpc-ems strong{overflow-wrap:anywhere}\n  .hpc-editor .hpc-component-list button small{font-size:.75em;font-weight:400;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-native-form{margin:8px 0 16px;--ha-form-grid-column-min-width:220px}\n  .hpc-editor .hpc-native-form ha-form{display:block}\n  .hpc-ems{border:1px solid var(--primary-color,#03a9f4);border-radius:12px;padding:8px 14px 14px;margin:14px 0;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-ems h3{margin-top:5px;}\n  .hpc-connection-warning{color:var(--error-color,#e16a42)!important;font-weight:600;}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-quick-connect{margin:8px 0 4px}\n  .hpc-editor .hpc-quick-connect label{flex:1 1 260px}\n  .hpc-editor .hpc-connection-hint{margin:4px 0 14px;font-size:.82em}\n  .hpc-editor details summary{cursor:pointer;font-weight:600;padding:8px 2px}\n  .hpc-editor .hpc-advanced-pipes{border-top:1px solid var(--divider-color,rgba(127,127,127,.16));margin:13px 0}\n  .hpc-editor .hpc-pipe-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding:9px 0}\n  .hpc-editor .hpc-pipe-row>span{display:flex;flex:1 1 230px;flex-direction:column;font-weight:500;font-size:.9em;line-height:1.4}\n  .hpc-editor .hpc-pipe-row small{font-weight:400;font-size:.87em;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-pipe-row details{flex:1 1 100%;font-size:.85em}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
-  return {types,byType,ports,portRole,validConnection,connectPair,connectDhwCharge,connectionPairs,connectBufferSeries,connectBuffersParallel,dimension,display,fieldLabel,icon,esc,normalize,newNode,sample,state,active,format,color,portXY,draw,css,text};
+  return {types,byType,ports,portRole,validConnection,connectPair,connectHeatingCircuit,
+    preferredHeatingBuffer,connectDhwCharge,connectionPairs,connectBufferSeries,
+    connectBuffersParallel,dimension,display,fieldLabel,icon,esc,normalize,newNode,
+    sample,state,active,format,color,portXY,draw,css,text};
 })();
 
 // Additional heating components share the original Heat Pump Hydraulic Card SVG.
@@ -8111,7 +8220,7 @@ const HPC_MIGRATION = (() => {
   const validEntity=id=>typeof id==='string'&&
     /^(sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/.test(id);
   function check(plan) {
-    const warnings=[],ids=new Set(),edges=new Set();
+    const warnings=[],ids=new Set(),edges=new Set(),connectionKeys=new Set();
     const components=plan?.components,connections=plan?.connections;
     if(!Array.isArray(components)||!Array.isArray(connections))
       return ['Komponenten oder Verbindungen fehlen als Liste.'];
@@ -8155,6 +8264,7 @@ const HPC_MIGRATION = (() => {
         const supported={dhw_tank:['connection_style'],
           wood_gasifier:['return_lift'],wood_chip_boiler:['eta_model','particle_separator','silo'],
           diverter:['dhw_port','dhw_state','heating_state'],
+          mixer:['a_closed_state','b_closed_state','a_closed_at','b_closed_at','closed_ports'],
           heating_circuit:['emitter','mixed'],pellet_boiler:['boiler_kind','silo'],
           oil_boiler:['boiler_kind'],gas_boiler:['boiler_kind'],
           heat_pump:['unit_style','unit_size','source_type']}[n.type]||[];
@@ -8166,12 +8276,17 @@ const HPC_MIGRATION = (() => {
       const from=components.find(n=>n?.id===e?.from);
       const to=components.find(n=>n?.id===e?.to);
       const targetPort=to?.type==='buffer'&&e?.to_port==='return_in'?'bottom_in':e?.to_port;
+      const connectionKey=[e?.from,e?.from_port,e?.to,targetPort].join('|');
+      const invalidDirection=from&&to&&
+        (HPC_FREE.portRole(from.type,e.from_port)==='in'||
+         HPC_FREE.portRole(to.type,targetPort)==='out');
       if(!e||typeof e.id!=='string'||! /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(e.id)||
         edges.has(e.id)||!from||!to||e.from===e.to||
         !HPC_FREE.ports(from.type).some(p=>p.id===e.from_port)||
-        !HPC_FREE.ports(to.type).some(p=>p.id===targetPort)){
+        !HPC_FREE.ports(to.type).some(p=>p.id===targetPort)||invalidDirection||
+        connectionKeys.has(connectionKey)){
         warnings.push('Eine Leitung kann nicht ohne Datenverlust übernommen werden.');
-      }else edges.add(e.id);
+      }else {edges.add(e.id);connectionKeys.add(connectionKey);}
       if(e&&(e.flow_entity&&!validEntity(e.flow_entity)||
         e.temperature_entity&&!validEntity(e.temperature_entity)))
         warnings.push('Eine Leitungsentität ist ungültig.');
@@ -8361,6 +8476,29 @@ const HPC_NETWORK = (() => {
     return null;
   }
 
+  function mixerClosedPorts(node,hass) {
+    if(node?.type!=='mixer')return new Set();
+    const options=node.options||{},closed=new Set();
+    if(Array.isArray(options.closed_ports))
+      for(const port of options.closed_ports)
+        if(port==='a'||port==='b')closed.add(port);
+    const state=node.sensors?.state?HPC_FREE.state(hass,node.sensors.state):null;
+    const stateValue=state?.text?.trim().toLowerCase();
+    for(const port of ['a','b']){
+      const closedState=String(options[port+'_closed_state']||'').trim().toLowerCase();
+      if(closedState&&stateValue===closedState)closed.add(port);
+      const rawThreshold=options[port+'_closed_at'];
+      const threshold=rawThreshold===''||rawThreshold===undefined||rawThreshold===null
+        ?NaN:Number(rawThreshold);
+      const position=node.sensors?.position
+        ?HPC_FREE.state(hass,node.sensors.position):null;
+      if(Number.isFinite(threshold)&&threshold>=0&&threshold<=100&&
+        position?.number!==null&&
+        Math.abs(position.number-threshold)<=0.5)closed.add(port);
+    }
+    return closed;
+  }
+
   // Every inferred active pipe belongs to a closed, directed hydraulic loop
   // through a running pump. Each port is a vertex, including component internals.
   function flowStates(plan,hass) {
@@ -8402,7 +8540,9 @@ const HPC_NETWORK = (() => {
       if(!from||!to||blocked(from)||blocked(to)||signal(e.flow_entity)===false)continue;
       const selected=(n,port)=>n.type!=='diverter'||port==='ab'||
         diverterActivePort(n,hass)===port;
-      if(selected(from,e.from_port)&&selected(to,e.to_port))
+      const open=(n,port)=>selected(n,port)&&
+        (n.type!=='mixer'||!mixerClosedPorts(n,hass).has(port));
+      if(open(from,e.from_port)&&open(to,e.to_port))
         add(key(e.from,e.from_port),key(e.to,e.to_port),e);
     }
     for(const n of plan.components){
@@ -8418,7 +8558,10 @@ const HPC_NETWORK = (() => {
           break;
         }
         case 'mixer':
-          for(const port of ['a','b']){connect(port,'ab');connect('ab',port);}
+          for(const port of ['a','b']){
+            if(mixerClosedPorts(n,hass).has(port))continue;
+            connect(port,'ab');connect('ab',port);
+          }
           break;
         case 'buffer':
           for(const inlet of ['top_in','mid_in','bottom_in','return_in'])
@@ -8518,8 +8661,9 @@ const HPC_NETWORK = (() => {
       return {state:'unknown',measured:false};
     };
     const atPort=(node,port)=>{
-      if(node?.type!=='diverter'||!['a','b'].includes(port))return false;
-      return diverterActivePort(node,hass)!==port;
+      if(node?.type==='diverter'&&['a','b'].includes(port))
+        return diverterActivePort(node,hass)!==port;
+      return node?.type==='mixer'&&mixerClosedPorts(node,hass).has(port);
     };
     const pumpOff=node=>{
       if(!node||!['pump','heating_circuit','wood_gasifier','oil_boiler',
@@ -8564,7 +8708,8 @@ const HPC_NETWORK = (() => {
       if(reported.state==='stopped'){
         state='stopped';basis=reported.measured?'meter':'switch';
       }else if(atPort(source,edge.from_port)||atPort(destination,edge.to_port)){
-        state='stopped';basis='valve';
+        state='stopped';basis=source?.type==='mixer'||destination?.type==='mixer'
+          ?'mixer':'valve';
       }else if(pumpOff(source)||pumpOff(destination)||
         tankCoilStopped.has(edge.from)&&edge.from_port==='coil_out'){
         state='stopped';basis='pump';
@@ -8613,8 +8758,8 @@ const HPC_NETWORK = (() => {
 
   // Check physical component bounds after routing, including label clearance.
   // Routes without obstructions retain their original geometry and proportions.
-  function avoidComponents(original,p,q,fromSide,toSide,obstacles,fromId,toId) {
-    const blockers=obstacles.filter(b=>b.id!==fromId&&b.id!==toId);
+  function avoidComponents(original,p,q,fromSide,toSide,obstacles,fromId,toId,pipeObstacles=[]) {
+    const blockers=obstacles.map(box=>({...box,endpoint:box.id===fromId||box.id===toId}));
     const pieces=d=>{
       const tokens=(d||'').match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
       const segments=[];let x=0,y=0;
@@ -8626,54 +8771,208 @@ const HPC_NETWORK = (() => {
       }
       return segments;
     };
-    const crosses=path=>pieces(path).some(s=>blockers.some(box=>{
-      const padding=9,l=box.x-padding,r=box.x+box.w+padding;
+    const segmentCrosses=(s,box)=>{
+      const padding=box.endpoint?0:9,l=box.x-padding,r=box.x+box.w+padding;
       const top=box.y-padding,bottom=box.y+box.h+padding;
       return s.x===s.nx?s.x>l&&s.x<r&&
         Math.max(s.y,s.ny)>top&&Math.min(s.y,s.ny)<bottom:
         s.y>top&&s.y<bottom&&
         Math.max(s.x,s.nx)>l&&Math.min(s.x,s.nx)<r;
-    }));
+    };
+    const overlapsPipe=segment=>pipeObstacles.some(pipe=>{
+      const vertical=segment.x===segment.nx;
+      const pipeVertical=pipe.x===pipe.nx;
+      if(vertical===pipeVertical){
+        const fixed=vertical?segment.x:segment.y;
+        const pipeFixed=vertical?pipe.x:pipe.y;
+        if(Math.abs(fixed-pipeFixed)>.001)return false;
+        const start=vertical?segment.y:segment.x,end=vertical?segment.ny:segment.nx;
+        const pipeStart=vertical?pipe.y:pipe.x,pipeEnd=vertical?pipe.ny:pipe.nx;
+        return Math.min(Math.max(start,end),Math.max(pipeStart,pipeEnd))-
+          Math.max(Math.min(start,end),Math.min(pipeStart,pipeEnd))>.001;
+      }
+      return false;
+    });
+    const crosses=path=>{
+      const segments=pieces(path);
+      return segments.some((segment,index)=>
+        blockers.some(box=>!(box.endpoint&&
+          (index===0||index===segments.length-1))&&segmentCrosses(segment,box))||
+        overlapsPipe(segment));
+    };
     if(!crosses(original))return original;
     const stub=18;
     const a={x:p.x+(fromSide==='L'?-stub:stub),y:p.y};
     const b={x:q.x+(toSide==='L'?-stub:stub),y:q.y};
-    const boxes=[...blockers,{x:p.x,y:p.y,w:0,h:0},{x:q.x,y:q.y,w:0,h:0}];
-    const unique=values=>[...new Set(values.map(Math.round))].sort((x,y)=>x-y);
-    const xs=unique([(a.x+b.x)/2,...boxes.flatMap(box=>[box.x-30,box.x+box.w+30])]);
-    const ys=unique([(a.y+b.y)/2,...boxes.flatMap(box=>[box.y-30,box.y+box.h+30])]);
-    let best=null;
-    const propose=points=>{
-      const segments=points.filter((n,i)=>i===0||n.x!==points[i-1].x||n.y!==points[i-1].y);
-      let d='M'+segments[0].x+' '+segments[0].y,score=0,prev='';
-      for(let i=1;i<segments.length;i++){
-        const from=segments[i-1],to=segments[i];
-        const op=from.x===to.x?'V':from.y===to.y?'H':null;
-        if(!op)return;
-        d+=' '+op+(op==='V'?to.y:to.x);
-        score+=Math.abs(from.x-to.x)+Math.abs(from.y-to.y);
-        if(prev&&prev!==op)score+=22;
-        prev=op;
+    const minX=Math.min(a.x,b.x,...blockers.map(box=>box.x),
+      ...pipeObstacles.flatMap(pipe=>[Math.min(pipe.x,pipe.nx)]))-60;
+    const maxX=Math.max(a.x,b.x,...blockers.map(box=>box.x+box.w),
+      ...pipeObstacles.flatMap(pipe=>[Math.max(pipe.x,pipe.nx)]))+60;
+    const minY=Math.min(a.y,b.y,...blockers.map(box=>box.y),
+      ...pipeObstacles.flatMap(pipe=>[Math.min(pipe.y,pipe.ny)]))-60;
+    const maxY=Math.max(a.y,b.y,...blockers.map(box=>box.y+box.h),
+      ...pipeObstacles.flatMap(pipe=>[Math.max(pipe.y,pipe.ny)]))+60;
+    const unique=values=>[...new Set(values.map(value=>Number(value.toFixed(3))))]
+      .sort((x,y)=>x-y);
+    const xs=unique([a.x,b.x,minX,maxX,...blockers.flatMap(box=>
+      [box.x-10,box.x+box.w+10]),...pipeObstacles.flatMap(pipe=>
+      [pipe.x-10,pipe.x+10,pipe.nx-10,pipe.nx+10])]);
+    const ys=unique([a.y,b.y,minY,maxY,...blockers.flatMap(box=>
+      [box.y-10,box.y+box.h+10]),...pipeObstacles.flatMap(pipe=>
+      [pipe.y-10,pipe.y+10,pipe.ny-10,pipe.ny+10])]);
+    const xIndex=xs.indexOf(Number(a.x.toFixed(3)));
+    const yIndex=ys.indexOf(Number(a.y.toFixed(3)));
+    const endX=xs.indexOf(Number(b.x.toFixed(3)));
+    const endY=ys.indexOf(Number(b.y.toFixed(3)));
+    const pointBlocked=(x,y)=>blockers.some(box=>{
+      const padding=box.endpoint?0:9;
+      return x>box.x-padding&&x<box.x+box.w+padding&&
+        y>box.y-padding&&y<box.y+box.h+padding;
+    });
+    const clear=(from,to)=>!blockers.some(box=>segmentCrosses({
+      x:from.x,y:from.y,nx:to.x,ny:to.y
+    },box));
+    const count=xs.length*ys.length;
+    const scores=new Float64Array(count*2).fill(Infinity);
+    const previous=new Int32Array(count*2).fill(-1);
+    const heap=[];
+    const push=(state,cost)=>{
+      let index=heap.length;heap.push({state,cost});
+      while(index){
+        const parent=(index-1)>>1;
+        if(heap[parent].cost<=cost)break;
+        heap[index]=heap[parent];index=parent;
       }
-      if(best&&score>=best.score||crosses(d))return;
-      best={d,score};
+      heap[index]={state,cost};
     };
-    for(const x of xs)propose([p,a,{x,y:a.y},{x,y:b.y},b,q]);
-    for(const y of ys)propose([p,a,{x:a.x,y},{x:b.x,y},b,q]);
-    if(!best)for(const x of [xs[0],xs.at(-1)])for(const y of [ys[0],ys.at(-1)])
-      propose([p,a,{x,y:a.y},{x,y},{x:b.x,y},b,q]);
-    return best?.d||original;
+    const pop=()=>{
+      const first=heap[0],last=heap.pop();
+      if(heap.length){
+        let index=0;
+        while(true){
+          const left=index*2+1,right=left+1;
+          if(left>=heap.length)break;
+          const child=right<heap.length&&heap[right].cost<heap[left].cost?right:left;
+          if(heap[child].cost>=last.cost)break;
+          heap[index]=heap[child];index=child;
+        }
+        heap[index]=last;
+      }
+      return first;
+    };
+    const vertex=(x,y)=>x*ys.length+y;
+    const start=vertex(xIndex,yIndex)*2;
+    scores[start]=0;push(start,0);
+    let finish=-1;
+    while(heap.length){
+      const current=pop(),state=current.state;
+      if(current.cost!==scores[state])continue;
+      const node=Math.floor(state/2),direction=state%2;
+      const xi=Math.floor(node/ys.length),yi=node%ys.length;
+      if(xi===endX&&yi===endY&&direction===0){finish=state;break;}
+      const here={x:xs[xi],y:ys[yi]};
+      for(const axis of [0,1])for(const step of [-1,1]){
+        const nx=xi+(axis===0?step:0),ny=yi+(axis===1?step:0);
+        if(nx<0||nx>=xs.length||ny<0||ny>=ys.length)continue;
+        const there={x:xs[nx],y:ys[ny]};
+        if(pointBlocked(there.x,there.y)||!clear(here,there))continue;
+        const next=vertex(nx,ny)*2+axis;
+        const distance=Math.abs(there.x-here.x)+Math.abs(there.y-here.y);
+        const segment={x:here.x,y:here.y,nx:there.x,ny:there.y};
+        const cost=current.cost+distance+(axis===direction?0:24)+
+          (overlapsPipe(segment)?100000:0);
+        if(cost>=scores[next])continue;
+        scores[next]=cost;previous[next]=state;push(next,cost);
+      }
+    }
+    if(finish<0)throw new Error('No collision-free orthogonal route for '+fromId+' → '+toId);
+    const path=[];
+    for(let state=finish;state>=0;state=previous[state]){
+      const node=Math.floor(state/2),xi=Math.floor(node/ys.length),yi=node%ys.length;
+      path.push({x:xs[xi],y:ys[yi]});
+      if(state===start)break;
+    }
+    path.reverse();
+    const points=[p,a,...path.slice(1,-1),b,q];
+    const compact=[];
+    for(const point of points){
+      if(compact.length&&point.x===compact[compact.length-1].x&&
+        point.y===compact[compact.length-1].y)continue;
+      while(compact.length>1){
+        const before=compact[compact.length-2],last=compact[compact.length-1];
+        if((before.x===last.x&&last.x===point.x)||
+          (before.y===last.y&&last.y===point.y))compact.pop();
+        else break;
+      }
+      compact.push(point);
+    }
+    let routed='M'+compact[0].x+' '+compact[0].y;
+    for(let i=1;i<compact.length;i++){
+      const from=compact[i-1],to=compact[i];
+      routed+=' '+(from.x===to.x?'V'+to.y:'H'+to.x);
+    }
+    if(crosses(routed))
+      throw new Error('Orthogonal route still intersects a component for '+fromId+' → '+toId+
+        ': '+routed+' '+JSON.stringify(blockers.filter(box=>
+          pieces(routed).some((segment,index)=>!(box.endpoint&&
+            (index===0||index===pieces(routed).length-1))&&segmentCrosses(segment,box)))));
+    return routed;
+  }
+
+  function compactPath(path) {
+    const tokens=(path||'').match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
+    let x=null,y=null;
+    const segments=[];
+    for(let i=0;i<tokens.length;){
+      const op=tokens[i++];
+      if(op==='M'){
+        x=Number(tokens[i++]);y=Number(tokens[i++]);
+        if(!Number.isFinite(x)||!Number.isFinite(y))
+          throw new Error('Hydraulic route has a non-finite start point');
+        continue;
+      }
+      if((op!=='H'&&op!=='V')||x===null||y===null)
+        throw new Error('Hydraulic route contains an unsupported path command');
+      const nx=op==='H'?Number(tokens[i++]):x;
+      const ny=op==='V'?Number(tokens[i++]):y;
+      if(!Number.isFinite(nx)||!Number.isFinite(ny))
+        throw new Error('Hydraulic route has a non-finite segment');
+      if(Math.abs(nx-x)+Math.abs(ny-y)>0.001)
+        segments.push({op,value:op==='H'?nx:ny});
+      x=nx;y=ny;
+    }
+    return 'M'+tokens[1]+' '+tokens[2]+segments.map(s=>' '+s.op+s.value).join('');
   }
 
   // One orthogonal router for every non-native SVG pipe. It uses actual ports,
   // not the stored legacy X/Y values or assumptions based on a component name.
   function route({ edge, fromNode, toNode, fromShape, toShape, p, q,
-                   fromSide, toSide, supplyTee = null, returnTee = null, obstacles = [] }) {
+                   fromSide, toSide, supplyTee = null, returnTee = null,
+                   obstacles = [], routedPaths = [] }) {
     const h = (x, y) => String(x) + ' ' + String(y);
+    const role=connection=>connection.edge.kind==='return_lift'?'flow':
+      (/^(?:return_out|coil_out|bottom_out|return)$/.test(connection.edge.from_port)||
+       /^(?:return|return_in|bottom_in)$/.test(connection.edge.to_port)?'return':'flow');
+    const pipeObstacles=[];
+    if(edge.kind!=='return_lift'){
+      const currentRole=role({edge});
+      for(const previous of routedPaths){
+        if(role(previous)===currentRole)continue;
+        const tokens=previous.d.match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
+        let x=0,y=0;
+        for(let i=0;i<tokens.length;){
+          const op=tokens[i++];
+          if(op==='M'){x=Number(tokens[i++]);y=Number(tokens[i++]);continue;}
+          const nx=op==='H'?Number(tokens[i++]):x;
+          const ny=op==='V'?Number(tokens[i++]):y;
+          pipeObstacles.push({x,y,nx,ny});x=nx;y=ny;
+        }
+      }
+    }
     if(edge.kind==='return_lift'){
       const x=Math.max(p.x,q.x)+42;
       const d='M'+h(p.x,p.y)+' H'+x+' V'+q.y+' H'+q.x;
-      return avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to);
+      return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
     }
     // Keep the ORIGINAL mixer and radiator connectors exactly in the hot
     // and return routes. Their artwork is retained, not an independent pipe.
@@ -8686,10 +8985,10 @@ const HPC_NETWORK = (() => {
         ' H'+(bendX-20)+' V'+joinY+' H'+joinX;
       if(Math.abs(q.y-joinY)<.01)d+=' H'+q.x;
       else {
-        const laneX=Math.min(joinX-35,q.x-35);
+        const laneX=Math.min(joinX-15,q.x-15);
         d+=' H'+laneX+' V'+q.y+' H'+q.x;
       }
-      return avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to);
+      return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
     }
     let d;
     if (p.x > q.x + 8 || fromSide === 'L' || toSide === 'R') {
@@ -8741,7 +9040,7 @@ const HPC_NETWORK = (() => {
       d = 'M' + h(p.x, p.y) + ' H' + (p.x - 70) + ' V' + below +
         ' H' + (q.x - 35) + ' V' + q.y + ' H' + q.x;
     }
-    return avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to);
+    return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
   }
 
 
@@ -8837,7 +9136,8 @@ const HPC_NETWORK = (() => {
     }));
   }
 
-  return { graph, orderedBuffers, bufferTopology, diverterActivePort, flowStates, flowEvidence, auxiliaryEdges, route, mergeRoutes };
+  return { graph, orderedBuffers, bufferTopology, diverterActivePort, mixerClosedPorts,
+    flowStates, flowEvidence, auxiliaryEdges, route, mergeRoutes };
 })();
 
 const HPC_INTEGRATED = (() => {
@@ -9308,6 +9608,7 @@ const HPC_INTEGRATED = (() => {
       // tee on the right-hand heating collector. Draw its real return route.
     }
     const obstacles=[...anchored,...points].map(([id,b])=>({id,...b}));
+    const routedPaths=[];
     const routeRecords=[...plan.connections,...HPC_NETWORK.auxiliaryEdges(plan,hass)].map(edge=>{
       // Native heating circuits keep their original radiator/mixer pictograms,
       // but their actual supply/return paths use this very same pipe registry.
@@ -9321,8 +9622,9 @@ const HPC_INTEGRATED = (() => {
       const returnTee=returnTees.get(edge.id);
       const d=HPC_NETWORK.route({
         edge,fromNode:all[edge.from],toNode:all[edge.to],
-        fromShape,toShape,p,q,fromSide,toSide,supplyTee,returnTee,obstacles
+        fromShape,toShape,p,q,fromSide,toSide,supplyTee,returnTee,obstacles,routedPaths
       });
+      routedPaths.push({edge,d});
       const from=all[edge.from],field=edge.from_port;
       const inferred=field==='flow'?from.sensors.flow:
         field==='top_out'?from.sensors.top:
@@ -10571,6 +10873,22 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(!list.length)return "";
         return `<optgroup label="${esc(c.name)}">${list.map(port=>`<option value="${esc(c.id+"|"+port.id)}">${esc(portNames[port.id]||port.id)}</option>`).join("")}</optgroup>`;
       }).join("");
+      const heatingSources=p.components.filter(c=>
+        c.type==='buffer'||HPC_FREE.byType[c.type]?.group==='source'||c.type==='manifold');
+      const heatingSupply=selected?.type==='heating_circuit'
+        ?p.connections.find(edge=>edge.to===selected.id&&edge.to_port==='flow_in'):null;
+      const heatingReturn=selected?.type==='heating_circuit'
+        ?p.connections.find(edge=>edge.from===selected.id&&edge.from_port==='return_out'):null;
+      const heatingComplete=!!heatingSupply&&!!heatingReturn;
+      const automaticRoute=selected?.options?.hydraulic_auto;
+      const currentHeatingSource=automaticRoute?.source||heatingSupply?.from||heatingReturn?.to||
+        (selected?.type==='heating_circuit'?HPC_FREE.preferredHeatingBuffer(p):'')||'';
+      const heatingSourceOptions=heatingSources.map(node=>
+        `<option value="${esc(node.id)}" ${currentHeatingSource===node.id?'selected':''}>${esc(node.name)} · ${esc(HPC_FREE.display(node.type,lang))}</option>`
+      ).join('');
+      const heatingControls=p.components.filter(node=>
+        ['mixer','pump'].includes(node.type)&&
+        !p.connections.some(edge=>edge.from===node.id||edge.to===node.id));
       const sensorField=(id,key,value)=>`<label class="hpc-field">${esc(HPC_FREE.fieldLabel(key,lang))}
         <input type="text" list="hpc-free-entities" autocomplete="off" data-sensor="${esc(id)}" data-field="${esc(key)}"
           value="${esc(value||"")}" placeholder="${t("Home Assistant-Entität","Home Assistant entity")}"/></label>`;
@@ -10643,6 +10961,64 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               ['column',t('Gliederheizkörper','Column radiators')]]
               .map(([id,label])=>`<option value="${id}" ${(selected.options?.emitter||'radiator')===id?'selected':''}>${label}</option>`).join('')}
           </select></label>`:""}
+        ${selected.type==="heating_circuit"?`<section class="hpc-ems" data-heating-connection>
+          <h3>${t("Heizkreis anschließen","Connect heating circuit")}</h3>
+          ${heatingComplete
+            ?`<p>${t("Vorlauf und Rücklauf sind angeschlossen.","Supply and return are connected.")}</p>`
+            :`<p class="hpc-connection-warning">${t(`Heizkreis ${esc(selected.name)} ist noch nicht vollständig angeschlossen.`,`Heating circuit ${esc(selected.name)} is not fully connected yet.`)}</p>
+              ${heatingSupply?`<p>${t("Vorlauf vorhanden; Rücklauf fehlt.","Supply exists; return is missing.")}</p>`:""}
+              ${heatingReturn?`<p>${t("Rücklauf vorhanden; Vorlauf fehlt.","Return exists; supply is missing.")}</p>`:""}`}
+          <div class="hpc-row">
+            <label>${t("Wärmequelle","Heat source")}<select data-hc-source="${esc(selected.id)}">
+              <option value="">${t("Auswählen","Choose")}</option>${heatingSourceOptions}
+            </select></label>
+            <label>${t("Anschlussart","Connection type")}<select data-hc-kind="${esc(selected.id)}">
+              <option value="direct" ${automaticRoute?.kind==='direct'?'selected':''}>${t("Direkt","Direct")}</option>
+              <option value="pump" ${automaticRoute?.kind==='pump'?'selected':''}>${t("Über vorhandene Pumpengruppe","Via existing pump group")}</option>
+              <option value="mixer" ${automaticRoute?.kind==='mixer'?'selected':''}>${t("Über vorhandenen Mischer","Via existing mixer")}</option>
+              <option value="custom">${t("Benutzerdefinierter Anschluss","Custom connection")}</option>
+            </select></label>
+            <label>${t("Verbindung","Connection")}<select data-hc-mode="${esc(selected.id)}">
+              <option value="automatic" selected>${t("Automatisch","Automatic")}</option>
+              <option value="manual">${t("Manuell","Manual")}</option>
+            </select></label>
+          </div>
+          <label class="hpc-field" data-hc-control-wrap ${['pump','mixer'].includes(automaticRoute?.kind)?'':'hidden'}>${t("Vorhandene Pumpengruppe / Mischer","Existing pump group / mixer")}
+            <select data-hc-control="${esc(selected.id)}">
+              <option value="">${t("Auswählen","Choose")}</option>
+              ${heatingControls.map(node=>`<option value="${esc(node.id)}">${esc(node.name)} · ${esc(HPC_FREE.display(node.type,lang))}</option>`).join('')}
+            </select>
+          </label>
+          <div class="hpc-actions">
+            <button type="button" class="hpc-primary" data-action="hc-connect" data-component="${esc(selected.id)}"
+              ${heatingSources.length?'':'disabled'}>${heatingComplete?t("Verbindung ändern","Change connection"):t("Mit Wärmequelle verbinden","Connect to heat source")}</button>
+          </div>
+          <p>${t("Bei genau einem Pufferspeicher wird ein neuer Heizkreis automatisch mit Vorlauf und Rücklauf verbunden. Bestehende manuelle Leitungen werden nicht verändert.","With exactly one buffer, a new heating circuit is automatically connected with both supply and return. Existing manual pipes are never changed.")}</p>
+          <details class="hpc-advanced-pipes" data-hc-manual-wrap hidden>
+            <summary>${t("Technische Anschlüsse (erweitert)","Technical ports (advanced)")}</summary>
+            <p>${t("Im manuellen Modus Vorlauf und Rücklauf getrennt über „Spezielle Anschlüsse“ konfigurieren.","In manual mode, configure supply and return separately under “Connect individual ports”.")}</p>
+          </details>
+        </section>`:""}
+        ${selected.type==="mixer"?`<div class="hpc-ems">
+          <strong>${t("Hydraulische Mischerwege","Hydraulic mixer paths")}</strong>
+          <p>${t("0 % oder 100 % sperren keinen Weg automatisch. Trage nur einen bestätigten Sperrzustand oder eine bekannte geschlossene Stellung ein.","0% or 100% never close a path by assumption. Enter only a confirmed closed state or known closed position.")}</p>
+          <div class="hpc-row">
+            <label>${t("Sensorwert: Weg A–AB gesperrt","State: path A–AB closed")}
+              <input data-mixer-a-state="${esc(selected.id)}" maxlength="60"
+                value="${esc(selected.options?.a_closed_state||'')}"/></label>
+            <label>${t("Sensorwert: Weg B–AB gesperrt","State: path B–AB closed")}
+              <input data-mixer-b-state="${esc(selected.id)}" maxlength="60"
+                value="${esc(selected.options?.b_closed_state||'')}"/></label>
+          </div>
+          <div class="hpc-row">
+            <label>${t("Stellung, bei der A–AB sicher gesperrt ist (%)","Position where A–AB is confirmed closed (%)")}
+              <input data-mixer-a-position="${esc(selected.id)}" type="number" min="0" max="100" step="0.1"
+                value="${esc(selected.options?.a_closed_at??'')}"/></label>
+            <label>${t("Stellung, bei der B–AB sicher gesperrt ist (%)","Position where B–AB is confirmed closed (%)")}
+              <input data-mixer-b-position="${esc(selected.id)}" type="number" min="0" max="100" step="0.1"
+                value="${esc(selected.options?.b_closed_at??'')}"/></label>
+          </div>
+        </div>`:""}
         ${selected.type==="diverter"?`<div class="hpc-ems">
            <strong>${t("Umschaltventil","Changeover valve")}</strong>
            <p>${t("Lege fest, an welchem Ventilausgang die Warmwasserladung angeschlossen ist. Ohne eindeutig zugeordneten Ventilzustand bleibt der Fluss in beiden Abgängen inaktiv.","Choose the DHW outlet. Without an unambiguous valve state both outlets remain without flow animation.")}</p>
@@ -11143,8 +11519,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             hpc_migration_review:imported.config.hpc_migration_review,
             hpc_legacy_imported:true
           }:{};
-          return this._applyPlan({components:[...base.components,node],
-            connections:base.connections},retained);
+          let next={components:[...base.components,node],
+            connections:base.connections};
+          if(node.type==='heating_circuit'){
+            const bufferId=HPC_FREE.preferredHeatingBuffer(next);
+            if(bufferId)next=HPC_FREE.connectHeatingCircuit(next,node.id,bufferId)||next;
+          }
+          return this._applyPlan(next,retained);
         }
         if(action==="remove-component"&&selected){
           this._selectedId=null;
@@ -11165,6 +11546,47 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           if(!from||!to)return;
           const next=HPC_FREE.connectPair(this._config.plan,from,to);
           if(next.connections.length===this._config.plan.connections.length)return;
+          return this._applyPlan(next);
+        }
+        if(action==="hc-connect"){
+          const circuit=p.components.find(node=>
+            node.id===button.dataset.component&&node.type==='heating_circuit');
+          const sourceId=root.querySelector(`[data-hc-source="${CSS.escape(button.dataset.component)}"]`)?.value;
+          const kind=root.querySelector(`[data-hc-kind="${CSS.escape(button.dataset.component)}"]`)?.value||'direct';
+          const mode=root.querySelector(`[data-hc-mode="${CSS.escape(button.dataset.component)}"]`)?.value||'automatic';
+          const controlId=root.querySelector(`[data-hc-control="${CSS.escape(button.dataset.component)}"]`)?.value||'';
+          if(!circuit)return;
+          if(mode==='manual'||kind==='custom'){
+            const manual=root.querySelector('[data-hc-manual-wrap]');
+            if(manual)manual.hidden=false;
+            const advanced=[...root.querySelectorAll('.hpc-advanced-pipes')]
+              .find(details=>details.querySelector('#hpc-from'));
+            if(advanced)advanced.open=true;
+            return;
+          }
+          if(!sourceId){
+            window.alert(t('Bitte eine Wärmequelle auswählen.','Choose a heat source.'));
+            return;
+          }
+          if(['pump','mixer'].includes(kind)&&!controlId){
+            window.alert(t('Bitte die vorhandene Pumpengruppe oder den Mischer auswählen.',
+              'Choose the existing pump group or mixer.'));
+            return;
+          }
+          const hasCircuitEdges=p.connections.some(edge=>
+            edge.to===circuit.id&&edge.to_port==='flow_in'||
+            edge.from===circuit.id&&edge.from_port==='return_out');
+          const replace=!!circuit.options?.hydraulic_auto&&hasCircuitEdges;
+          if(hasCircuitEdges&&!window.confirm(t(
+            'Vorhandene automatische Heizkreisverbindung gemeinsam ersetzen? Manuelle Leitungen bleiben unverändert.',
+            'Replace the existing automatic heating-circuit pair? Manual pipes remain unchanged.')))return;
+          const next=HPC_FREE.connectHeatingCircuit(p,circuit.id,sourceId,kind,controlId,{replace});
+          if(!next){
+            window.alert(t(
+              'Die vorhandenen Leitungen passen nicht zu dieser Auswahl und wurden nicht verändert. Prüfe den manuellen Anschluss.',
+              'Existing pipes do not match this selection and were left unchanged. Check the manual connection.'));
+            return;
+          }
           return this._applyPlan(next);
         }
         if(action==="connect"){
@@ -11214,6 +11636,17 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       }));
       const fromSelect=root.querySelector("#hpc-from");
       const toSelect=root.querySelector("#hpc-to");
+      root.querySelectorAll('[data-hc-mode]').forEach(select=>
+        select.addEventListener('change',()=>{
+          const manual=select.value==='manual';
+          const wrap=select.closest('[data-heating-connection]')?.querySelector('[data-hc-manual-wrap]');
+          if(wrap)wrap.hidden=!manual;
+        }));
+      root.querySelectorAll('[data-hc-kind]').forEach(select=>
+        select.addEventListener('change',()=>{
+          const wrap=select.closest('[data-heating-connection]')?.querySelector('[data-hc-control-wrap]');
+          if(wrap)wrap.hidden=!['pump','mixer'].includes(select.value);
+        }));
       fromSelect?.addEventListener("change",()=>{
         toSelect.innerHTML='<option value="">–</option>'+portOptions("to",fromSelect.value);
       });
@@ -11245,6 +11678,30 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const node=plan.components.find(c=>c.id===el.dataset.diverterHeating);
         if(node?.type==='diverter')node.options={...node.options,
           heating_state:el.value.slice(0,60)};
+      });
+      for(const [selector,option] of [
+        ['[data-mixer-a-state]','a_closed_state'],
+        ['[data-mixer-b-state]','b_closed_state']
+      ])fieldUpdate(selector,(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.mixerAState||
+          c.id===el.dataset.mixerBState);
+        if(node?.type!=='mixer')return;
+        node.options={...node.options};
+        const value=el.value.trim().slice(0,60);
+        if(value)node.options[option]=value;
+        else delete node.options[option];
+      });
+      for(const [selector,option] of [
+        ['[data-mixer-a-position]','a_closed_at'],
+        ['[data-mixer-b-position]','b_closed_at']
+      ])fieldUpdate(selector,(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.mixerAPosition||
+          c.id===el.dataset.mixerBPosition);
+        if(node?.type!=='mixer')return;
+        node.options={...node.options};
+        const value=el.value===''?NaN:Number(el.value);
+        if(Number.isFinite(value)&&value>=0&&value<=100)node.options[option]=value;
+        else delete node.options[option];
       });
       fieldUpdate('[data-wp-style]',(plan,el)=>{
         const node=plan.components.find(c=>c.id===el.dataset.wpStyle);

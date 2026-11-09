@@ -86,6 +86,29 @@ const HPC_NETWORK = (() => {
     return null;
   }
 
+  function mixerClosedPorts(node,hass) {
+    if(node?.type!=='mixer')return new Set();
+    const options=node.options||{},closed=new Set();
+    if(Array.isArray(options.closed_ports))
+      for(const port of options.closed_ports)
+        if(port==='a'||port==='b')closed.add(port);
+    const state=node.sensors?.state?HPC_FREE.state(hass,node.sensors.state):null;
+    const stateValue=state?.text?.trim().toLowerCase();
+    for(const port of ['a','b']){
+      const closedState=String(options[port+'_closed_state']||'').trim().toLowerCase();
+      if(closedState&&stateValue===closedState)closed.add(port);
+      const rawThreshold=options[port+'_closed_at'];
+      const threshold=rawThreshold===''||rawThreshold===undefined||rawThreshold===null
+        ?NaN:Number(rawThreshold);
+      const position=node.sensors?.position
+        ?HPC_FREE.state(hass,node.sensors.position):null;
+      if(Number.isFinite(threshold)&&threshold>=0&&threshold<=100&&
+        position?.number!==null&&
+        Math.abs(position.number-threshold)<=0.5)closed.add(port);
+    }
+    return closed;
+  }
+
   // Every inferred active pipe belongs to a closed, directed hydraulic loop
   // through a running pump. Each port is a vertex, including component internals.
   function flowStates(plan,hass) {
@@ -127,7 +150,9 @@ const HPC_NETWORK = (() => {
       if(!from||!to||blocked(from)||blocked(to)||signal(e.flow_entity)===false)continue;
       const selected=(n,port)=>n.type!=='diverter'||port==='ab'||
         diverterActivePort(n,hass)===port;
-      if(selected(from,e.from_port)&&selected(to,e.to_port))
+      const open=(n,port)=>selected(n,port)&&
+        (n.type!=='mixer'||!mixerClosedPorts(n,hass).has(port));
+      if(open(from,e.from_port)&&open(to,e.to_port))
         add(key(e.from,e.from_port),key(e.to,e.to_port),e);
     }
     for(const n of plan.components){
@@ -143,7 +168,10 @@ const HPC_NETWORK = (() => {
           break;
         }
         case 'mixer':
-          for(const port of ['a','b']){connect(port,'ab');connect('ab',port);}
+          for(const port of ['a','b']){
+            if(mixerClosedPorts(n,hass).has(port))continue;
+            connect(port,'ab');connect('ab',port);
+          }
           break;
         case 'buffer':
           for(const inlet of ['top_in','mid_in','bottom_in','return_in'])
@@ -243,8 +271,9 @@ const HPC_NETWORK = (() => {
       return {state:'unknown',measured:false};
     };
     const atPort=(node,port)=>{
-      if(node?.type!=='diverter'||!['a','b'].includes(port))return false;
-      return diverterActivePort(node,hass)!==port;
+      if(node?.type==='diverter'&&['a','b'].includes(port))
+        return diverterActivePort(node,hass)!==port;
+      return node?.type==='mixer'&&mixerClosedPorts(node,hass).has(port);
     };
     const pumpOff=node=>{
       if(!node||!['pump','heating_circuit','wood_gasifier','oil_boiler',
@@ -289,7 +318,8 @@ const HPC_NETWORK = (() => {
       if(reported.state==='stopped'){
         state='stopped';basis=reported.measured?'meter':'switch';
       }else if(atPort(source,edge.from_port)||atPort(destination,edge.to_port)){
-        state='stopped';basis='valve';
+        state='stopped';basis=source?.type==='mixer'||destination?.type==='mixer'
+          ?'mixer':'valve';
       }else if(pumpOff(source)||pumpOff(destination)||
         tankCoilStopped.has(edge.from)&&edge.from_port==='coil_out'){
         state='stopped';basis='pump';
@@ -338,8 +368,8 @@ const HPC_NETWORK = (() => {
 
   // Check physical component bounds after routing, including label clearance.
   // Routes without obstructions retain their original geometry and proportions.
-  function avoidComponents(original,p,q,fromSide,toSide,obstacles,fromId,toId) {
-    const blockers=obstacles.filter(b=>b.id!==fromId&&b.id!==toId);
+  function avoidComponents(original,p,q,fromSide,toSide,obstacles,fromId,toId,pipeObstacles=[]) {
+    const blockers=obstacles.map(box=>({...box,endpoint:box.id===fromId||box.id===toId}));
     const pieces=d=>{
       const tokens=(d||'').match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
       const segments=[];let x=0,y=0;
@@ -351,54 +381,208 @@ const HPC_NETWORK = (() => {
       }
       return segments;
     };
-    const crosses=path=>pieces(path).some(s=>blockers.some(box=>{
-      const padding=9,l=box.x-padding,r=box.x+box.w+padding;
+    const segmentCrosses=(s,box)=>{
+      const padding=box.endpoint?0:9,l=box.x-padding,r=box.x+box.w+padding;
       const top=box.y-padding,bottom=box.y+box.h+padding;
       return s.x===s.nx?s.x>l&&s.x<r&&
         Math.max(s.y,s.ny)>top&&Math.min(s.y,s.ny)<bottom:
         s.y>top&&s.y<bottom&&
         Math.max(s.x,s.nx)>l&&Math.min(s.x,s.nx)<r;
-    }));
+    };
+    const overlapsPipe=segment=>pipeObstacles.some(pipe=>{
+      const vertical=segment.x===segment.nx;
+      const pipeVertical=pipe.x===pipe.nx;
+      if(vertical===pipeVertical){
+        const fixed=vertical?segment.x:segment.y;
+        const pipeFixed=vertical?pipe.x:pipe.y;
+        if(Math.abs(fixed-pipeFixed)>.001)return false;
+        const start=vertical?segment.y:segment.x,end=vertical?segment.ny:segment.nx;
+        const pipeStart=vertical?pipe.y:pipe.x,pipeEnd=vertical?pipe.ny:pipe.nx;
+        return Math.min(Math.max(start,end),Math.max(pipeStart,pipeEnd))-
+          Math.max(Math.min(start,end),Math.min(pipeStart,pipeEnd))>.001;
+      }
+      return false;
+    });
+    const crosses=path=>{
+      const segments=pieces(path);
+      return segments.some((segment,index)=>
+        blockers.some(box=>!(box.endpoint&&
+          (index===0||index===segments.length-1))&&segmentCrosses(segment,box))||
+        overlapsPipe(segment));
+    };
     if(!crosses(original))return original;
     const stub=18;
     const a={x:p.x+(fromSide==='L'?-stub:stub),y:p.y};
     const b={x:q.x+(toSide==='L'?-stub:stub),y:q.y};
-    const boxes=[...blockers,{x:p.x,y:p.y,w:0,h:0},{x:q.x,y:q.y,w:0,h:0}];
-    const unique=values=>[...new Set(values.map(Math.round))].sort((x,y)=>x-y);
-    const xs=unique([(a.x+b.x)/2,...boxes.flatMap(box=>[box.x-30,box.x+box.w+30])]);
-    const ys=unique([(a.y+b.y)/2,...boxes.flatMap(box=>[box.y-30,box.y+box.h+30])]);
-    let best=null;
-    const propose=points=>{
-      const segments=points.filter((n,i)=>i===0||n.x!==points[i-1].x||n.y!==points[i-1].y);
-      let d='M'+segments[0].x+' '+segments[0].y,score=0,prev='';
-      for(let i=1;i<segments.length;i++){
-        const from=segments[i-1],to=segments[i];
-        const op=from.x===to.x?'V':from.y===to.y?'H':null;
-        if(!op)return;
-        d+=' '+op+(op==='V'?to.y:to.x);
-        score+=Math.abs(from.x-to.x)+Math.abs(from.y-to.y);
-        if(prev&&prev!==op)score+=22;
-        prev=op;
+    const minX=Math.min(a.x,b.x,...blockers.map(box=>box.x),
+      ...pipeObstacles.flatMap(pipe=>[Math.min(pipe.x,pipe.nx)]))-60;
+    const maxX=Math.max(a.x,b.x,...blockers.map(box=>box.x+box.w),
+      ...pipeObstacles.flatMap(pipe=>[Math.max(pipe.x,pipe.nx)]))+60;
+    const minY=Math.min(a.y,b.y,...blockers.map(box=>box.y),
+      ...pipeObstacles.flatMap(pipe=>[Math.min(pipe.y,pipe.ny)]))-60;
+    const maxY=Math.max(a.y,b.y,...blockers.map(box=>box.y+box.h),
+      ...pipeObstacles.flatMap(pipe=>[Math.max(pipe.y,pipe.ny)]))+60;
+    const unique=values=>[...new Set(values.map(value=>Number(value.toFixed(3))))]
+      .sort((x,y)=>x-y);
+    const xs=unique([a.x,b.x,minX,maxX,...blockers.flatMap(box=>
+      [box.x-10,box.x+box.w+10]),...pipeObstacles.flatMap(pipe=>
+      [pipe.x-10,pipe.x+10,pipe.nx-10,pipe.nx+10])]);
+    const ys=unique([a.y,b.y,minY,maxY,...blockers.flatMap(box=>
+      [box.y-10,box.y+box.h+10]),...pipeObstacles.flatMap(pipe=>
+      [pipe.y-10,pipe.y+10,pipe.ny-10,pipe.ny+10])]);
+    const xIndex=xs.indexOf(Number(a.x.toFixed(3)));
+    const yIndex=ys.indexOf(Number(a.y.toFixed(3)));
+    const endX=xs.indexOf(Number(b.x.toFixed(3)));
+    const endY=ys.indexOf(Number(b.y.toFixed(3)));
+    const pointBlocked=(x,y)=>blockers.some(box=>{
+      const padding=box.endpoint?0:9;
+      return x>box.x-padding&&x<box.x+box.w+padding&&
+        y>box.y-padding&&y<box.y+box.h+padding;
+    });
+    const clear=(from,to)=>!blockers.some(box=>segmentCrosses({
+      x:from.x,y:from.y,nx:to.x,ny:to.y
+    },box));
+    const count=xs.length*ys.length;
+    const scores=new Float64Array(count*2).fill(Infinity);
+    const previous=new Int32Array(count*2).fill(-1);
+    const heap=[];
+    const push=(state,cost)=>{
+      let index=heap.length;heap.push({state,cost});
+      while(index){
+        const parent=(index-1)>>1;
+        if(heap[parent].cost<=cost)break;
+        heap[index]=heap[parent];index=parent;
       }
-      if(best&&score>=best.score||crosses(d))return;
-      best={d,score};
+      heap[index]={state,cost};
     };
-    for(const x of xs)propose([p,a,{x,y:a.y},{x,y:b.y},b,q]);
-    for(const y of ys)propose([p,a,{x:a.x,y},{x:b.x,y},b,q]);
-    if(!best)for(const x of [xs[0],xs.at(-1)])for(const y of [ys[0],ys.at(-1)])
-      propose([p,a,{x,y:a.y},{x,y},{x:b.x,y},b,q]);
-    return best?.d||original;
+    const pop=()=>{
+      const first=heap[0],last=heap.pop();
+      if(heap.length){
+        let index=0;
+        while(true){
+          const left=index*2+1,right=left+1;
+          if(left>=heap.length)break;
+          const child=right<heap.length&&heap[right].cost<heap[left].cost?right:left;
+          if(heap[child].cost>=last.cost)break;
+          heap[index]=heap[child];index=child;
+        }
+        heap[index]=last;
+      }
+      return first;
+    };
+    const vertex=(x,y)=>x*ys.length+y;
+    const start=vertex(xIndex,yIndex)*2;
+    scores[start]=0;push(start,0);
+    let finish=-1;
+    while(heap.length){
+      const current=pop(),state=current.state;
+      if(current.cost!==scores[state])continue;
+      const node=Math.floor(state/2),direction=state%2;
+      const xi=Math.floor(node/ys.length),yi=node%ys.length;
+      if(xi===endX&&yi===endY&&direction===0){finish=state;break;}
+      const here={x:xs[xi],y:ys[yi]};
+      for(const axis of [0,1])for(const step of [-1,1]){
+        const nx=xi+(axis===0?step:0),ny=yi+(axis===1?step:0);
+        if(nx<0||nx>=xs.length||ny<0||ny>=ys.length)continue;
+        const there={x:xs[nx],y:ys[ny]};
+        if(pointBlocked(there.x,there.y)||!clear(here,there))continue;
+        const next=vertex(nx,ny)*2+axis;
+        const distance=Math.abs(there.x-here.x)+Math.abs(there.y-here.y);
+        const segment={x:here.x,y:here.y,nx:there.x,ny:there.y};
+        const cost=current.cost+distance+(axis===direction?0:24)+
+          (overlapsPipe(segment)?100000:0);
+        if(cost>=scores[next])continue;
+        scores[next]=cost;previous[next]=state;push(next,cost);
+      }
+    }
+    if(finish<0)throw new Error('No collision-free orthogonal route for '+fromId+' → '+toId);
+    const path=[];
+    for(let state=finish;state>=0;state=previous[state]){
+      const node=Math.floor(state/2),xi=Math.floor(node/ys.length),yi=node%ys.length;
+      path.push({x:xs[xi],y:ys[yi]});
+      if(state===start)break;
+    }
+    path.reverse();
+    const points=[p,a,...path.slice(1,-1),b,q];
+    const compact=[];
+    for(const point of points){
+      if(compact.length&&point.x===compact[compact.length-1].x&&
+        point.y===compact[compact.length-1].y)continue;
+      while(compact.length>1){
+        const before=compact[compact.length-2],last=compact[compact.length-1];
+        if((before.x===last.x&&last.x===point.x)||
+          (before.y===last.y&&last.y===point.y))compact.pop();
+        else break;
+      }
+      compact.push(point);
+    }
+    let routed='M'+compact[0].x+' '+compact[0].y;
+    for(let i=1;i<compact.length;i++){
+      const from=compact[i-1],to=compact[i];
+      routed+=' '+(from.x===to.x?'V'+to.y:'H'+to.x);
+    }
+    if(crosses(routed))
+      throw new Error('Orthogonal route still intersects a component for '+fromId+' → '+toId+
+        ': '+routed+' '+JSON.stringify(blockers.filter(box=>
+          pieces(routed).some((segment,index)=>!(box.endpoint&&
+            (index===0||index===pieces(routed).length-1))&&segmentCrosses(segment,box)))));
+    return routed;
+  }
+
+  function compactPath(path) {
+    const tokens=(path||'').match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
+    let x=null,y=null;
+    const segments=[];
+    for(let i=0;i<tokens.length;){
+      const op=tokens[i++];
+      if(op==='M'){
+        x=Number(tokens[i++]);y=Number(tokens[i++]);
+        if(!Number.isFinite(x)||!Number.isFinite(y))
+          throw new Error('Hydraulic route has a non-finite start point');
+        continue;
+      }
+      if((op!=='H'&&op!=='V')||x===null||y===null)
+        throw new Error('Hydraulic route contains an unsupported path command');
+      const nx=op==='H'?Number(tokens[i++]):x;
+      const ny=op==='V'?Number(tokens[i++]):y;
+      if(!Number.isFinite(nx)||!Number.isFinite(ny))
+        throw new Error('Hydraulic route has a non-finite segment');
+      if(Math.abs(nx-x)+Math.abs(ny-y)>0.001)
+        segments.push({op,value:op==='H'?nx:ny});
+      x=nx;y=ny;
+    }
+    return 'M'+tokens[1]+' '+tokens[2]+segments.map(s=>' '+s.op+s.value).join('');
   }
 
   // One orthogonal router for every non-native SVG pipe. It uses actual ports,
   // not the stored legacy X/Y values or assumptions based on a component name.
   function route({ edge, fromNode, toNode, fromShape, toShape, p, q,
-                   fromSide, toSide, supplyTee = null, returnTee = null, obstacles = [] }) {
+                   fromSide, toSide, supplyTee = null, returnTee = null,
+                   obstacles = [], routedPaths = [] }) {
     const h = (x, y) => String(x) + ' ' + String(y);
+    const role=connection=>connection.edge.kind==='return_lift'?'flow':
+      (/^(?:return_out|coil_out|bottom_out|return)$/.test(connection.edge.from_port)||
+       /^(?:return|return_in|bottom_in)$/.test(connection.edge.to_port)?'return':'flow');
+    const pipeObstacles=[];
+    if(edge.kind!=='return_lift'){
+      const currentRole=role({edge});
+      for(const previous of routedPaths){
+        if(role(previous)===currentRole)continue;
+        const tokens=previous.d.match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
+        let x=0,y=0;
+        for(let i=0;i<tokens.length;){
+          const op=tokens[i++];
+          if(op==='M'){x=Number(tokens[i++]);y=Number(tokens[i++]);continue;}
+          const nx=op==='H'?Number(tokens[i++]):x;
+          const ny=op==='V'?Number(tokens[i++]):y;
+          pipeObstacles.push({x,y,nx,ny});x=nx;y=ny;
+        }
+      }
+    }
     if(edge.kind==='return_lift'){
       const x=Math.max(p.x,q.x)+42;
       const d='M'+h(p.x,p.y)+' H'+x+' V'+q.y+' H'+q.x;
-      return avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to);
+      return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
     }
     // Keep the ORIGINAL mixer and radiator connectors exactly in the hot
     // and return routes. Their artwork is retained, not an independent pipe.
@@ -411,10 +595,10 @@ const HPC_NETWORK = (() => {
         ' H'+(bendX-20)+' V'+joinY+' H'+joinX;
       if(Math.abs(q.y-joinY)<.01)d+=' H'+q.x;
       else {
-        const laneX=Math.min(joinX-35,q.x-35);
+        const laneX=Math.min(joinX-15,q.x-15);
         d+=' H'+laneX+' V'+q.y+' H'+q.x;
       }
-      return avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to);
+      return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
     }
     let d;
     if (p.x > q.x + 8 || fromSide === 'L' || toSide === 'R') {
@@ -466,7 +650,7 @@ const HPC_NETWORK = (() => {
       d = 'M' + h(p.x, p.y) + ' H' + (p.x - 70) + ' V' + below +
         ' H' + (q.x - 35) + ' V' + q.y + ' H' + q.x;
     }
-    return avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to);
+    return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
   }
 
 
@@ -562,5 +746,6 @@ const HPC_NETWORK = (() => {
     }));
   }
 
-  return { graph, orderedBuffers, bufferTopology, diverterActivePort, flowStates, flowEvidence, auxiliaryEdges, route, mergeRoutes };
+  return { graph, orderedBuffers, bufferTopology, diverterActivePort, mixerClosedPorts,
+    flowStates, flowEvidence, auxiliaryEdges, route, mergeRoutes };
 })();

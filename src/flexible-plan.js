@@ -111,7 +111,16 @@ const HPC_FREE = (function makeFreeHelpers() {
         :n.type==="heating_circuit"
           ?{emitter:HFC_EMITTERS.includes(n.options?.emitter)?n.options.emitter:"radiator",
             mixed:typeof n.options?.mixed==="boolean"?n.options.mixed:
-              !!(n.sensors?.mixer||n.sensors?.mixer_opening||n.sensors?.mixer_closing)}
+              !!(n.sensors?.mixer||n.sensors?.mixer_opening||n.sensors?.mixer_closing),
+            ...(n.options?.hydraulic_auto&&isId(n.options.hydraulic_auto.source)&&
+              ['direct','pump','mixer'].includes(n.options.hydraulic_auto.kind)&&
+              Array.isArray(n.options.hydraulic_auto.edges)
+              ?{hydraulic_auto:{source:n.options.hydraulic_auto.source,
+                kind:n.options.hydraulic_auto.kind,
+                control:isId(n.options.hydraulic_auto.control)
+                  ?n.options.hydraulic_auto.control:'',
+                edges:n.options.hydraulic_auto.edges.filter(isId).slice(0,4)}}
+              :{})}
         :n.type==="pellet_boiler"
           ?{boiler_kind:["standard","low_temp","condensing"].includes(n.options?.boiler_kind)?n.options.boiler_kind:"standard",
             silo:n.options?.silo===true}
@@ -137,7 +146,7 @@ const HPC_FREE = (function makeFreeHelpers() {
         ...(discovery?{discovery}:{})});
     }
     const byId=Object.fromEntries(components.map(c=>[c.id,c]));
-    const connections=[], edgeIds=new Set();
+    const connections=[], edgeIds=new Set(), connectionKeys=new Set();
     for(const e of (Array.isArray(raw.connections)?raw.connections:[]).slice(0,180)){
       if(!e||!isId(e.id)||edgeIds.has(e.id)||!byId[e.from]||!byId[e.to])continue;
       // Incoming pipes must terminate on the left side of a buffer.
@@ -146,8 +155,13 @@ const HPC_FREE = (function makeFreeHelpers() {
       const toPort=byId[e.to].type==='buffer'&&e.to_port==='return_in'
         ?'bottom_in':e.to_port;
       if(e.from===e.to||!ports(byId[e.from].type).some(p=>p.id===e.from_port)||
-         !ports(byId[e.to].type).some(p=>p.id===toPort))continue;
+         !ports(byId[e.to].type).some(p=>p.id===toPort)||
+         portRole(byId[e.from].type,e.from_port)==='in'||
+         portRole(byId[e.to].type,toPort)==='out')continue;
+      const connectionKey=[e.from,e.from_port,e.to,toPort].join('|');
+      if(connectionKeys.has(connectionKey))continue;
       edgeIds.add(e.id);
+      connectionKeys.add(connectionKey);
       connections.push({...e,id:e.id,from:e.from,from_port:e.from_port,to:e.to,to_port:toPort,
         flow_entity:entityRx.test(e.flow_entity||"")?e.flow_entity:"",
         temperature_entity:entityRx.test(e.temperature_entity||"")?e.temperature_entity:""});
@@ -210,6 +224,98 @@ const HPC_FREE = (function makeFreeHelpers() {
       plan.connections.push({id,from,from_port:fromPort,to,to_port:toPort,
         flow_entity:'',temperature_entity:''});
     }
+    return normalize(plan);
+  }
+
+  function preferredHeatingBuffer(input) {
+    const plan=normalize(input);
+    const buffers=new Set(plan.components.filter(node=>node.type==='buffer').map(node=>node.id));
+    if(buffers.size===1)return [...buffers][0];
+    const sourceIds=new Set(plan.components.filter(node=>byType[node.type]?.group==='source')
+      .map(node=>node.id));
+    const fedBuffers=new Set(plan.connections.filter(edge=>
+      sourceIds.has(edge.from)&&buffers.has(edge.to)&&edge.from_port==='flow'&&
+      ['top_in','mid_in'].includes(edge.to_port)).map(edge=>edge.to));
+    return fedBuffers.size===1?[...fedBuffers][0]:null;
+  }
+
+  function connectHeatingCircuit(input,circuitId,sourceId,kind='direct',controlId='',
+                                 {replace=false}={}) {
+    const plan=normalize(input);
+    const circuit=plan.components.find(node=>
+      node.id===circuitId&&node.type==='heating_circuit');
+    const source=plan.components.find(node=>node.id===sourceId&&
+      (node.type==='buffer'||node.type==='manifold'||byType[node.type]?.group==='source'));
+    if(!circuit||!source||circuit.id===source.id||
+       !['direct','pump','mixer'].includes(kind))return null;
+
+    let existing=plan.connections.filter(edge=>
+      edge.to===circuit.id&&edge.to_port==='flow_in'||
+      edge.from===circuit.id&&edge.from_port==='return_out');
+    const automatic=circuit.options?.hydraulic_auto;
+    if(existing.length){
+      if(!replace&&automatic&&automatic.source===sourceId&&
+         automatic.kind===kind&&automatic.control===(controlId||'')&&
+         existing.every(edge=>automatic.edges?.includes(edge.id)))return plan;
+      if(replace&&automatic){
+        const owned=new Set(automatic.edges||[]);
+        if(existing.some(edge=>!owned.has(edge.id)))return null;
+        plan.connections=plan.connections.filter(edge=>!owned.has(edge.id));
+        existing=[];
+      }else if(kind==='direct'){
+        const supplies=existing.filter(edge=>edge.to===circuit.id);
+        const returns=existing.filter(edge=>edge.from===circuit.id);
+        if(supplies.length>1||returns.length>1||
+           supplies.some(edge=>edge.from!==source.id)||
+           returns.some(edge=>edge.to!==source.id))return null;
+      }else return null;
+    }
+
+    const supplyPort=source.type==='buffer'?'top_out':
+      source.type==='manifold'
+        ?['d','e','f'].find(port=>!plan.connections.some(edge=>
+          edge.from===source.id&&edge.from_port===port)):'flow';
+    const returnPort=source.type==='buffer'?'bottom_in':
+      source.type==='manifold'
+        ?['a','b','c'].find(port=>!plan.connections.some(edge=>
+          edge.to===source.id&&edge.to_port===port)):'return';
+    if(!supplyPort||!returnPort)return null;
+    let pairs=[];
+    if(kind==='direct'){
+      pairs=[
+        ...(!existing.some(edge=>edge.to===circuit.id)
+          ?[[source.id,supplyPort,circuit.id,'flow_in']]:[]),
+        ...(!existing.some(edge=>edge.from===circuit.id)
+          ?[[circuit.id,'return_out',source.id,returnPort]]:[])
+      ];
+    }else if(kind==='pump'){
+      const pump=plan.components.find(node=>node.id===controlId&&node.type==='pump');
+      if(!pump||plan.connections.some(edge=>edge.from===pump.id||edge.to===pump.id))return null;
+      pairs=[[source.id,supplyPort,pump.id,'in'],
+        [pump.id,'out',circuit.id,'flow_in'],
+        [circuit.id,'return_out',source.id,returnPort]];
+    }else{
+      const mixer=plan.components.find(node=>node.id===controlId&&node.type==='mixer');
+      if(!mixer||plan.connections.some(edge=>edge.from===mixer.id||edge.to===mixer.id))return null;
+      pairs=[[source.id,supplyPort,mixer.id,'a'],
+        [mixer.id,'ab',circuit.id,'flow_in'],
+        [circuit.id,'return_out',mixer.id,'b'],
+        [mixer.id,'b',source.id,returnPort]];
+    }
+    const used=new Set(plan.connections.map(edge=>
+      [edge.from,edge.from_port,edge.to,edge.to_port].join('|')));
+    const ids=new Set(plan.connections.map(edge=>edge.id)),created=[];
+    for(const [from,fromPort,to,toPort] of pairs){
+      const key=[from,fromPort,to,toPort].join('|');
+      if(used.has(key)||!validConnection(plan,from,fromPort,to,toPort))return null;
+      const id=nextId('leitung',ids);
+      ids.add(id);used.add(key);created.push(id);
+      plan.connections.push({id,from,from_port:fromPort,to,to_port:toPort,
+        flow_entity:'',temperature_entity:''});
+    }
+    circuit.options={...circuit.options,hydraulic_auto:{
+      source:sourceId,kind,control:controlId||'',edges:created
+    }};
     return normalize(plan);
   }
 
@@ -549,5 +655,8 @@ const HPC_FREE = (function makeFreeHelpers() {
   </svg>`;
 }
   const css="\n  :host { display:block; --hpc-muted: var(--secondary-text-color, #7b8798); }\n  ha-card { background:var(--ha-card-background,var(--card-background-color,#fff)); padding:14px;overflow:hidden; }\n  .hpc-board {width:100%;overflow:auto;overscroll-behavior:contain;border-radius:12px;\n    border:1px solid var(--divider-color,rgba(110,125,145,.22));\n    background:var(--card-background-color,rgba(0,0,0,.02));}\n  #hpc-free-svg{min-width:650px;display:block;width:100%;height:auto;max-height:72vh;}\n  .hpc-appliance .hpc-unit-border{fill:var(--secondary-background-color,rgba(126,144,160,.1));\n    stroke:var(--divider-color,#9ca3af);stroke-width:2.3;}\n  .hpc-appliance.is-on .hpc-unit-border{stroke:var(--hfc-heat,#ca793e);}\n  .hpc-node.is-selected .hpc-unit-border,.hpc-node.is-selected .hpc-tank-shadow{\n    stroke:var(--primary-color,#2196f3);stroke-width:4;}\n  .hpc-unit-border,.hpc-tank-shadow,.hpc-tank-main{filter:drop-shadow(0 2px 3px rgba(0,0,0,.08))}\n  .hpc-component-icon{stroke:var(--hpc-muted);fill:none;stroke-width:2.8}\n  .hpc-component-icon.is-on{stroke:var(--hfc-hot,#b35b38)}\n  .hpc-component-icon circle,.hpc-component-icon rect{fill:var(--card-background-color,#fff)}\n  .hpc-node{cursor:pointer}.hpc-node:hover .hpc-unit-border{stroke:var(--primary-color,#2196f3)}\n  .hpc-label{font:600 16px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-name{font-size:15px}\n  .hpc-reading{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-reading{font:600 12px var(--ha-font-family-body,system-ui,sans-serif);\n    fill:#fff;stroke:rgba(29,46,62,.85);paint-order:stroke fill;stroke-width:3px;}\n  .hpc-detail{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--secondary-text-color,#7d8590);}\n  .hpc-tank-shadow{fill:var(--card-background-color,#fff);stroke:var(--divider-color,#8e9bab);stroke-width:2.4;}\n  .hpc-tank-main{stroke:var(--divider-color,rgba(70,90,110,.6));stroke-width:1.3}\n  .hpc-tank-shine{fill:none;stroke:rgba(255,255,255,.28);stroke-width:6;stroke-linecap:round}\n  .hpc-tank-tick{fill:none;stroke:rgba(255,255,255,.50);stroke-width:1.1;}\n  .hpc-port{fill:var(--card-background-color,#fff);stroke:var(--hfc-flow-hot,#ad584b);stroke-width:2}\n  .hpc-route{pointer-events:none;}\n  .hpc-pipe-outline{fill:none;stroke:var(--divider-color,rgba(110,125,145,.5));\n    stroke-width:13;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-pipe{fill:none;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-arrow{fill:var(--primary-text-color,#516274);}\n  .hpc-pulse{fill:none;stroke:rgba(255,255,255,.9);stroke-width:3;stroke-dasharray:5 13;\n    animation:hpc-motion 1.35s linear infinite;}\n  @keyframes hpc-motion{to{stroke-dashoffset:-36}}\n  @media(prefers-reduced-motion:reduce){.hpc-pulse{animation:none;}}\n  .hpc-note{font-size:.82em;color:var(--secondary-text-color,#7d8590);margin:10px 3px 4px;}\n  .hpc-editor{font-family:var(--ha-font-family-body,inherit);color:var(--primary-text-color,inherit);}\n  .hpc-editor h3{font-size:1.02em;font-weight:600;margin:18px 0 9px;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding-bottom:6px}\n  .hpc-editor p{font-size:.88em;line-height:1.5;color:var(--secondary-text-color,#7d8590)}\n  .hpc-actions,.hpc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:9px 0}\n  .hpc-editor button,.hpc-editor select,.hpc-editor input{\n    box-sizing:border-box;font:inherit;border-radius:10px;\n    border:1px solid var(--divider-color,rgba(127,127,127,.34));\n    padding:10px 12px;color:var(--primary-text-color,inherit);\n    background:var(--card-background-color,#fff);max-width:100%;min-width:0}\n  .hpc-editor input:focus,.hpc-editor select:focus{outline:2px solid var(--primary-color,#03a9f4);outline-offset:1px}\n  .hpc-editor button{cursor:pointer;font-weight:500}\n  .hpc-editor button:hover{background:var(--secondary-background-color,rgba(127,127,127,.12))}\n  .hpc-editor button.hpc-primary{background:var(--primary-color,#03a9f4);color:#fff;border:0;}\n  .hpc-editor label{display:flex;flex-direction:column;gap:5px;font-size:.86em;font-weight:500;flex:1 1 170px;}\n  .hpc-editor .hpc-checkbox{display:flex;flex-direction:row;align-items:center;gap:11px;flex:1 1 100%;cursor:pointer;padding:11px 12px;border:1px solid var(--divider-color,rgba(127,127,127,.32));border-radius:10px;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-editor .hpc-checkbox input{width:19px;height:19px;margin:0;flex:0 0 auto;accent-color:var(--primary-color,#03a9f4);}\n  .hpc-editor .hpc-field{margin:6px 0;}\n  .hpc-editor .hpc-component-list{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}\n  .hpc-editor .hpc-pictogram{width:29px;height:29px;flex:none;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-add-preview{display:flex;align-items:center;justify-content:center;min-width:46px;min-height:46px;border-radius:12px;background:var(--secondary-background-color,rgba(127,127,127,.09))}\n  .hpc-editor .hpc-add-preview .hpc-pictogram{width:34px;height:34px;color:var(--primary-color,#03a9f4)}\n  .hpc-editor .hpc-config-title{display:flex;align-items:center;gap:9px}\n  .hpc-editor .hpc-config-title .hpc-pictogram{width:25px;height:25px}\n  .hpc-editor .hpc-component-list button{display:inline-flex;align-items:center;gap:8px;text-align:left}\n  .hpc-editor .hpc-component-list button span{display:flex;flex-direction:column;line-height:1.3;min-width:0;max-width:180px}\n  .hpc-editor .hpc-component-list button{max-width:100%;min-width:0}\n  .hpc-editor .hpc-component-list button .hpc-item-name,.hpc-editor .hpc-component-list button small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}\n  .hpc-editor .hpc-component-list button .hpc-item-name{font-weight:600}\n  .hpc-editor .hpc-ems strong{overflow-wrap:anywhere}\n  .hpc-editor .hpc-component-list button small{font-size:.75em;font-weight:400;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-native-form{margin:8px 0 16px;--ha-form-grid-column-min-width:220px}\n  .hpc-editor .hpc-native-form ha-form{display:block}\n  .hpc-ems{border:1px solid var(--primary-color,#03a9f4);border-radius:12px;padding:8px 14px 14px;margin:14px 0;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-ems h3{margin-top:5px;}\n  .hpc-connection-warning{color:var(--error-color,#e16a42)!important;font-weight:600;}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-quick-connect{margin:8px 0 4px}\n  .hpc-editor .hpc-quick-connect label{flex:1 1 260px}\n  .hpc-editor .hpc-connection-hint{margin:4px 0 14px;font-size:.82em}\n  .hpc-editor details summary{cursor:pointer;font-weight:600;padding:8px 2px}\n  .hpc-editor .hpc-advanced-pipes{border-top:1px solid var(--divider-color,rgba(127,127,127,.16));margin:13px 0}\n  .hpc-editor .hpc-pipe-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding:9px 0}\n  .hpc-editor .hpc-pipe-row>span{display:flex;flex:1 1 230px;flex-direction:column;font-weight:500;font-size:.9em;line-height:1.4}\n  .hpc-editor .hpc-pipe-row small{font-weight:400;font-size:.87em;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-pipe-row details{flex:1 1 100%;font-size:.85em}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
-  return {types,byType,ports,portRole,validConnection,connectPair,connectDhwCharge,connectionPairs,connectBufferSeries,connectBuffersParallel,dimension,display,fieldLabel,icon,esc,normalize,newNode,sample,state,active,format,color,portXY,draw,css,text};
+  return {types,byType,ports,portRole,validConnection,connectPair,connectHeatingCircuit,
+    preferredHeatingBuffer,connectDhwCharge,connectionPairs,connectBufferSeries,
+    connectBuffersParallel,dimension,display,fieldLabel,icon,esc,normalize,newNode,
+    sample,state,active,format,color,portXY,draw,css,text};
 })();

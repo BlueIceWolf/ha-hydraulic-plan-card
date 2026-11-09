@@ -53,3 +53,27 @@ jobs:
             test-results/
             playwright-report/
           if-no-files-found: ignore
+
+  topologies:
+    name: 1,200 seeded hydraulic topologies
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: git diff --exit-code -- dist/ha-hydraulic-plan-card.js
+      - run: npm run syntax
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:topologies
+      - name: Upload topology report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hydraulic-topology-report
+          path: test-results/
+          if-no-files-found: ignore

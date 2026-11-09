@@ -1,9 +1,15 @@
 <!doctype html>
 <html lang="de"><meta charset="utf-8"><title>Migration regression</title>
 <pre id="result">RUNNING</pre><pre id="log"></pre>
-<script>const HFC_EMITTERS=['radiator','underfloor','column'];</script>
+<script>
+const HFC_EMITTERS=['radiator','underfloor','column'];
+const HFC_UNIT_STYLES=['auto','generic','lambda','vaillant','panasonic','viessmann',
+  'bosch','saunier','samsung','wolf','kronoterm','alpha_innotec','stiebel'];
+const HFC_UNIT_SIZES=['small','medium','large'];
+</script>
 <script src="../src/flexible-plan.js"></script>
 <script src="../src/migration.js"></script>
+<script src="fixtures/migration-cases.js"></script>
 <script>
 const log=[],check=(ok,title)=>{log.push((ok?'OK ':'FAIL ')+title);return !!ok};
 let pass=true;
@@ -63,6 +69,13 @@ pass=check(v2.changed&&v2.config.hpc_schema_version===3&&
 pass=check(!HPC_MIGRATION.upgrade(v2.config).changed,'v3 remains idempotent')&&pass;
 const future=structuredClone(original);future.hpc_schema_version=4;
 pass=check(!HPC_MIGRATION.upgrade(future).changed,'future schema is never downgraded')&&pass;
+const reversed=structuredClone(original);
+reversed.plan.connections=[{id:'wrong_direction',from:'puffer_1',from_port:'top_in',
+  to:'ww_1',to_port:'coil_out'}];
+pass=check(HPC_MIGRATION.check(reversed.plan).length>0,
+  'reversed hydraulic port direction blocks migration')&&pass;
+pass=check(HPC_FREE.normalize(reversed.plan).connections.length===0,
+  'normalization does not preserve hydraulically reversed pipes')&&pass;
 const futureNode=structuredClone(v2.config);
 futureNode.plan.components.push({id:'unknown_future',type:'future_valve',name:'Neues Bauteil'});
 const unchangedFuture=JSON.stringify(futureNode);
@@ -94,6 +107,39 @@ pass=check(mixedMigrated.changed&&
 pass=check(mixedMigrated.config.plan.extensions?.futureRouter?.grouping==='kept'&&
   HPC_MIGRATION.restore(mixedMigrated.config).plan.extensions?.futureRouter?.grouping==='kept',
   'future plan-level metadata survives upgrade and restore')&&pass;
+
+for(const fixture of HPC_MIGRATION_CASES){
+  const before=JSON.stringify(fixture.config);
+  const result=HPC_MIGRATION.upgrade(fixture.config,{classic:fixture.classic===true});
+  if(fixture.expected==='upgrade'||fixture.expected==='classic'){
+    pass=check(result.changed&&!result.blocked,
+      fixture.name+': migration runs without blocking')&&pass;
+    pass=check(JSON.stringify(fixture.config)===before,
+      fixture.name+': input fixture is not mutated')&&pass;
+    pass=check(JSON.stringify(result.config.hpc_migration_backup)===before,
+      fixture.name+': complete original backup is retained')&&pass;
+    const saved=JSON.parse(JSON.stringify(result.config));
+    const repeated=HPC_MIGRATION.upgrade(saved);
+    pass=check(!repeated.changed,
+      fixture.name+': a serialized and reloaded migration is idempotent')&&pass;
+    const restoredCase=HPC_MIGRATION.restore(saved);
+    const restoredExpected=JSON.parse(before);
+    restoredExpected.hpc_migration_skip_auto=true;
+    pass=check(JSON.stringify(restoredCase)===JSON.stringify(restoredExpected),
+      fixture.name+': restore reproduces the original serialized configuration')&&pass;
+  }else if(fixture.expected==='unchanged'){
+    pass=check(!result.changed&&!result.blocked,
+      fixture.name+': current schema remains unchanged')&&pass;
+  }else if(fixture.expected==='future'){
+    pass=check(!result.changed&&result.warnings.length>0&&
+      JSON.stringify(result.config)===before,
+      fixture.name+': newer schema is warned about but never rewritten')&&pass;
+  }else if(fixture.expected==='blocked'){
+    pass=check(!result.changed&&result.blocked&&
+      JSON.stringify(result.config)===before,
+      fixture.name+': ambiguous coil is blocked without touching source data')&&pass;
+  }
+}
 
 document.querySelector('#result').textContent=pass?'PASS':'FAIL';
 document.querySelector('#log').textContent=log.join('\n');

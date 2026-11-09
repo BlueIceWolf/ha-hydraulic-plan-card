@@ -469,6 +469,7 @@ const HPC_INTEGRATED = (() => {
       // tee on the right-hand heating collector. Draw its real return route.
     }
     const obstacles=[...anchored,...points].map(([id,b])=>({id,...b}));
+    const routedPaths=[];
     const routeRecords=[...plan.connections,...HPC_NETWORK.auxiliaryEdges(plan,hass)].map(edge=>{
       // Native heating circuits keep their original radiator/mixer pictograms,
       // but their actual supply/return paths use this very same pipe registry.
@@ -482,8 +483,9 @@ const HPC_INTEGRATED = (() => {
       const returnTee=returnTees.get(edge.id);
       const d=HPC_NETWORK.route({
         edge,fromNode:all[edge.from],toNode:all[edge.to],
-        fromShape,toShape,p,q,fromSide,toSide,supplyTee,returnTee,obstacles
+        fromShape,toShape,p,q,fromSide,toSide,supplyTee,returnTee,obstacles,routedPaths
       });
+      routedPaths.push({edge,d});
       const from=all[edge.from],field=edge.from_port;
       const inferred=field==='flow'?from.sensors.flow:
         field==='top_out'?from.sensors.top:

@@ -32,6 +32,15 @@ const links=[
   {id:'e5',from:'ww',from_port:'coil_out',to:'buffer1',to_port:'bottom_in'}
 ];
 const plan=HPC_FREE.normalize({components:nodes,connections:links});
+const reversed=HPC_FREE.normalize({components:nodes,connections:[
+  {id:'wrong_direction',from:'buffer1',from_port:'top_in',
+    to:'buffer2',to_port:'top_out'}
+]});
+check(reversed.connections.length===0,
+  'Normalization drops a pipe whose source is an inlet and destination is an outlet');
+check(!HPC_FREE.validConnection({components:nodes,connections:[]},
+  'buffer1','top_in','buffer2','top_out'),
+  'The editor rejects reversed buffer port directions');
 check(HPC_NETWORK.orderedBuffers(plan).map(n=>n.id).join(',')==='buffer1,buffer2,buffer3',
   'Series buffers are sorted by actual hot-water topology, not insertion order');
 const graph=HPC_NETWORK.graph(plan);
@@ -98,6 +107,16 @@ const completePump=HPC_NETWORK.flowEvidence(independentlyPumped,
 check(completePump.get('heatSupply')?.state==='inferred'&&
   completePump.get('heatReturn')?.state==='inferred',
   'A complete running heating loop is classified as inferred, not measured');
+const measuredPlan=structuredClone(independentlyPumped);
+measuredPlan.connections.find(e=>e.id==='heatSupply').flow_entity='sensor.hk_measured';
+const measuredEvidence=HPC_NETWORK.flowEvidence(measuredPlan,
+  hass({'switch.ladepumpe':'off','switch.hk_pumpe':'on',
+    'sensor.hk_measured':[125,'l/h']}));
+check(measuredEvidence.get('heatSupply')?.state==='measured',
+  'Positive volumetric sensor readings are classified as measured flow');
+const unknownEvidence=HPC_NETWORK.flowEvidence(openLoop,hass());
+check(unknownEvidence.get('heatSupply')?.state==='unknown',
+  'Open or unobserved hydraulic branches remain explicitly unknown');
 
 // A stopped inline pump must interrupt an otherwise reachable path.
 const blockedLoop=structuredClone(independentlyPumped);
@@ -106,6 +125,33 @@ check(!HPC_NETWORK.flowStates(blockedLoop,
   hass({'switch.ladepumpe':'off','switch.hk_pumpe':'on',
     'sensor.hk_volumen':[0,'l/h']})).has('heatSupply'),
   'Measured zero on the return disables the complete closed heating loop');
+const mixerPlan=HPC_FREE.normalize({
+  components:[
+    {id:'mixer_source',type:'heat_pump',sensors:{pump:'switch.hp'}},
+    {id:'mixer_valve',type:'mixer',sensors:{position:'sensor.mix'}},
+    {id:'mixer_hc',type:'heating_circuit',sensors:{pump:'switch.hc'}}
+  ],
+  connections:[
+    {id:'mixer_hot',from:'mixer_source',from_port:'flow',to:'mixer_valve',to_port:'a'},
+    {id:'mixer_supply',from:'mixer_valve',from_port:'ab',to:'mixer_hc',to_port:'flow_in'},
+    {id:'mixer_return',from:'mixer_hc',from_port:'return_out',to:'mixer_source',to_port:'return'}
+  ]
+});
+const mixerOn=hass({'switch.hp':'on','switch.hc':'on','sensor.mix':[0,'%']});
+check(HPC_NETWORK.flowEvidence(mixerPlan,mixerOn).get('mixer_supply')?.state==='inferred',
+  'A 0% mixer position alone does not interrupt an otherwise complete circuit');
+const knownClosed=structuredClone(mixerPlan);
+knownClosed.components.find(n=>n.id==='mixer_valve').options={a_closed_at:0};
+const closedEvidence=HPC_NETWORK.flowEvidence(knownClosed,mixerOn);
+check(!HPC_NETWORK.flowStates(knownClosed,mixerOn).has('mixer_hot')&&
+  closedEvidence.get('mixer_hot')?.state==='stopped'&&
+  closedEvidence.get('mixer_hot')?.basis==='mixer',
+  'An explicitly mapped closed mixer path interrupts only that path');
+const unknownMixer=structuredClone(mixerPlan);
+unknownMixer.components.find(n=>n.id==='mixer_valve').sensors.position='sensor.unknown_mix';
+check(HPC_NETWORK.flowEvidence(unknownMixer,hass({
+  'switch.hp':'on','switch.hc':'on'})).get('mixer_supply')?.state==='inferred',
+  'An unknown mixer position does not fabricate a closed path');
 const metadata={components:[{id:'boiler',type:'oil_boiler',name:'Old boiler',
   sensors:{custom_future:'sensor.custom_extra'},options:{future_setting:'keep'},
   custom_details:{a:1}}],
@@ -236,6 +282,107 @@ const confirmedSerial=HPC_FREE.connectBufferSeries(parallelBase);
 check(HPC_FREE.connectBuffersParallel(confirmedSerial,'oil_source')===null&&
   confirmedSerial.connections.length===4,
   'User-defined serial topology cannot be silently replaced by a parallel guess');
+const heatingBase=HPC_FREE.normalize({components:[
+  {id:'automatic_buffer',type:'buffer',name:'Puffername bleibt',sensors:{top:'sensor.top'}},
+  {id:'automatic_hc',type:'heating_circuit',name:'Heizkreis EG',sensors:{pump:'switch.eg'},
+    options:{mixed:true,emitter:'underfloor'}}
+],connections:[]});
+check(HPC_FREE.preferredHeatingBuffer(heatingBase)==='automatic_buffer',
+  'A single buffer is an unambiguous default heat source');
+const autoHeating=HPC_FREE.connectHeatingCircuit(heatingBase,
+  'automatic_hc','automatic_buffer');
+check(autoHeating?.connections.length===2&&
+  autoHeating.connections.some(edge=>edge.from==='automatic_buffer'&&
+    edge.from_port==='top_out'&&edge.to==='automatic_hc'&&edge.to_port==='flow_in')&&
+  autoHeating.connections.some(edge=>edge.from==='automatic_hc'&&
+    edge.from_port==='return_out'&&edge.to==='automatic_buffer'&&edge.to_port==='bottom_in'),
+  'Automatic heating connection creates the prescribed supply and return ports');
+check(autoHeating.components.find(node=>node.id==='automatic_hc').name==='Heizkreis EG'&&
+  autoHeating.components.find(node=>node.id==='automatic_hc').sensors.pump==='switch.eg'&&
+  autoHeating.components.find(node=>node.id==='automatic_buffer').sensors.top==='sensor.top',
+  'Automatic linking preserves component names and sensor assignments');
+check(HPC_FREE.connectHeatingCircuit(autoHeating,'automatic_hc',
+  'automatic_buffer')?.connections.length===2,
+  'Saving an already-connected heating circuit does not duplicate its pair');
+const ambiguousHeating=HPC_FREE.normalize({components:[
+  {id:'ambiguous_b1',type:'buffer',sensors:{}},
+  {id:'ambiguous_b2',type:'buffer',sensors:{}},
+  {id:'ambiguous_hc',type:'heating_circuit',sensors:{}}
+],connections:[]});
+check(HPC_FREE.preferredHeatingBuffer(ambiguousHeating)===null,
+  'Multiple unconnected buffers require an explicit source choice');
+const confirmedSource=HPC_FREE.normalize({components:[
+  {id:'established_source',type:'heat_pump',sensors:{}},
+  {id:'established_b1',type:'buffer',sensors:{}},
+  {id:'established_b2',type:'buffer',sensors:{}},
+  {id:'established_hc',type:'heating_circuit',sensors:{}}
+],connections:[{id:'established_feed',from:'established_source',from_port:'flow',
+  to:'established_b2',to_port:'top_in'}]});
+check(HPC_FREE.preferredHeatingBuffer(confirmedSource)==='established_b2',
+  'A unique buffer already fed by a heat source is preferred in a multi-buffer plan');
+const withAlternateSource=HPC_FREE.normalize({...autoHeating,components:[
+  ...autoHeating.components,{id:'alternate_source',type:'heat_pump',
+    name:'Alternate source',sensors:{}}
+]});
+const automaticReplacement=HPC_FREE.connectHeatingCircuit(withAlternateSource,
+  'automatic_hc','alternate_source','direct','',{replace:true});
+check(automaticReplacement?.connections.length===2&&
+  automaticReplacement.connections.every(edge=>
+    edge.from!=='automatic_buffer'&&edge.to!=='automatic_buffer')&&
+  automaticReplacement.connections.some(edge=>edge.from==='alternate_source'&&
+    edge.to==='automatic_hc')&&
+  automaticReplacement.components.find(node=>node.id==='automatic_hc')
+    .sensors.pump==='switch.eg',
+  'Replacing an auto-created pair moves supply and return together without losing sensors');
+const incompleteHeating=HPC_FREE.normalize({components:[
+  {id:'partial_buffer',type:'buffer',sensors:{}},
+  {id:'partial_hc',type:'heating_circuit',sensors:{}}
+],connections:[{id:'manual_supply',from:'partial_buffer',from_port:'mid_out',
+  to:'partial_hc',to_port:'flow_in'}]});
+const completedHeating=HPC_FREE.connectHeatingCircuit(incompleteHeating,
+  'partial_hc','partial_buffer');
+check(completedHeating?.connections.length===2&&
+  completedHeating.connections.some(edge=>edge.id==='manual_supply')&&
+  completedHeating.connections.some(edge=>edge.from==='partial_hc'&&
+    edge.to==='partial_buffer'&&edge.to_port==='bottom_in'),
+  'Confirming an incomplete matching direct pair adds only its missing return');
+const manualHeating=HPC_FREE.normalize({components:[
+  {id:'manual_a',type:'buffer',sensors:{}},
+  {id:'manual_b',type:'buffer',sensors:{}},
+  {id:'manual_hc',type:'heating_circuit',sensors:{}}
+],connections:[{id:'custom_supply',from:'manual_a',from_port:'mid_out',
+  to:'manual_hc',to_port:'flow_in'}]});
+check(HPC_FREE.connectHeatingCircuit(manualHeating,'manual_hc','manual_b')===null&&
+  manualHeating.connections.length===1,
+  'An incomplete manual supply from another source is never silently replaced');
+const controlHeatingBase=HPC_FREE.normalize({components:[
+  {id:'control_buffer',type:'buffer',sensors:{}},
+  {id:'control_pump',type:'pump',sensors:{state:'switch.group_pump'}},
+  {id:'control_mixer',type:'mixer',sensors:{position:'sensor.group_mixer'}},
+  {id:'control_hc',type:'heating_circuit',sensors:{pump:'switch.control_hc'}}
+],connections:[]});
+const pumpedHeating=HPC_FREE.connectHeatingCircuit(controlHeatingBase,
+  'control_hc','control_buffer','pump','control_pump');
+check(pumpedHeating?.connections.length===3&&
+  pumpedHeating.connections.some(edge=>edge.from==='control_buffer'&&
+    edge.to==='control_pump'&&edge.to_port==='in')&&
+  pumpedHeating.connections.some(edge=>edge.from==='control_pump'&&
+    edge.to==='control_hc'&&edge.to_port==='flow_in')&&
+  pumpedHeating.connections.some(edge=>edge.from==='control_hc'&&
+    edge.to==='control_buffer'&&edge.to_port==='bottom_in'),
+  'An existing pump group is inserted in the supply while the return remains paired');
+const mixedHeating=HPC_FREE.connectHeatingCircuit(controlHeatingBase,
+  'control_hc','control_buffer','mixer','control_mixer');
+check(mixedHeating?.connections.length===4&&
+  mixedHeating.connections.some(edge=>edge.from==='control_buffer'&&
+    edge.to==='control_mixer'&&edge.to_port==='a')&&
+  mixedHeating.connections.some(edge=>edge.from==='control_mixer'&&
+    edge.from_port==='ab'&&edge.to==='control_hc')&&
+  mixedHeating.connections.some(edge=>edge.from==='control_hc'&&
+    edge.to==='control_mixer'&&edge.to_port==='b')&&
+  mixedHeating.connections.some(edge=>edge.from==='control_mixer'&&
+    edge.from_port==='b'&&edge.to==='control_buffer'),
+  'An existing three-way mixer uses A, AB and B for supply and return');
 // The wood-gasifier return lift takes its hot leg from the existing
 // supply header and rejoins the existing return header. A bypass must not
 // paint a second pipe over either header.
