@@ -8501,12 +8501,12 @@ const HPC_NETWORK = (() => {
             (next.type === 'pump' || next.type === 'heating_circuit' || isSource(next)) &&
             !!pumpEntity(next) && pumpState(next) === null;
           if (unknownPump) continue;
-          flowing.add(edge.id);
           // A buffer can feed a configured series of reservoirs, but cannot
           // prove circulation in an independent load or charging branch.
           const current = nodes.get(id);
           if (current?.type === 'buffer' &&
               next.type !== 'buffer' && next.id !== pump.id) continue;
+          flowing.add(edge.id);
           // One pump is not evidence that an unrelated zone or boiler flows.
           const otherUnmeteredCircuit = (isSource(next) || next.type === 'heating_circuit') &&
             !pumpEntity(next) && !next.sensors?.volume && next.id !== pump.id;
