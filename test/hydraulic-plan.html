@@ -1127,10 +1127,10 @@
         'switch.heizkreispumpe':state('switch.heizkreispumpe','on'),
         'switch.ww_pumpe':state('switch.ww_pumpe','off')
       }));
-    const nativeSvg=sharedNative.shadowRoot.getElementById('svg');
-    check(nativeSvg.querySelector('#f-hc-vl')?.classList.contains('on')&&
-      nativeSvg.querySelector('#f-hc-rl')?.classList.contains('on')&&
-      !nativeSvg.querySelector('g[data-hpi-edge="shared_ww_rl"] path.flow.on'),
+    const sharedNativeSvg=sharedNative.shadowRoot.getElementById('svg');
+    check(sharedNativeSvg.querySelector('#f-hc-vl')?.classList.contains('on')&&
+      sharedNativeSvg.querySelector('#f-hc-rl')?.classList.contains('on')&&
+      !sharedNativeSvg.querySelector('g[data-hpi-edge="shared_ww_rl"] path.flow.on'),
       'Original radiator circuit is animated while an independent WW charging branch is stopped');
     sharedNative.hass=hassOf({
       'switch.heizkreispumpe':state('switch.heizkreispumpe','off'),
