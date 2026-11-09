@@ -8624,7 +8624,7 @@ const HPC_NETWORK = (() => {
           const axis=op==='H'?'h':'v',fixed=op==='H'?y:x;
           const from=op==='H'?x:y,to=op==='H'?nx:ny;
           const key=role+'|'+axis+'|'+fixed.toFixed(3);
-          const segment={key,axis,fixed,from,to,low:Math.min(from,to),
+          const segment={key,role,axis,fixed,from,to,low:Math.min(from,to),
             high:Math.max(from,to),routeIndex,segmentIndex:segmentIndex++,active:route.on};
           if (!grouped.has(key)) grouped.set(key,[]);
           grouped.get(key).push(segment);
@@ -8633,14 +8633,36 @@ const HPC_NETWORK = (() => {
         x=nx;y=ny;
       }
     }
+    // A hot flow line may CROSS a cool return line without joining it.
+    // Leave a small drafting gap only in the flow at true interior crossings.
+    // Real same-temperature T junctions stay continuous.
+    const gaps=new Map();
+    const horizontal=all.filter(segment=>segment.axis==='h');
+    const vertical=all.filter(segment=>segment.axis==='v');
+    const addGap=(segment,at)=>{
+      if(!gaps.has(segment.key))gaps.set(segment.key,[]);
+      gaps.get(segment.key).push(at);
+    };
+    for(const h of horizontal)for(const v of vertical){
+      if(h.role===v.role||h.routeIndex===v.routeIndex)continue;
+      if(v.fixed<=h.low+9||v.fixed>=h.high-9||
+        h.fixed<=v.low+9||h.fixed>=v.high-9)continue;
+      if(h.role==='flow')addGap(h,v.fixed);
+      else if(v.role==='flow')addGap(v,h.fixed);
+    }
     const pieces=routes.map(()=>[]);
     for (const [key,segments] of grouped) {
-      const boundaries=[...new Set(segments.flatMap(s=>[s.low,s.high]))].sort((a,b)=>a-b);
+      const base=segments.flatMap(s=>[s.low,s.high]);
+      const ranges=segments.flatMap(s=>gaps.get(key)||[])
+        .flatMap(at=>[at-6,at+6]);
+      const boundaries=[...new Set([...base,...ranges])].sort((a,b)=>a-b);
       for (let i=1;i<boundaries.length;i++) {
         const a=boundaries[i-1],b=boundaries[i];
         if (b-a<0.001) continue;
         const owners=segments.filter(s=>s.low<=a+0.001&&s.high>=b-0.001);
         if (!owners.length) continue;
+        if((gaps.get(key)||[]).some(cross=>a>=cross-6-0.001&&
+          b<=cross+6+0.001))continue;
         // The first user-defined connection owns the shared line segment.
         // A hot and a cold header never share a physical segment identity.
         owners.sort((a,b)=>a.routeIndex-b.routeIndex||a.segmentIndex-b.segmentIndex);
