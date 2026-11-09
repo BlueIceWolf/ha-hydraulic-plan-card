@@ -362,9 +362,23 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     }
     _applyPlan(plan,extra={},options={}){
       const current=this._config||{};
+      const normalized=HPC_FREE.normalize(plan);
+      const previouslySaved=current.plan;
+      // Do not let an editor action silently erase a component or connection
+      // whose type/port comes from a newer extension or an older schema.
+      const hasLostEntries=source=>source&&(
+        Array.isArray(source.components)&&HPC_FREE.normalize(source).components.length!==source.components.length||
+        Array.isArray(source.connections)&&HPC_FREE.normalize(source).connections.length!==source.connections.length);
+      if(hasLostEntries(previouslySaved)||hasLostEntries(plan)){
+        this._migrationWarnings=[
+          'Nicht unterstützte Bauteile oder Leitungen erkannt. Die bestehende Konfiguration bleibt unverändert.'
+        ];
+        this._renderFlex();
+        return;
+      }
       // Always record the schema version for a saved graph. The migration
       // snapshot is kept unchanged, so rollback remains possible.
-      this._save({...current,...extra,plan:HPC_FREE.normalize(plan),
+      this._save({...current,...extra,plan:normalized,
         hpc_schema_version:HPC_MIGRATION.VERSION},options);
     }
     _legacyPlan(){
