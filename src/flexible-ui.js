@@ -45,9 +45,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       this._syncAdditional();
     }
     _syncNativeCircuitFlow(svg,plan,nativePaths={}) {
-      // The original radiator, mixer and pump art remains untouched. Only
-      // activation of its existing pipe segments follows the SAME graph used
-      // by additional generators and WW charging loops.
+      // Reuse the original component artwork, while all heating pipes and
+      // mixer bypass geometry come from the central hydraulic router.
       const evidence=HPC_NETWORK.flowEvidence(plan,this._hass);
       const circuits=plan.components.filter(n=>n.type==='heating_circuit').slice(0,6);
       const allActive=[];
@@ -72,7 +71,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const body=svg.querySelector('#f-hc-body'+suffix);
         if(body)body.classList.toggle('on',active);
         const mixer=svg.querySelector('#p-hc-mix'+suffix);
-        if(mixer)mixer.classList.toggle('on',active);
+        if(mixer){
+          mixer.setAttribute('d',paths.mixer?.pipe||'');
+          mixer.classList.toggle('on',active);
+        }
       }
       // Legacy risers and collector strips were independent fixed pipe
       // geometry. The graph routes now own those segments exactly once.
@@ -88,7 +90,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const p=this._integratedPlan;
       if(!this._hass||!p?.components.length)return;
       const svg=this._$('svg');if(!svg)return;
-      const model=HPC_INTEGRATED.layout(p,this._hcCount||1);
+      const model=HPC_INTEGRATED.layout(p,this._hcCount||1,
+        this._config?.primary_pump===true);
       // The original hot-water tank remains in use for direct generator
       // charging. A coil loaded from the buffer is rendered in the consumer
       // column using the exact same tank pictogram, not twice.
@@ -137,10 +140,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const source=svg.querySelector("#hp-box")?.closest("g.tap");
         if(source)source.style.display="none";
       }
-      // Reuse the ORIGINAL card's complete heating-circuit artwork and
-      // prewired common supply/return trunks. In particular its mixer bypass
-      // is integrated into the actual radiators and is not a separate overlay.
-      // Only upstream generator/storage routes are replaced by custom pipes.
+      // Reuse the original heating-circuit artwork. Shared trunks and mixer
+      // bypasses are routed by HPC_NETWORK and reuse the native SVG paths.
       for(const legacy of svg.querySelectorAll('path[id^="p-"],path[id^="f-"]')){
         if(legacy.closest('#hpi-root'))continue;
         const id=legacy.id;

@@ -11,7 +11,7 @@ const HPC_INTEGRATED = (() => {
     const value=String(name||'').trim();
     return value.length>max?value.slice(0,max-1).trimEnd()+'…':value;
   };
-  function layout(plan, hcCount=1) {
+  function layout(plan, hcCount=1, primaryPump=false) {
     const p=HPC_FREE.normalize(plan), anchored=new Map();
     const firstSource=p.components.find(isSource);
     const firstBuffer=HPC_NETWORK.orderedBuffers(p)[0];
@@ -176,7 +176,7 @@ const HPC_INTEGRATED = (() => {
     const maxX=Math.max(1000,...[...points.values()].map(n=>n.x+n.w+70));
     const maxY=Math.max(560+(Math.max(1,circuitCount)-1)*250,
       ...[...points.values()].map(n=>n.y+n.h+70));
-    return {plan:p,anchored,points,extras,width:maxX,height:maxY};
+    return {plan:p,anchored,points,extras,width:maxX,height:maxY,primaryPump};
   }
   function coreConfig(config) {
     const p=HPC_FREE.normalize(config.plan),src=p.components.find(isSource);
@@ -253,7 +253,7 @@ const HPC_INTEGRATED = (() => {
     derived.power_sources=derived.power_sources||'manual';
     return derived;
   }
-  function port(node,shape,key) {
+  function port(node,shape,key,circuitPump=true) {
     if(shape.type==='source') {
       // Primary and additional heat sources share the original 240x235
       // pictogram, but never the same absolute pipe ports. Otherwise all
@@ -281,8 +281,18 @@ const HPC_INTEGRATED = (() => {
       };
       return positions[key]||{x:shape.x,y:shape.y+40};
     }
-    // Ports coincide with the ORIGINAL radiator body, not its surrounding tile.
-    if(shape.type==='heating_circuit')return{x:shape.x+11,y:key==='return_out'?shape.y+125:shape.y+30};
+    // The saved supply edge enters before the native pump when that pump is
+    // present; otherwise the unpumped circuit joins at the same coordinate.
+    if(shape.type==='heating_circuit'){
+      const y=shape.y+30;
+      if(key==='flow_in')return{x:shape.x-(circuitPump?111:79),y};
+      if(key==='pump_out')return{x:shape.x-79,y};
+      if(key==='emitter_in')return{x:shape.x+11,y};
+      if(key==='mixer_hot'||key==='mixer_out')return{x:760,y};
+      if(key==='mixer_bypass_in')return{x:760,y:shape.y+165};
+      if(key==='mixer_return')return{x:760,y:shape.y+44};
+      return{x:shape.x+11,y:key==='return_out'?shape.y+125:y};
+    }
     const def=HPC_FREE.ports(node.type).find(p=>p.id===key);
     return{x:shape.x+(def?.side==='R'?shape.w:0),y:shape.y+(def?.y??.5)*shape.h};
   }
@@ -291,7 +301,8 @@ const HPC_INTEGRATED = (() => {
     if(shape.type==='buffer')
       return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'L';
     if(shape.type==='dhw_tank')return key.startsWith('coil_')?'L':'R';
-    if(shape.type==='heating_circuit')return 'L';
+    if(shape.type==='heating_circuit')
+      return ['pump_out','mixer_out'].includes(key)?'R':'L';
     return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'R';
   }
   function localizeCircuitPath(path,offsetY) {
@@ -487,6 +498,20 @@ const HPC_INTEGRATED = (() => {
     // headers if the same storage/source already feeds a heating circuit.
     // Do not manufacture a shared header when no heating circuit is wired.
     const supplyTees=new Map(),returnTees=new Map();
+    const heatingFeeds=plan.connections.filter(edge=>
+      edge.to_port==='flow_in'&&all[edge.to]?.type==='heating_circuit');
+    if(heatingFeeds.length>1){
+      const commonSource=heatingFeeds.every(edge=>
+        edge.from===heatingFeeds[0].from&&edge.from_port===heatingFeeds[0].from_port);
+      const source=all[heatingFeeds[0].from];
+      if(commonSource&&source?.type==='buffer'&&heatingFeeds[0].from_port==='top_out'){
+        const sourceShape=loc(source.id);
+        if(sourceShape){
+          const junction={x:660,y:port(source,sourceShape,'top_out').y};
+          for(const edge of heatingFeeds)supplyTees.set(edge.id,junction);
+        }
+      }
+    }
     for(const tankId of branchTankIds){
       const coilFeed=plan.connections.find(e=>e.to===tankId&&e.to_port==='coil_in');
       const coilReturn=plan.connections.find(e=>e.from===tankId&&e.from_port==='coil_out');
@@ -515,13 +540,30 @@ const HPC_INTEGRATED = (() => {
     }
     const obstacles=[...anchored,...points].map(([id,b])=>({id,...b}));
     const routedPaths=[];
-    const routeRecords=[...plan.connections,...HPC_NETWORK.auxiliaryEdges(plan,hass)].map(edge=>{
+    const circuitFlowing=new Map(plan.components.filter(node=>
+      node.type==='heating_circuit').map(node=>{
+      const feed=plan.connections.filter(edge=>
+        edge.to===node.id&&edge.to_port==='flow_in');
+      const returns=plan.connections.filter(edge=>
+        edge.from===node.id&&edge.from_port==='return_out');
+      return [node.id,feed.length>0&&returns.length>0&&
+        feed.some(edge=>flowing.has(edge.id))&&returns.some(edge=>flowing.has(edge.id))];
+    }));
+    const circuitCount=plan.components.filter(node=>
+      node.type==='heating_circuit').length;
+    const hasCircuitPump=node=>circuitCount>1||
+      plan.components.some(candidate=>candidate.type==='buffer')||
+      !!node.sensors?.pump||!model.primaryPump;
+    const routeRecords=[...plan.connections,...HPC_NETWORK.auxiliaryEdges(plan,hass),
+      ...HPC_NETWORK.heatingCircuitEdges(plan)].map(edge=>{
       // Native heating circuits keep their original radiator/mixer pictograms,
       // but their actual supply/return paths use this very same pipe registry.
       const fromShape=loc(edge.from),toShape=loc(edge.to);
       if(!fromShape||!toShape)return null;
-      const p=port(all[edge.from],fromShape,edge.from_port);
-      const q=port(all[edge.to],toShape,edge.to_port);
+      const p=port(all[edge.from],fromShape,edge.from_port,
+        all[edge.from]?.type!=='heating_circuit'||hasCircuitPump(all[edge.from]));
+      const q=port(all[edge.to],toShape,edge.to_port,
+        all[edge.to]?.type!=='heating_circuit'||hasCircuitPump(all[edge.to]));
       const fromSide=portSide(all[edge.from],fromShape,edge.from_port);
       const toSide=portSide(all[edge.to],toShape,edge.to_port);
       const supplyTee=supplyTees.get(edge.id);
@@ -540,7 +582,8 @@ const HPC_INTEGRATED = (() => {
       const nativeCircuit=all[edge.to]?.type==='heating_circuit'&&anchored.has(edge.to)
         ?edge.to:all[edge.from]?.type==='heating_circuit'&&anchored.has(edge.from)
           ?edge.from:null;
-      return {edge,d,nativeCircuit,on:edge.kind==='return_lift'?edge.active:flowing.has(edge.id),
+      return {edge,d,nativeCircuit,on:edge.kind==='return_lift'?edge.active:
+        edge.kind?.startsWith('heating_circuit_')?!!circuitFlowing.get(edge.from):flowing.has(edge.id),
         evidence:edge.kind==='return_lift'?(edge.active?'inferred':'stopped'):
           evidence.get(edge.id)?.state||'unknown',
         color:reading?HPC_FREE.color(reading):null,
@@ -553,7 +596,9 @@ const HPC_INTEGRATED = (() => {
     const circuitIndexes=new Map(plan.components.filter(node=>
       node.type==='heating_circuit').map((node,index)=>[node.id,index]));
     for(const record of routeRecords.filter(r=>r.nativeCircuit)){
-      const direction=record.edge.to===record.nativeCircuit?'flow':'return';
+      const direction=record.edge.kind==='heating_circuit_mixer_bypass'?'mixer':
+        ['heating_circuit_internal_return'].includes(record.edge.kind)?'return':
+        record.edge.to===record.nativeCircuit?'flow':'return';
       const pair=physicalPipes.get(record.edge.id)||{pipe:'',flow:''};
       const group=nativePipes[record.nativeCircuit]||(nativePipes[record.nativeCircuit]={});
       const leg=group[direction]||(group[direction]={pipe:'',flow:''});

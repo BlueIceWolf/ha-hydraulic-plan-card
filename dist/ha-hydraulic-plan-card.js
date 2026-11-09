@@ -8399,6 +8399,8 @@ const HPC_MIGRATION = (() => {
 // The original card still owns its artwork. This module owns hydraulic decisions.
 const HPC_NETWORK = (() => {
   const isSource = node => HPC_FREE.byType[node?.type]?.group === 'source';
+  const hasCircuitMixer = node=>node.options?.mixed===true||
+    ['mixer','mixer_opening','mixer_closing'].some(port=>!!node.sensors?.[port]);
 
   function graph(plan) {
     const nodes = new Map(plan.components.map(node => [node.id, node]));
@@ -8549,15 +8551,32 @@ const HPC_NETWORK = (() => {
         diverterActivePort(n,hass)===port;
       const open=(n,port)=>selected(n,port)&&
         (n.type!=='mixer'||!mixerClosedPorts(n,hass).has(port));
-      if(open(from,e.from_port)&&open(to,e.to_port))
-        add(key(e.from,e.from_port),key(e.to,e.to_port),e);
+      if(open(from,e.from_port)&&open(to,e.to_port)){
+        const fromPort=from.type==='heating_circuit'&&e.from_port==='flow_in'
+          ?'emitter_in':e.from_port;
+        const toPort=to.type==='heating_circuit'&&e.to_port==='flow_in'
+          ?'pump_in':e.to_port;
+        add(key(e.from,fromPort),key(e.to,toPort),e);
+      }
     }
     for(const n of plan.components){
       if(blocked(n))continue;
       const connect=(a,b)=>add(key(n.id,a),key(n.id,b));
       switch(n.type){
         case 'pump':connect('in','out');break;
-        case 'heating_circuit':connect('flow_in','return_out');break;
+        case 'heating_circuit':{
+          connect('pump_in','pump_out');
+          if(hasCircuitMixer(n)){
+            connect('pump_out','mixer_hot');
+            connect('return_out','mixer_bypass_in');
+            connect('mixer_bypass_in','mixer_return');
+            connect('mixer_hot','mixer_out');
+            connect('mixer_return','mixer_out');
+            connect('mixer_out','emitter_in');
+          }else connect('pump_out','emitter_in');
+          connect('emitter_in','return_out');
+          break;
+        }
         case 'dhw_tank':connect('coil_in','coil_out');break;
         case 'diverter':{
           const selected=diverterActivePort(n,hass);
@@ -8604,10 +8623,10 @@ const HPC_NETWORK = (() => {
     };
     for(const pump of plan.components.filter(n=>isPump(n)&&pumpStatus(n)===true)){
       const outlets=pump.type==='pump'?['out']:
-        pump.type==='heating_circuit'?['return_out']:
+        pump.type==='heating_circuit'?['pump_out']:
         pump.type==='oil_boiler'?['flow','dhw']:['flow'];
       const inlets=pump.type==='pump'?['in']:
-        pump.type==='heating_circuit'?['flow_in']:['return'];
+        pump.type==='heating_circuit'?['pump_in']:['return'];
       const start=outlets.map(p=>key(pump.id,p)),end=inlets.map(p=>key(pump.id,p));
       const coilBranches=plan.connections.filter(e=>e.from===pump.id &&
         e.from_port==='out'&&e.to_port==='coil_in'&&nodes.get(e.to)?.type==='dhw_tank');
@@ -8761,6 +8780,31 @@ const HPC_NETWORK = (() => {
       });
     }
     return edges;
+  }
+
+  // The card's built-in pump is a real hydraulic boundary: supply reaches
+  // its inlet, and only its own outlet can feed that circuit's emitter.
+  function heatingCircuitEdges(plan) {
+    return plan.components.filter(node=>node.type==='heating_circuit').flatMap(node=>{
+      const hasFeed=plan.connections.some(edge=>
+        edge.to===node.id&&edge.to_port==='flow_in');
+      const hasReturn=plan.connections.some(edge=>
+        edge.from===node.id&&edge.from_port==='return_out');
+      if(!hasFeed||!hasReturn)return [];
+      const base={flow_entity:'',temperature_entity:''};
+      const edge=(suffix,kind,from_port,to_port)=>({
+        ...base,id:'internal_'+node.id+'_'+suffix,kind,
+        from:node.id,from_port,to:node.id,to_port
+      });
+      return hasCircuitMixer(node)?[
+        edge('pump_to_mixer','heating_circuit_internal','pump_out','mixer_hot'),
+        edge('mixer_to_emitter','heating_circuit_internal','mixer_out','emitter_in'),
+        edge('return_to_mixer_bypass','heating_circuit_internal_return',
+          'return_out','mixer_bypass_in'),
+        edge('mixer_bypass','heating_circuit_mixer_bypass',
+          'mixer_bypass_in','mixer_return')
+      ]:[edge('pump_to_emitter','heating_circuit_internal','pump_out','emitter_in')];
+    });
   }
 
   // Check physical component bounds after routing, including label clearance.
@@ -8970,8 +9014,11 @@ const HPC_NETWORK = (() => {
                    obstacles = [], routedPaths = [] }) {
     const h = (x, y) => String(x) + ' ' + String(y);
     const role=connection=>connection.edge.kind==='return_lift'?'flow':
+      ['heating_circuit_internal_return','heating_circuit_mixer_bypass']
+        .includes(connection.edge.kind)?'return':
       (/^(?:return_out|coil_out|bottom_out|return)$/.test(connection.edge.from_port)||
-       /^(?:return|return_in|bottom_in)$/.test(connection.edge.to_port)?'return':'flow');
+       /^(?:return|return_in|bottom_in|mixer_bypass_in|mixer_return)$/.test(connection.edge.to_port)
+        ?'return':'flow');
     const pipeObstacles=[];
     if(edge.kind!=='return_lift'){
       const currentRole=role({edge});
@@ -8991,6 +9038,10 @@ const HPC_NETWORK = (() => {
     if(edge.kind==='return_lift'){
       const x=Math.max(p.x,q.x)+42;
       const d='M'+h(p.x,p.y)+' H'+x+' V'+q.y+' H'+q.x;
+      return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
+    }
+    if(edge.kind==='heating_circuit_mixer_bypass'){
+      const d='M'+h(p.x,p.y)+' V'+q.y;
       return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
     }
     // Keep the ORIGINAL mixer and radiator connectors exactly in the hot
@@ -9084,8 +9135,11 @@ const HPC_NETWORK = (() => {
           // same physical pipe appear beside the wood gasifier.
           const role = route.edge.kind === 'return_lift'
             ? (segmentIndex < 2 ? 'flow' : 'return')
+            : ['heating_circuit_internal_return','heating_circuit_mixer_bypass']
+              .includes(route.edge.kind)?'return'
             : (/^(?:return_out|coil_out|bottom_out|return)$/.test(route.edge.from_port) ||
-              /^(?:return|return_in|bottom_in)$/.test(route.edge.to_port) ? 'return' : 'flow');
+              /^(?:return|return_in|bottom_in|mixer_bypass_in|mixer_return)$/.test(route.edge.to_port)
+              ? 'return' : 'flow');
         if (Number.isFinite(nx) && Number.isFinite(ny) &&
             Math.abs(nx-x)+Math.abs(ny-y)>0.001) {
           const axis=op==='H'?'h':'v',fixed=op==='H'?y:x;
@@ -9157,7 +9211,7 @@ const HPC_NETWORK = (() => {
   }
 
   return { graph, orderedBuffers, bufferTopology, diverterActivePort, mixerClosedPorts,
-    flowStates, flowEvidence, auxiliaryEdges, route, mergeRoutes };
+    flowStates, flowEvidence, auxiliaryEdges, heatingCircuitEdges, route, mergeRoutes };
 })();
 
 const HPC_INTEGRATED = (() => {
@@ -9170,7 +9224,7 @@ const HPC_INTEGRATED = (() => {
     const value=String(name||'').trim();
     return value.length>max?value.slice(0,max-1).trimEnd()+'…':value;
   };
-  function layout(plan, hcCount=1) {
+  function layout(plan, hcCount=1, primaryPump=false) {
     const p=HPC_FREE.normalize(plan), anchored=new Map();
     const firstSource=p.components.find(isSource);
     const firstBuffer=HPC_NETWORK.orderedBuffers(p)[0];
@@ -9335,7 +9389,7 @@ const HPC_INTEGRATED = (() => {
     const maxX=Math.max(1000,...[...points.values()].map(n=>n.x+n.w+70));
     const maxY=Math.max(560+(Math.max(1,circuitCount)-1)*250,
       ...[...points.values()].map(n=>n.y+n.h+70));
-    return {plan:p,anchored,points,extras,width:maxX,height:maxY};
+    return {plan:p,anchored,points,extras,width:maxX,height:maxY,primaryPump};
   }
   function coreConfig(config) {
     const p=HPC_FREE.normalize(config.plan),src=p.components.find(isSource);
@@ -9412,7 +9466,7 @@ const HPC_INTEGRATED = (() => {
     derived.power_sources=derived.power_sources||'manual';
     return derived;
   }
-  function port(node,shape,key) {
+  function port(node,shape,key,circuitPump=true) {
     if(shape.type==='source') {
       // Primary and additional heat sources share the original 240x235
       // pictogram, but never the same absolute pipe ports. Otherwise all
@@ -9440,8 +9494,18 @@ const HPC_INTEGRATED = (() => {
       };
       return positions[key]||{x:shape.x,y:shape.y+40};
     }
-    // Ports coincide with the ORIGINAL radiator body, not its surrounding tile.
-    if(shape.type==='heating_circuit')return{x:shape.x+11,y:key==='return_out'?shape.y+125:shape.y+30};
+    // The saved supply edge enters before the native pump when that pump is
+    // present; otherwise the unpumped circuit joins at the same coordinate.
+    if(shape.type==='heating_circuit'){
+      const y=shape.y+30;
+      if(key==='flow_in')return{x:shape.x-(circuitPump?111:79),y};
+      if(key==='pump_out')return{x:shape.x-79,y};
+      if(key==='emitter_in')return{x:shape.x+11,y};
+      if(key==='mixer_hot'||key==='mixer_out')return{x:760,y};
+      if(key==='mixer_bypass_in')return{x:760,y:shape.y+165};
+      if(key==='mixer_return')return{x:760,y:shape.y+44};
+      return{x:shape.x+11,y:key==='return_out'?shape.y+125:y};
+    }
     const def=HPC_FREE.ports(node.type).find(p=>p.id===key);
     return{x:shape.x+(def?.side==='R'?shape.w:0),y:shape.y+(def?.y??.5)*shape.h};
   }
@@ -9450,7 +9514,8 @@ const HPC_INTEGRATED = (() => {
     if(shape.type==='buffer')
       return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'L';
     if(shape.type==='dhw_tank')return key.startsWith('coil_')?'L':'R';
-    if(shape.type==='heating_circuit')return 'L';
+    if(shape.type==='heating_circuit')
+      return ['pump_out','mixer_out'].includes(key)?'R':'L';
     return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'R';
   }
   function localizeCircuitPath(path,offsetY) {
@@ -9646,6 +9711,20 @@ const HPC_INTEGRATED = (() => {
     // headers if the same storage/source already feeds a heating circuit.
     // Do not manufacture a shared header when no heating circuit is wired.
     const supplyTees=new Map(),returnTees=new Map();
+    const heatingFeeds=plan.connections.filter(edge=>
+      edge.to_port==='flow_in'&&all[edge.to]?.type==='heating_circuit');
+    if(heatingFeeds.length>1){
+      const commonSource=heatingFeeds.every(edge=>
+        edge.from===heatingFeeds[0].from&&edge.from_port===heatingFeeds[0].from_port);
+      const source=all[heatingFeeds[0].from];
+      if(commonSource&&source?.type==='buffer'&&heatingFeeds[0].from_port==='top_out'){
+        const sourceShape=loc(source.id);
+        if(sourceShape){
+          const junction={x:660,y:port(source,sourceShape,'top_out').y};
+          for(const edge of heatingFeeds)supplyTees.set(edge.id,junction);
+        }
+      }
+    }
     for(const tankId of branchTankIds){
       const coilFeed=plan.connections.find(e=>e.to===tankId&&e.to_port==='coil_in');
       const coilReturn=plan.connections.find(e=>e.from===tankId&&e.from_port==='coil_out');
@@ -9674,13 +9753,30 @@ const HPC_INTEGRATED = (() => {
     }
     const obstacles=[...anchored,...points].map(([id,b])=>({id,...b}));
     const routedPaths=[];
-    const routeRecords=[...plan.connections,...HPC_NETWORK.auxiliaryEdges(plan,hass)].map(edge=>{
+    const circuitFlowing=new Map(plan.components.filter(node=>
+      node.type==='heating_circuit').map(node=>{
+      const feed=plan.connections.filter(edge=>
+        edge.to===node.id&&edge.to_port==='flow_in');
+      const returns=plan.connections.filter(edge=>
+        edge.from===node.id&&edge.from_port==='return_out');
+      return [node.id,feed.length>0&&returns.length>0&&
+        feed.some(edge=>flowing.has(edge.id))&&returns.some(edge=>flowing.has(edge.id))];
+    }));
+    const circuitCount=plan.components.filter(node=>
+      node.type==='heating_circuit').length;
+    const hasCircuitPump=node=>circuitCount>1||
+      plan.components.some(candidate=>candidate.type==='buffer')||
+      !!node.sensors?.pump||!model.primaryPump;
+    const routeRecords=[...plan.connections,...HPC_NETWORK.auxiliaryEdges(plan,hass),
+      ...HPC_NETWORK.heatingCircuitEdges(plan)].map(edge=>{
       // Native heating circuits keep their original radiator/mixer pictograms,
       // but their actual supply/return paths use this very same pipe registry.
       const fromShape=loc(edge.from),toShape=loc(edge.to);
       if(!fromShape||!toShape)return null;
-      const p=port(all[edge.from],fromShape,edge.from_port);
-      const q=port(all[edge.to],toShape,edge.to_port);
+      const p=port(all[edge.from],fromShape,edge.from_port,
+        all[edge.from]?.type!=='heating_circuit'||hasCircuitPump(all[edge.from]));
+      const q=port(all[edge.to],toShape,edge.to_port,
+        all[edge.to]?.type!=='heating_circuit'||hasCircuitPump(all[edge.to]));
       const fromSide=portSide(all[edge.from],fromShape,edge.from_port);
       const toSide=portSide(all[edge.to],toShape,edge.to_port);
       const supplyTee=supplyTees.get(edge.id);
@@ -9699,7 +9795,8 @@ const HPC_INTEGRATED = (() => {
       const nativeCircuit=all[edge.to]?.type==='heating_circuit'&&anchored.has(edge.to)
         ?edge.to:all[edge.from]?.type==='heating_circuit'&&anchored.has(edge.from)
           ?edge.from:null;
-      return {edge,d,nativeCircuit,on:edge.kind==='return_lift'?edge.active:flowing.has(edge.id),
+      return {edge,d,nativeCircuit,on:edge.kind==='return_lift'?edge.active:
+        edge.kind?.startsWith('heating_circuit_')?!!circuitFlowing.get(edge.from):flowing.has(edge.id),
         evidence:edge.kind==='return_lift'?(edge.active?'inferred':'stopped'):
           evidence.get(edge.id)?.state||'unknown',
         color:reading?HPC_FREE.color(reading):null,
@@ -9712,7 +9809,9 @@ const HPC_INTEGRATED = (() => {
     const circuitIndexes=new Map(plan.components.filter(node=>
       node.type==='heating_circuit').map((node,index)=>[node.id,index]));
     for(const record of routeRecords.filter(r=>r.nativeCircuit)){
-      const direction=record.edge.to===record.nativeCircuit?'flow':'return';
+      const direction=record.edge.kind==='heating_circuit_mixer_bypass'?'mixer':
+        ['heating_circuit_internal_return'].includes(record.edge.kind)?'return':
+        record.edge.to===record.nativeCircuit?'flow':'return';
       const pair=physicalPipes.get(record.edge.id)||{pipe:'',flow:''};
       const group=nativePipes[record.nativeCircuit]||(nativePipes[record.nativeCircuit]={});
       const leg=group[direction]||(group[direction]={pipe:'',flow:''});
@@ -10395,9 +10494,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       this._syncAdditional();
     }
     _syncNativeCircuitFlow(svg,plan,nativePaths={}) {
-      // The original radiator, mixer and pump art remains untouched. Only
-      // activation of its existing pipe segments follows the SAME graph used
-      // by additional generators and WW charging loops.
+      // Reuse the original component artwork, while all heating pipes and
+      // mixer bypass geometry come from the central hydraulic router.
       const evidence=HPC_NETWORK.flowEvidence(plan,this._hass);
       const circuits=plan.components.filter(n=>n.type==='heating_circuit').slice(0,6);
       const allActive=[];
@@ -10422,7 +10520,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const body=svg.querySelector('#f-hc-body'+suffix);
         if(body)body.classList.toggle('on',active);
         const mixer=svg.querySelector('#p-hc-mix'+suffix);
-        if(mixer)mixer.classList.toggle('on',active);
+        if(mixer){
+          mixer.setAttribute('d',paths.mixer?.pipe||'');
+          mixer.classList.toggle('on',active);
+        }
       }
       // Legacy risers and collector strips were independent fixed pipe
       // geometry. The graph routes now own those segments exactly once.
@@ -10438,7 +10539,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const p=this._integratedPlan;
       if(!this._hass||!p?.components.length)return;
       const svg=this._$('svg');if(!svg)return;
-      const model=HPC_INTEGRATED.layout(p,this._hcCount||1);
+      const model=HPC_INTEGRATED.layout(p,this._hcCount||1,
+        this._config?.primary_pump===true);
       // The original hot-water tank remains in use for direct generator
       // charging. A coil loaded from the buffer is rendered in the consumer
       // column using the exact same tank pictogram, not twice.
@@ -10487,10 +10589,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const source=svg.querySelector("#hp-box")?.closest("g.tap");
         if(source)source.style.display="none";
       }
-      // Reuse the ORIGINAL card's complete heating-circuit artwork and
-      // prewired common supply/return trunks. In particular its mixer bypass
-      // is integrated into the actual radiators and is not a separate overlay.
-      // Only upstream generator/storage routes are replaced by custom pipes.
+      // Reuse the original heating-circuit artwork. Shared trunks and mixer
+      // bypasses are routed by HPC_NETWORK and reuse the native SVG paths.
       for(const legacy of svg.querySelectorAll('path[id^="p-"],path[id^="f-"]')){
         if(legacy.closest('#hpi-root'))continue;
         const id=legacy.id;

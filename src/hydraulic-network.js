@@ -2,6 +2,8 @@
 // The original card still owns its artwork. This module owns hydraulic decisions.
 const HPC_NETWORK = (() => {
   const isSource = node => HPC_FREE.byType[node?.type]?.group === 'source';
+  const hasCircuitMixer = node=>node.options?.mixed===true||
+    ['mixer','mixer_opening','mixer_closing'].some(port=>!!node.sensors?.[port]);
 
   function graph(plan) {
     const nodes = new Map(plan.components.map(node => [node.id, node]));
@@ -152,15 +154,32 @@ const HPC_NETWORK = (() => {
         diverterActivePort(n,hass)===port;
       const open=(n,port)=>selected(n,port)&&
         (n.type!=='mixer'||!mixerClosedPorts(n,hass).has(port));
-      if(open(from,e.from_port)&&open(to,e.to_port))
-        add(key(e.from,e.from_port),key(e.to,e.to_port),e);
+      if(open(from,e.from_port)&&open(to,e.to_port)){
+        const fromPort=from.type==='heating_circuit'&&e.from_port==='flow_in'
+          ?'emitter_in':e.from_port;
+        const toPort=to.type==='heating_circuit'&&e.to_port==='flow_in'
+          ?'pump_in':e.to_port;
+        add(key(e.from,fromPort),key(e.to,toPort),e);
+      }
     }
     for(const n of plan.components){
       if(blocked(n))continue;
       const connect=(a,b)=>add(key(n.id,a),key(n.id,b));
       switch(n.type){
         case 'pump':connect('in','out');break;
-        case 'heating_circuit':connect('flow_in','return_out');break;
+        case 'heating_circuit':{
+          connect('pump_in','pump_out');
+          if(hasCircuitMixer(n)){
+            connect('pump_out','mixer_hot');
+            connect('return_out','mixer_bypass_in');
+            connect('mixer_bypass_in','mixer_return');
+            connect('mixer_hot','mixer_out');
+            connect('mixer_return','mixer_out');
+            connect('mixer_out','emitter_in');
+          }else connect('pump_out','emitter_in');
+          connect('emitter_in','return_out');
+          break;
+        }
         case 'dhw_tank':connect('coil_in','coil_out');break;
         case 'diverter':{
           const selected=diverterActivePort(n,hass);
@@ -207,10 +226,10 @@ const HPC_NETWORK = (() => {
     };
     for(const pump of plan.components.filter(n=>isPump(n)&&pumpStatus(n)===true)){
       const outlets=pump.type==='pump'?['out']:
-        pump.type==='heating_circuit'?['return_out']:
+        pump.type==='heating_circuit'?['pump_out']:
         pump.type==='oil_boiler'?['flow','dhw']:['flow'];
       const inlets=pump.type==='pump'?['in']:
-        pump.type==='heating_circuit'?['flow_in']:['return'];
+        pump.type==='heating_circuit'?['pump_in']:['return'];
       const start=outlets.map(p=>key(pump.id,p)),end=inlets.map(p=>key(pump.id,p));
       const coilBranches=plan.connections.filter(e=>e.from===pump.id &&
         e.from_port==='out'&&e.to_port==='coil_in'&&nodes.get(e.to)?.type==='dhw_tank');
@@ -364,6 +383,31 @@ const HPC_NETWORK = (() => {
       });
     }
     return edges;
+  }
+
+  // The card's built-in pump is a real hydraulic boundary: supply reaches
+  // its inlet, and only its own outlet can feed that circuit's emitter.
+  function heatingCircuitEdges(plan) {
+    return plan.components.filter(node=>node.type==='heating_circuit').flatMap(node=>{
+      const hasFeed=plan.connections.some(edge=>
+        edge.to===node.id&&edge.to_port==='flow_in');
+      const hasReturn=plan.connections.some(edge=>
+        edge.from===node.id&&edge.from_port==='return_out');
+      if(!hasFeed||!hasReturn)return [];
+      const base={flow_entity:'',temperature_entity:''};
+      const edge=(suffix,kind,from_port,to_port)=>({
+        ...base,id:'internal_'+node.id+'_'+suffix,kind,
+        from:node.id,from_port,to:node.id,to_port
+      });
+      return hasCircuitMixer(node)?[
+        edge('pump_to_mixer','heating_circuit_internal','pump_out','mixer_hot'),
+        edge('mixer_to_emitter','heating_circuit_internal','mixer_out','emitter_in'),
+        edge('return_to_mixer_bypass','heating_circuit_internal_return',
+          'return_out','mixer_bypass_in'),
+        edge('mixer_bypass','heating_circuit_mixer_bypass',
+          'mixer_bypass_in','mixer_return')
+      ]:[edge('pump_to_emitter','heating_circuit_internal','pump_out','emitter_in')];
+    });
   }
 
   // Check physical component bounds after routing, including label clearance.
@@ -573,8 +617,11 @@ const HPC_NETWORK = (() => {
                    obstacles = [], routedPaths = [] }) {
     const h = (x, y) => String(x) + ' ' + String(y);
     const role=connection=>connection.edge.kind==='return_lift'?'flow':
+      ['heating_circuit_internal_return','heating_circuit_mixer_bypass']
+        .includes(connection.edge.kind)?'return':
       (/^(?:return_out|coil_out|bottom_out|return)$/.test(connection.edge.from_port)||
-       /^(?:return|return_in|bottom_in)$/.test(connection.edge.to_port)?'return':'flow');
+       /^(?:return|return_in|bottom_in|mixer_bypass_in|mixer_return)$/.test(connection.edge.to_port)
+        ?'return':'flow');
     const pipeObstacles=[];
     if(edge.kind!=='return_lift'){
       const currentRole=role({edge});
@@ -594,6 +641,10 @@ const HPC_NETWORK = (() => {
     if(edge.kind==='return_lift'){
       const x=Math.max(p.x,q.x)+42;
       const d='M'+h(p.x,p.y)+' H'+x+' V'+q.y+' H'+q.x;
+      return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
+    }
+    if(edge.kind==='heating_circuit_mixer_bypass'){
+      const d='M'+h(p.x,p.y)+' V'+q.y;
       return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
     }
     // Keep the ORIGINAL mixer and radiator connectors exactly in the hot
@@ -687,8 +738,11 @@ const HPC_NETWORK = (() => {
           // same physical pipe appear beside the wood gasifier.
           const role = route.edge.kind === 'return_lift'
             ? (segmentIndex < 2 ? 'flow' : 'return')
+            : ['heating_circuit_internal_return','heating_circuit_mixer_bypass']
+              .includes(route.edge.kind)?'return'
             : (/^(?:return_out|coil_out|bottom_out|return)$/.test(route.edge.from_port) ||
-              /^(?:return|return_in|bottom_in)$/.test(route.edge.to_port) ? 'return' : 'flow');
+              /^(?:return|return_in|bottom_in|mixer_bypass_in|mixer_return)$/.test(route.edge.to_port)
+              ? 'return' : 'flow');
         if (Number.isFinite(nx) && Number.isFinite(ny) &&
             Math.abs(nx-x)+Math.abs(ny-y)>0.001) {
           const axis=op==='H'?'h':'v',fixed=op==='H'?y:x;
@@ -760,5 +814,5 @@ const HPC_NETWORK = (() => {
   }
 
   return { graph, orderedBuffers, bufferTopology, diverterActivePort, mixerClosedPorts,
-    flowStates, flowEvidence, auxiliaryEdges, route, mergeRoutes };
+    flowStates, flowEvidence, auxiliaryEdges, heatingCircuitEdges, route, mergeRoutes };
 })();

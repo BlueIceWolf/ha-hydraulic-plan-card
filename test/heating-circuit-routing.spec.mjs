@@ -167,8 +167,26 @@ test('one to six automatically connected circuits render complete shared buffer 
       const circuitReturn=result.pipeSegments.filter(segment=>
         segment.edgeId===paths.id+'_return');
       expect(circuitFlow.some(segment=>segment.y===360&&segment.nextY===360&&
-        Math.max(segment.x,segment.nextX)===826),
-      paths.id+' supply must terminate at its original radiator port').toBe(true);
+        Math.max(segment.x,segment.nextX)===704),
+      paths.id+' supply must terminate at its own pump inlet').toBe(true);
+      const emitterRun=circuitFlow.filter(segment=>segment.y===360&&
+        segment.nextY===360&&Math.min(segment.x,segment.nextX)>=736);
+      const emitterIntervals=emitterRun.map(segment=>[
+        Math.min(segment.x,segment.nextX),Math.max(segment.x,segment.nextX),
+      ]).sort((a,b)=>a[0]-b[0]);
+      expect(emitterIntervals[0]?.[0],paths.id+' pump outlet must start its own emitter run')
+        .toBe(736);
+      expect(emitterIntervals.at(-1)?.[1],paths.id+' pump outlet must reach its own emitter')
+        .toBe(826);
+      for(let interval=1;interval<emitterIntervals.length;interval++){
+        const gap=emitterIntervals[interval][0]-emitterIntervals[interval-1][1];
+        expect(gap===0||(gap===12&&emitterIntervals[interval-1][1]===774&&
+          emitterIntervals[interval][0]===786),
+        paths.id+' may cross the return riser only with a visible crossover gap').toBe(true);
+      }
+      expect(circuitFlow.some(segment=>segment.y===360&&segment.nextY===360&&
+        Math.min(segment.x,segment.nextX)<736&&Math.max(segment.x,segment.nextX)>704),
+      paths.id+' supply must not bridge across the pump').toBe(false);
       expect(circuitReturn.some(segment=>segment.y===455&&segment.x===826),
         paths.id+' return must start at its original radiator port').toBe(true);
       expect(circuitFlow.some(segment=>segment.offsetY===index*250&&
@@ -180,7 +198,7 @@ test('one to six automatically connected circuits render complete shared buffer 
     if (result.count > 1) {
       expect(result.pipeSegments.filter(segment=>segment.leg==='flow'&&
         segment.y===360&&Math.min(segment.x,segment.nextX)===640&&
-        Math.max(segment.x,segment.nextX)===733)).toHaveLength(1);
+        Math.max(segment.x,segment.nextX)===660)).toHaveLength(1);
       expect(result.pipeSegments.filter(segment=>segment.leg==='return'&&
         segment.x===780&&segment.x===segment.nextX)).toHaveLength(result.count-1);
     }
@@ -195,6 +213,9 @@ test('one to six automatically connected circuits render complete shared buffer 
           Math.max(segment.x,segment.nextX)>520&&Math.min(segment.x,segment.nextX)<640;
       expect(insideBuffer, 'a circuit pipe must not cross the buffer body').toBe(false);
     }
+    expect(displayedSegments.filter(segment=>segment.leg==='flow'&&
+      segment.x===736&&segment.nextX===736&&segment.y!==segment.nextY),
+    'pump outlets must not share a vertical connection').toHaveLength(0);
     const physicalSegments = new Set();
     for (const segment of displayedSegments) {
       const key = [Math.min(segment.x,segment.nextX),Math.min(segment.y,segment.nextY),
@@ -205,9 +226,10 @@ test('one to six automatically connected circuits render complete shared buffer 
     expect(result.incompleteActiveFlow,
       'running pump must not animate a supply when its return is missing').toBe('');
   }
-  await page.evaluate(() => {
+  const independentFlows = await page.evaluate(() => {
     const plan = window.__heatingPlanExamples[2];
-    const states = window.__heatingStateExamples[2];
+    const states = structuredClone(window.__heatingStateExamples[2]);
+    states['switch.hc2'].state = 'off';
     const card = document.createElement('hydraulic-plan-card');
     document.body.replaceChildren(card);
     card.setConfig({
@@ -220,7 +242,34 @@ test('one to six automatically connected circuits render complete shared buffer 
       callService: () => Promise.resolve(),
       callWS: () => Promise.reject(new Error('Unavailable in routing test')),
     };
+    const svg = card.shadowRoot.getElementById('svg');
+    const first = svg.querySelector('#f-hc-vl')?.getAttribute('d') || '';
+    const second = svg.querySelector('#f-hc-vl2')?.getAttribute('d') || '';
+    const mixedPlan = structuredClone(plan);
+    mixedPlan.components.filter(node=>node.type==='heating_circuit')
+      .forEach(circuit=>{circuit.options.mixed=true;});
+    card.setConfig({
+      type: 'custom:hydraulic-plan-card', preset: 'none', hc_count: 2,
+      power_sources: 'manual', animations: 'always', plan: mixedPlan,
+    });
+    card.hass = {
+      states: window.__heatingStateExamples[2], entities: {}, devices: {},
+      locale: { language: 'de' }, language: 'de',
+      config: { version: '2026.10.4' },
+      callService: () => Promise.resolve(),
+      callWS: () => Promise.reject(new Error('Unavailable in routing test')),
+    };
+    const mixedSvg = card.shadowRoot.getElementById('svg');
+    return {
+      first, second,
+      mixers: ['#p-hc-mix', '#p-hc-mix2'].map(selector=>
+        mixedSvg.querySelector(selector)?.getAttribute('d') || ''),
+    };
   });
+  expect(independentFlows.first,'running circuit must animate').not.toBe('');
+  expect(independentFlows.second,'stopped circuit must not animate').toBe('');
+  expect(independentFlows.mixers.every(path=>path!== ''),
+    'each mixed circuit must retain its own mixer connection').toBe(true);
   const screenshot = await page.screenshot({ fullPage: true });
   await testInfo.attach('oil-boiler-buffer-two-heating-circuits.png', {
     body: screenshot,
