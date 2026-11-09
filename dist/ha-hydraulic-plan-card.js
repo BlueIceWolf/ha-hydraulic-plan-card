@@ -9223,7 +9223,7 @@ const HPC_INTEGRATED = (() => {
       // A return enters on the LEFT of the buffer, so do not place a fake
       // tee on the right-hand heating collector. Draw its real return route.
     }
-    const routeRecords=plan.connections.map(edge=>{
+    const routeRecords=[...plan.connections,...HPC_NETWORK.auxiliaryEdges(plan,hass)].map(edge=>{
       // The original circuit artwork already contains its shared risers,
       // valves and radiators. Only supplemental routes need drawing.
       if((all[edge.from]?.type==='heating_circuit'||
@@ -9247,8 +9247,9 @@ const HPC_INTEGRATED = (() => {
         field==='mid_out'?from.sensors.middle:
         field==='bottom_out'?from.sensors.bottom:'';
       const reading=HPC_FREE.state(hass,edge.temperature_entity||inferred);
-      return {edge,d,on:flowing.has(edge.id),
-        evidence:evidence.get(edge.id)?.state||'unknown',
+      return {edge,d,on:edge.kind==='return_lift'?edge.active:flowing.has(edge.id),
+        evidence:edge.kind==='return_lift'?(edge.active?'inferred':'stopped'):
+          evidence.get(edge.id)?.state||'unknown',
         color:reading?HPC_FREE.color(reading):null,
         junction:supplyTee||returnTee};
     }).filter(Boolean);
@@ -9261,12 +9262,16 @@ const HPC_INTEGRATED = (() => {
         '" cy="'+junction.y+'" r="5" fill="var(--card-background-color,#fff)" stroke="'+
         (on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+
         '" stroke-width="2"/>':'';
-      return '<g class="hpi-link" data-hpi-edge="'+HPC_FREE.esc(edge.id)+
-        '" data-flow-evidence="'+HPC_FREE.esc(pipeState)+'"><title>'+
+      const rla=edge.kind==='return_lift';
+      return '<g class="hpi-link'+(rla?' hpi-rla':'')+
+        '" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"'+
+        (rla?' data-hpi-rla="'+HPC_FREE.esc(edge.from)+'"':'')+
+        ' data-flow-evidence="'+HPC_FREE.esc(pipeState)+'"><title>'+
         HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'+
-        '<path class="pipe'+(paths.flow?' on':'')+'" d="'+paths.pipe+'"'+
-        (color?' style="--pc:'+color+'"':'')+'/>'+
-        '<path class="flow'+(paths.flow?' on':'')+'" d="'+paths.flow+'"/>'+tee+'</g>';
+        '<path class="pipe'+(rla?' hpi-rla-bypass':'')+(paths.flow?' on':'')+
+        '" d="'+paths.pipe+'"'+(color?' style="--pc:'+color+'"':'')+'/>'+
+        (paths.flow?'<path class="flow'+(rla?' hpi-rla-flow':'')+
+          ' on" d="'+paths.flow+'"/>':'')+tee+'</g>';
     }).join('');
     const nodes=extras.map(node=>{
       const b=points.get(node.id);if(!b)return '';
