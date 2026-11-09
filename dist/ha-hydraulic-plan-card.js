@@ -8495,6 +8495,12 @@ const HPC_NETWORK = (() => {
           if (!allowed(edge) || dedicatedCircuit && !dedicatedCircuit.has(edge.id)) continue;
           const next = nodes.get(neighbor);
           if (!next || blocked(next)) continue;
+          // A separate zone with a configured but unavailable pump is not
+          // proof of circulation, even when another circuit shares its buffer.
+          const unknownPump = next.id !== pump.id &&
+            (next.type === 'pump' || next.type === 'heating_circuit' || isSource(next)) &&
+            !!pumpEntity(next) && pumpState(next) === null;
+          if (unknownPump) continue;
           flowing.add(edge.id);
           // One pump is not evidence that an unrelated zone or boiler flows.
           const otherUnmeteredCircuit = (isSource(next) || next.type === 'heating_circuit') &&
