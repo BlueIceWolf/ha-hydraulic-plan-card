@@ -200,6 +200,11 @@ const HPC_INTEGRATED = (() => {
       derived.storage='separate';
       derived.hc_count=Math.max(1,circuits.length);
       circuits.forEach((c,index)=>{
+        // The original circuit SVG reads hc_name, hc2_name, ... directly.
+        // Always use the names from the component editor, not a stock
+        // "Heizkreis 1" label left over from the legacy configuration.
+        const nameKey=index?'hc'+(index+1)+'_name':'hc_name';
+        if(c.name)derived[nameKey]=c.name;
         const key=index?'hc'+(index+1)+'_type':'hc_type';
         // Use the original Heat Pump Hydraulic Card emitter artwork.
         // Each heating circuit can independently display floor, panel or
