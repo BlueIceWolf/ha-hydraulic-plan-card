@@ -1102,6 +1102,41 @@
       'Editor never discards unknown future components when adding another item');
     futureEditor.remove();
 
+    // Native original heater and mixer artwork shares the same live
+    // hydraulic activity calculation as the supplemental WW coil.
+    const sharedNative=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[
+        {id:'shared_puffer',type:'buffer',name:'Puffer',sensors:{}},
+        {id:'shared_hk',type:'heating_circuit',name:'Heizkreis',
+          sensors:{pump:'switch.heizkreispumpe'},options:{mixed:true}},
+        {id:'shared_ww_pumpe',type:'pump',name:'WW Ladepumpe',
+          sensors:{state:'switch.ww_pumpe'}},
+        {id:'shared_ww',type:'dhw_tank',name:'WW Speicher',sensors:{}}
+      ],connections:[
+        {id:'shared_hc_vl',from:'shared_puffer',from_port:'top_out',to:'shared_hk',to_port:'flow_in'},
+        {id:'shared_hc_rl',from:'shared_hk',from_port:'return_out',to:'shared_puffer',to_port:'bottom_in'},
+        {id:'shared_ww_vl',from:'shared_puffer',from_port:'top_out',to:'shared_ww_pumpe',to_port:'in'},
+        {id:'shared_ww_coil',from:'shared_ww_pumpe',from_port:'out',to:'shared_ww',to_port:'coil_in'},
+        {id:'shared_ww_rl',from:'shared_ww',from_port:'coil_out',to:'shared_puffer',to_port:'bottom_in'}
+      ]}},hassOf({
+        'switch.heizkreispumpe':state('switch.heizkreispumpe','on'),
+        'switch.ww_pumpe':state('switch.ww_pumpe','off')
+      }));
+    const nativeSvg=sharedNative.shadowRoot.getElementById('svg');
+    check(nativeSvg.querySelector('#f-hc-vl')?.classList.contains('on')&&
+      nativeSvg.querySelector('#f-hc-rl')?.classList.contains('on')&&
+      !nativeSvg.querySelector('g[data-hpi-edge="shared_ww_rl"] path.flow.on'),
+      'Original radiator circuit is animated while an independent WW charging branch is stopped');
+    sharedNative.hass=hassOf({
+      'switch.heizkreispumpe':state('switch.heizkreispumpe','off'),
+      'switch.ww_pumpe':state('switch.ww_pumpe','on')
+    });
+    check(!nativeSvg.querySelector('#f-hc-vl')?.classList.contains('on')&&
+      !nativeSvg.querySelector('#f-hc-rl')?.classList.contains('on')&&
+      !!nativeSvg.querySelector('g[data-hpi-edge="shared_ww_rl"] path.flow.on'),
+      'Original radiator return stops independently while WW loading coil continues');
+    sharedNative.remove();
+
     wood.remove(); oil.remove(); hybrid.remove();
   } catch (err) {
     failures.push('Unexpected runtime exception: ' + (err?.stack || String(err)));
