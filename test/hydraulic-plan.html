@@ -12,6 +12,9 @@
   const check = (condition, name) => {
     messages.push((condition ? 'OK: ' : 'FAIL: ') + name);
     if (!condition) failures.push(name);
+    // Write a live checkpoint so failures reveal where a render stalls.
+    document.getElementById('log').textContent =
+      messages.join('\n') + '\nCURRENT: ' + name;
     // Stream checkpoints so a timeout exposes the last completed assertion.
     document.getElementById('log').textContent = messages.join('\\n');
   };
