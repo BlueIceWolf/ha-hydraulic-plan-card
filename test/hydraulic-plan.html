@@ -649,6 +649,35 @@
       'Buffer-fed WW charging pump off: both hydraulic legs stop together');
     bufferCharge.remove();
 
+    const valveFeedCard=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[
+        {id:'heat_source',type:'oil_boiler',name:'Ölkessel',sensors:{pump:'switch.vpump'}},
+        {id:'changeover',type:'diverter',name:'3-Wege-Umschaltventil',
+          sensors:{position:'sensor.valve_position'},
+          options:{dhw_port:'a',dhw_state:'WW',heating_state:'Heizen'}},
+        {id:'dhw_store',type:'dhw_tank',name:'Warmwasser',sensors:{}}
+      ],connections:[
+        {id:'valve_feed',from:'heat_source',from_port:'dhw',to:'changeover',to_port:'ab'},
+        {id:'valve_ww',from:'changeover',from_port:'a',to:'dhw_store',to_port:'coil_in'},
+        {id:'valve_return',from:'dhw_store',from_port:'coil_out',to:'heat_source',to_port:'return'}
+      ]}},hassOf({'sensor.valve_position':state('sensor.valve_position','WW'),
+        'switch.vpump':state('switch.vpump','on')}));
+    const inlineValve=valveFeedCard.shadowRoot.querySelector(
+      'g.hpi-inline-diverter[data-hpi-node="changeover"]');
+    check(!!inlineValve&&!!inlineValve.querySelector('circle.valve')&&
+      !inlineValve.querySelector('rect.unit')&&
+      inlineValve.textContent.includes('A'),
+      'WW changeover is a small original-style valve directly on its pipe, with selected outlet');
+    valveFeedCard.hass=hassOf({
+      'sensor.valve_position':state('sensor.valve_position','Heizen'),
+      'switch.vpump':state('switch.vpump','on')});
+    check(!valveFeedCard.shadowRoot.querySelector(
+      'g.hpi-link[data-hpi-edge="valve_ww"] path.flow.on')&&
+      !valveFeedCard.shadowRoot.querySelector(
+      'g.hpi-link[data-hpi-edge="valve_return"] path.flow.on'),
+      'Changeover to heating disables the entire DHW coil and its return');
+    valveFeedCard.remove();
+
     const diverterEditor=document.createElement('hydraulic-plan-card-editor');
     diverterEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
       plan:{components:[{id:'ww_valve',type:'diverter',name:'Umschaltventil',
