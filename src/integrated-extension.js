@@ -8,7 +8,7 @@ const HPC_INTEGRATED = (() => {
   function layout(plan, hcCount=1) {
     const p=HPC_FREE.normalize(plan), anchored=new Map();
     const firstSource=p.components.find(isSource);
-    const firstBuffer=p.components.find(c=>c.type==='buffer');
+    const firstBuffer=HPC_NETWORK.orderedBuffers(p)[0];
     const firstDhw=p.components.find(c=>c.type==='dhw_tank');
     if(firstSource)anchored.set(firstSource.id,{x:50,y:190,w:240,h:235,type:'source'});
     if(firstBuffer)anchored.set(firstBuffer.id,{x:520,y:320,w:120,h:200,type:'buffer'});
@@ -41,23 +41,7 @@ const HPC_INTEGRATED = (() => {
     }
     // Discover the buffer sequence from the user's directed pipe connections.
     // This works regardless of the order in which buffers were added.
-    const orderedBuffers=byGroup.storage.filter(c=>c.type==='buffer');
-    const adjacency=new Map();
-    for(const edge of p.connections){
-      if(!adjacency.has(edge.from))adjacency.set(edge.from,[]);
-      adjacency.get(edge.from).push(edge.to);
-    }
-    const distances=new Map(),queue=firstBuffer?[firstBuffer.id]:[];
-    if(firstBuffer)distances.set(firstBuffer.id,0);
-    while(queue.length){
-      const from=queue.shift(),depth=distances.get(from);
-      for(const to of adjacency.get(from)||[]){
-        if(distances.has(to))continue;
-        distances.set(to,depth+1);
-        queue.push(to);
-      }
-    }
-    orderedBuffers.sort((a,b)=>(distances.get(a.id)??Infinity)-(distances.get(b.id)??Infinity));
+    const orderedBuffers=HPC_NETWORK.orderedBuffers(p).filter(n=>!anchored.has(n.id));
     const extraDhw=byGroup.storage.filter(c=>c.type==='dhw_tank');
     const storageStart=520;
     // Continue the original storage bank directly underneath the native
@@ -65,8 +49,8 @@ const HPC_INTEGRATED = (() => {
     // columns, avoiding both overlap and a 300 px empty gap.
     const bufferStartY=555;
     orderedBuffers.forEach((node,index)=>{
-      points.set(node.id,{x:520+(index%2)*160,
-        y:bufferStartY+Math.floor(index/2)*225,w:120,h:200,type:node.type});
+      points.set(node.id,{x:520,
+        y:bufferStartY+index*225,w:120,h:200,type:node.type});
     });
     // Preserve the original DHW proportions as well.
     extraDhw.forEach((node,index)=>{
@@ -120,7 +104,7 @@ const HPC_INTEGRATED = (() => {
   }
   function coreConfig(config) {
     const p=HPC_FREE.normalize(config.plan),src=p.components.find(isSource);
-    const buffer=p.components.find(c=>c.type==='buffer');
+    const buffer=HPC_NETWORK.orderedBuffers(p)[0];
     const dhw=p.components.find(c=>c.type==='dhw_tank');
     const circuits=p.components.filter(c=>c.type==='heating_circuit').slice(0,6);
     const types={wood_gasifier:'wood_gasifier',oil_boiler:'oil',pellet_boiler:'pellet',wood_chip_boiler:'pellet',
@@ -206,10 +190,10 @@ const HPC_INTEGRATED = (() => {
       // The heat-exchanger circuit is on the LEFT. Domestic hot and cold
       // outlets belong on the RIGHT; never intersect the vessel internally.
       const positions={
-        coil_in:{x:520,y:80},coil_out:{x:520,y:215},
-        hot_out:{x:640,y:80},cold_in:{x:640,y:215}
+        coil_in:{x:shape.x,y:shape.y+40},coil_out:{x:shape.x,y:shape.y+175},
+        hot_out:{x:shape.x+shape.w,y:shape.y+40},cold_in:{x:shape.x+shape.w,y:shape.y+175}
       };
-      return positions[key]||{x:520,y:80};
+      return positions[key]||{x:shape.x,y:shape.y+40};
     }
     if(shape.type==='heating_circuit')return{x:shape.x,y:key==='return_out'?shape.y+135:shape.y+30};
     const def=HPC_FREE.ports(node.type).find(p=>p.id===key);
@@ -244,107 +228,9 @@ const HPC_INTEGRATED = (() => {
     return a.join('');
   }
   function flowStates(plan,hass) {
-    // Pipe animation is a *circuit* state, not an independent property of
-    // every line. An off DHW charging pump closes the supply AND the return of
-    // its coil, even when an unrelated heating pump is running elsewhere.
-    const nodes=Object.fromEntries(plan.components.map(c=>[c.id,c]));
-    const adjacent=new Map(plan.components.map(c=>[c.id,[]]));
-    const incoming=new Map(plan.components.map(c=>[c.id,[]]));
-    const outgoing=new Map(plan.components.map(c=>[c.id,[]]));
-    const flowing=new Set();
-    const mappedFlow=edge=>{
-      if(!edge.flow_entity)return null;
-      const state=HPC_FREE.state(hass,edge.flow_entity);
-      return state?HPC_FREE.active(state):null;
-    };
-    for(const edge of plan.connections){
-      adjacent.get(edge.from)?.push({edge,neighbor:edge.to});
-      adjacent.get(edge.to)?.push({edge,neighbor:edge.from});
-      incoming.get(edge.to)?.push(edge);
-      outgoing.get(edge.from)?.push(edge);
-    }
-    const pumpEntity=node=>{
-      if(node.type==='pump')return node.sensors.state||node.sensors.pump||node.sensors.volume;
-      if(isSource(node)||node.type==='heating_circuit')return node.sensors.pump;
-      return null;
-    };
-    const pumpState=node=>{
-      const id=pumpEntity(node);
-      const state=id&&HPC_FREE.state(hass,id);
-      return state?HPC_FREE.active(state):null;
-    };
-    const blocked=node=>pumpState(node)===false;
-    const stoppedChargeCircuits=new Set();
-    const stoppedReturnEdges=new Set();
-
-    for(const tank of plan.components.filter(node=>node.type==='dhw_tank')){
-      // Inspect *directed supply* going into the heating coil. Never walk
-      // backwards through the DHW return to find an unrelated source pump.
-      const feeders=(incoming.get(tank.id)||[]).filter(e=>e.to_port==='coil_in');
-      const visited=new Set();
-      const hasStoppedFeed=id=>{
-        if(visited.has(id))return false;
-        visited.add(id);
-        const node=nodes[id];
-        if(!node||node.type==='dhw_tank')return false;
-        if(blocked(node))return true;
-        // Heat sources are the beginning of the charging route. Other
-        // circuits sharing a return manifold must not influence the feed.
-        if(isSource(node)||node.type==='heating_circuit')return false;
-        return (incoming.get(id)||[]).some(edge=>hasStoppedFeed(edge.from));
-      };
-      if(!feeders.some(edge=>hasStoppedFeed(edge.from)))continue;
-      stoppedChargeCircuits.add(tank.id);
-      // Suppress the return leg until it rejoins a larger circuit. Pipes
-      // after a shared manifold may still correctly animate for heating.
-      const traceReturn=(id,seen=new Set())=>{
-        if(seen.has(id))return;
-        seen.add(id);
-        for(const edge of outgoing.get(id)||[]){
-          if(id===tank.id&&edge.from_port!=='coil_out')continue;
-          const next=nodes[edge.to];
-          if(!next)continue;
-          stoppedReturnEdges.add(edge.id);
-          const branches=(adjacent.get(next.id)||[]).length;
-          if(!isSource(next)&&next.type!=='dhw_tank'&&
-            next.type!=='heating_circuit'&&branches<=2)traceReturn(next.id,seen);
-        }
-      };
-      traceReturn(tank.id);
-    }
-
-    for(const edge of plan.connections){
-      if(mappedFlow(edge)===true&&!stoppedReturnEdges.has(edge.id)&&
-        !stoppedChargeCircuits.has(edge.from)&&
-        !stoppedChargeCircuits.has(edge.to))flowing.add(edge.id);
-    }
-    const activePumps=plan.components.filter(node=>pumpState(node)===true);
-    for(const pump of activePumps){
-      const queue=[pump.id],visited=new Set();
-      while(queue.length){
-        const id=queue.shift();
-        if(visited.has(id))continue;
-        visited.add(id);
-        for(const {edge,neighbor} of adjacent.get(id)||[]){
-          if(mappedFlow(edge)===false||stoppedReturnEdges.has(edge.id)||
-            stoppedChargeCircuits.has(edge.from)||stoppedChargeCircuits.has(edge.to))continue;
-          const next=nodes[neighbor];
-          if(!next||blocked(next))continue;
-          flowing.add(edge.id);
-          // Avoid treating a different heat generator or heating zone as
-          // evidence that its whole branch is flowing.
-          const unknownSource=(isSource(next)||next.type==='heating_circuit')
-            && pumpEntity(next)==null&&next.id!==pump.id;
-          if(!unknownSource&&!visited.has(neighbor))queue.push(neighbor);
-        }
-      }
-    }
-    return flowing;
+    return HPC_NETWORK.flowStates(plan,hass);
   }
 
-
-  // SVG artwork in the same coordinates and visual language as the original
-  // heat-source/puffer drawings. All geometry is our own, no ETA image assets.
   function chipArt(x,y,width,height,node,on) {
     // Original SVG artwork inspired by the supplied ETA reference: a silver
     // left service body, yellow door with recessed dark viewing chamber and
@@ -534,78 +420,14 @@ const HPC_INTEGRATED = (() => {
       const fromShape=loc(edge.from),toShape=loc(edge.to);
       const p=port(all[edge.from],fromShape,edge.from_port);
       const q=port(all[edge.to],toShape,edge.to_port);
-      let d;
       const fromSide=portSide(all[edge.from],fromShape,edge.from_port);
       const toSide=portSide(all[edge.to],toShape,edge.to_port);
-      if(p.x>q.x+8||fromSide==='L'||toSide==='R'){
-        // Always leave and enter a vessel on the physical port side.
-        // A heat-exchanger outlet on the LEFT must not traverse the tank.
-        const farX=p.x+(fromSide==='L'?-36:38);
-        const entryX=q.x+(toSide==='R'?36:-36);
-        const laneY=p.y<q.y-120
-          ?Math.max(fromShape.y+fromShape.h+32,toShape.y-32)
-          :p.y>q.y+120
-          ?Math.min(fromShape.y-32,toShape.y+toShape.h+32)
-          :Math.max(fromShape.y+fromShape.h,toShape.y+toShape.h)+38;
-        d='M'+p.x+' '+p.y+' H'+farX+' V'+laneY+' H'+entryX+' V'+q.y+' H'+q.x;
-      }else{
-        const mid=(p.x+q.x)/2;
-        d='M'+p.x+' '+p.y+' H'+mid+' V'+q.y+' H'+q.x;
-      }
-      // The coil is always entered from its left side, using an overhead
-      // routing lane. Do not cross through the tank or a pump symbol.
-      if(all[edge.to]?.type==='dhw_tank'&&edge.to_port==='coil_in'){
-        const outsideX=Math.max(p.x+36,toShape.x+toShape.w+42);
-        const aboveY=Math.max(10,Math.min(toShape.y-24,fromShape.y-25,16));
-        const entryX=q.x-34;
-        d='M'+p.x+' '+p.y+' H'+outsideX+' V'+aboveY+
-          ' H'+entryX+' V'+q.y+' H'+q.x;
-      }
-      // Take the WW branch off the common header at a T fitting, just
-      // like another heating circuit. The coil inlet/outlet remain on the
-      // left; no pipe may cross the tank or create a second parallel header.
       const supplyTee=supplyTees.get(edge.id);
       const returnTee=returnTees.get(edge.id);
-      // The DHW coil is drawn above the buffer. A return to its right-hand
-      // collector must travel AROUND the vessel: never through the tank.
-      // Use the same outer pipe lane for charging pumps and their coil return.
-      const bufferCoilReturn=all[edge.from]?.type==='dhw_tank'&&
-        edge.from_port==='coil_out'&&all[edge.to]?.type==='buffer'&&
-        edge.to_port==='bottom_in';
-      const bufferCoilSupply=all[edge.from]?.type==='buffer'&&
-        all[edge.to]?.type==='pump'&&toShape.inline&&
-        edge.from_port==='top_out'&&edge.to_port==='in';
-      if(bufferCoilReturn&&!returnTee){
-        // A return enters the buffer on the LEFT. Take the coil outlet
-        // around the entire storage envelope rather than across the tank.
-        const exitX=p.x-70;
-        const below=Math.max(toShape.y+toShape.h+32,fromShape.y+fromShape.h+34);
-        const entryX=q.x-35;
-        d='M'+p.x+' '+p.y+' H'+exitX+' V'+below+
-          ' H'+entryX+' V'+q.y+' H'+q.x;
-      }else if(bufferCoilSupply&&!supplyTee){
-        // Source outlet -> inline pump input: all pipe pieces meet at the
-        // actual port centres (no hidden gap or pump bypass).
-        const laneX=Math.min(q.x-30,p.x+35);
-        d='M'+p.x+' '+p.y+' H'+laneX+' V'+q.y+' H'+q.x;
-      }
-      if(supplyTee){
-        // The tee only joins an actual header. Keep the horizontal segment
-        // from the buffer outlet and run the complete pipe through its pump.
-        const viaX=Math.max(supplyTee.x,p.x+20);
-        const entryX=q.x-30;
-        d='M'+p.x+' '+p.y+' H'+viaX+' V'+q.y+' H'+entryX+' H'+q.x;
-      }else if(returnTee){
-        // Join the actual left-hand return inlet, without a right-side
-        // collector pretending to be a buffer entry.
-        const exitX=p.x-70;
-        const bufferShape=all[edge.to]?.type==='buffer'?toShape:null;
-        const below=bufferShape?Math.max(bufferShape.y+bufferShape.h+32,fromShape.y+fromShape.h+34):
-          Math.max(555,fromShape.y+fromShape.h+35);
-        const entryX=q.x-35;
-        d='M'+p.x+' '+p.y+' H'+exitX+' V'+below+
-          ' H'+entryX+' V'+q.y+' H'+q.x;
-      }
+      const d=HPC_NETWORK.route({
+        edge,fromNode:all[edge.from],toNode:all[edge.to],
+        fromShape,toShape,p,q,fromSide,toSide,supplyTee,returnTee
+      });
       const inferred=(()=>{
         const node=all[edge.from],field=edge.from_port;
         if(field==="flow")return node.sensors.flow;
@@ -841,7 +663,7 @@ const HPC_INTEGRATED = (() => {
       ?'<g class="tap hpi-gas-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
         +additionalSourceArt('gas_boiler',{x:50,y:195},!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource)+'</g>'
       :'';
-    const firstBuffer=plan.components.find(c=>c.type==='buffer');
+    const firstBuffer=HPC_NETWORK.orderedBuffers(plan)[0];
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank');
     return {defs,body:'<g id="hpc-integrated">'+links+nodes+accessories+pipeLabels+lift+primaryChip+primaryOil+primaryGas+'</g>',
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
