@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './test',
-  testMatch: ['hydraulic-plan.spec.mjs', 'fullscreen-scroll.spec.mjs'],
+  testMatch: '*.spec.mjs',
   timeout: 45_000,
   expect: { timeout: 20_000 },
   reporter: [['line'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],

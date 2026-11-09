@@ -78,6 +78,46 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         tank.setAttribute('stroke-width','1.25');
       }
     }
+    _syncNativeCircuitFlow(svg,plan,nativePaths={}) {
+      // The original radiator, mixer and pump art remains untouched. Only
+      // activation of its existing pipe segments follows the SAME graph used
+      // by additional generators and WW charging loops.
+      const evidence=HPC_NETWORK.flowEvidence(plan,this._hass);
+      const circuits=plan.components.filter(n=>n.type==='heating_circuit').slice(0,6);
+      const allActive=[];
+      for(const [index,circuit] of circuits.entries()){
+        const suffix=index?String(index+1):'';
+        const flow=plan.connections.filter(e=>e.to===circuit.id&&e.to_port==='flow_in');
+        const ret=plan.connections.filter(e=>e.from===circuit.id&&e.from_port==='return_out');
+        const active=flow.length>0&&ret.length>0&&
+          flow.some(e=>evidence.get(e.id)?.active)&&
+          ret.some(e=>evidence.get(e.id)?.active);
+        allActive.push(active);
+        // The original radiator and mixer paths remain in their SVG group,
+        // but the external pipe geometry comes from HPC_NETWORK.mergeRoutes.
+        const paths=nativePaths[circuit.id]||{};
+        for(const [leg,part] of [['flow','vl'],['return','rl']]){
+          const pipe=svg.querySelector('#p-hc-'+part+suffix);
+          const flowPath=svg.querySelector('#f-hc-'+part+suffix);
+          if(pipe)pipe.setAttribute('d',paths[leg]?.pipe||'');
+          if(flowPath)flowPath.setAttribute('d',paths[leg]?.flow||'');
+          if(flowPath)flowPath.classList.toggle('on',active&&!!paths[leg]?.flow);
+        }
+        const body=svg.querySelector('#f-hc-body'+suffix);
+        if(body)body.classList.toggle('on',active);
+        const mixer=svg.querySelector('#p-hc-mix'+suffix);
+        if(mixer)mixer.classList.toggle('on',active);
+      }
+      // Legacy risers and collector strips were independent fixed pipe
+      // geometry. The graph routes now own those segments exactly once.
+      for(const path of svg.querySelectorAll(
+        'path[id^="p-hc-trunk"],path[id^="f-hc-trunk"],'+
+        'path[id^="p-hc-up"],path[id^="f-hc-up"],'+
+        'path[id^="p-hc-down"],path[id^="f-hc-down"]')){
+        path.setAttribute('d','');
+        path.classList.remove('on');
+      }
+    }
     _syncAdditional(force=false) {
       const p=this._integratedPlan;
       if(!this._hass||!p?.components.length)return;
@@ -153,6 +193,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(title)title.textContent=p.components.find(c=>c.id===firstBuffer)?.name||title.textContent;
       }
       this._polishBufferPipes(svg,p,firstBuffer);
+      this._syncNativeCircuitFlow(svg,p,rendered.nativePipes);
       if(firstDhw){
         svg.querySelector('rect.tank[x="520"][y="40"]')?.setAttribute('fill','url(#hpi-'+firstDhw+')');
         const title=svg.querySelector('text.tank-title[x="580"][y="30"]');
@@ -721,7 +762,19 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           ${bufferList.length>=2?`<div class="hpc-ems">
             <strong>${t("Pufferspeicher verbinden","Connect buffer tanks")}</strong>
             <p>${t("Reihenschaltung: Vorlauf jeweils oben zum nächsten Puffer, Rücklauf unten zurück zum vorherigen. Bereits vorhandene Verbindungen bleiben erhalten; prüfe die tatsächliche Verrohrung.","Series layout: hot flow at the top to the next buffer, cooler return at the bottom to the previous. Existing connections are retained; check your actual pipework.")}</p>
-            <button type="button" data-action="buffer-series">${t("Puffer in Reihe verbinden","Connect buffers in series")}</button>
+            <div class="hpc-row">
+              <button type="button" data-action="buffer-series">${t("Puffer in Reihe verbinden","Connect buffers in series")}</button>
+              <label class="hpc-field">${t("Wärmeerzeuger für parallele Puffer","Heat source for parallel buffers")}
+                <select id="hpc-buffer-source">
+                  ${p.components.filter(c=>HPC_FREE.byType[c.type]?.group==='source')
+                    .map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+                </select>
+              </label>
+              <button type="button" data-action="buffer-parallel"
+                ${p.components.some(c=>HPC_FREE.byType[c.type]?.group==='source')?'':'disabled'}>
+                ${t("Puffer parallel verbinden","Connect buffers in parallel")}</button>
+            </div>
+            <p id="hpc-buffer-notice" role="alert" class="hpc-connection-warning"></p>
           </div>`:""}
           ${misplacedBufferEdges.length?`<p class="hpc-connection-warning">${t("Achtung: Eine Pufferleitung ist von unten nach oben verbunden. Bitte prüfen, ob das der tatsächlichen Verrohrung entspricht.","Warning: a buffer pipe links bottom to top. Verify this corresponds to the actual installation.")}</p>`:""}
           <details class="hpc-advanced-pipes">
@@ -1036,6 +1089,19 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         }
         if(action==="buffer-series"){
           const next=HPC_FREE.connectBufferSeries(p);
+          if(next.connections.length===p.connections.length)return;
+          return this._applyPlan(next);
+        }
+        if(action==="buffer-parallel"){
+          const source=root.querySelector('#hpc-buffer-source')?.value;
+          const next=HPC_FREE.connectBuffersParallel(p,source);
+          if(!next){
+            const notice=root.querySelector('#hpc-buffer-notice');
+            if(notice)notice.textContent=t(
+              'Bestehende Pufferverbindungen zuerst prüfen: eine Reihenschaltung wird nicht automatisch überschrieben.',
+              'Check existing buffer connections: confirmed series piping is never overwritten.');
+            return;
+          }
           if(next.connections.length===p.connections.length)return;
           return this._applyPlan(next);
         }

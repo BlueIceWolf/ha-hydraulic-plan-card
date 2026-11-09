@@ -73,6 +73,39 @@ const heatingOnly=HPC_NETWORK.flowStates(independentlyPumped,
 check(!heatingOnly.has('e4')&&!heatingOnly.has('e5')&&
   heatingOnly.has('heatSupply')&&heatingOnly.has('heatReturn'),
   'Heating circuit still circulates when a separate WW loading pump is off');
+const unknownWwPump=HPC_NETWORK.flowStates(independentlyPumped,
+  hass({'switch.ladepumpe':'unavailable','switch.hk_pumpe':'on'}));
+check(unknownWwPump.has('heatSupply')&&unknownWwPump.has('heatReturn')&&
+  !unknownWwPump.has('e3')&&!unknownWwPump.has('e4')&&!unknownWwPump.has('e5'),
+  'Heating pump never activates an independent WW coil whose own pump is unavailable');
+const heatingOff=HPC_NETWORK.flowStates(independentlyPumped,
+  hass({'switch.ladepumpe':'on','sensor.durchfluss':[240,'l/h'],
+    'switch.hk_pumpe':'off'}));
+check(['e3','e4','e5'].every(id=>heatingOff.has(id))&&
+  !heatingOff.has('heatSupply')&&!heatingOff.has('heatReturn'),
+  'Stopped heating return cannot suppress independent active WW charging loop');
+// An ON command is not hydraulic proof when there is no return connection.
+const openLoop=structuredClone(independentlyPumped);
+openLoop.connections=openLoop.connections.filter(e=>e.id!=='heatReturn');
+const openPump=HPC_NETWORK.flowStates(openLoop,
+  hass({'switch.ladepumpe':'off','switch.hk_pumpe':'on'}));
+check(!openPump.has('heatSupply')&&openPump.size===0,
+  'An open heating supply never animates as a closed circuit');
+
+// The same circuit with a proper return is inferred from its pump, not metered.
+const completePump=HPC_NETWORK.flowEvidence(independentlyPumped,
+  hass({'switch.ladepumpe':'off','switch.hk_pumpe':'on'}));
+check(completePump.get('heatSupply')?.state==='inferred'&&
+  completePump.get('heatReturn')?.state==='inferred',
+  'A complete running heating loop is classified as inferred, not measured');
+
+// A stopped inline pump must interrupt an otherwise reachable path.
+const blockedLoop=structuredClone(independentlyPumped);
+blockedLoop.connections.find(e=>e.id==='heatReturn').flow_entity='sensor.hk_volumen';
+check(!HPC_NETWORK.flowStates(blockedLoop,
+  hass({'switch.ladepumpe':'off','switch.hk_pumpe':'on',
+    'sensor.hk_volumen':[0,'l/h']})).has('heatSupply'),
+  'Measured zero on the return disables the complete closed heating loop');
 const metadata={components:[{id:'boiler',type:'oil_boiler',name:'Old boiler',
   sensors:{custom_future:'sensor.custom_extra'},options:{future_setting:'keep'},
   custom_details:{a:1}}],
@@ -140,9 +173,69 @@ const splitRoutes=HPC_NETWORK.mergeRoutes([
   {edge:{id:'flow2',from_port:'top_out',to_port:'flow_in'},
     d:'M640 360 H680 V590 H815',on:true}
 ]);
-check(!splitRoutes.get('flow2').pipe.includes('M640 360 H680')&&
-  splitRoutes.get('flow1').flow.includes('M640 360 H680'),
-  'Shared hot-water header is drawn once and active if one branch circulates');
+check(!splitRoutes.get('flow1').pipe.includes('M640 360 H680')&&
+  splitRoutes.get('flow2').flow.includes('M640 360 H680'),
+  'Shared header is drawn once on the actually flowing route, never the stopped branch');
+// Classify hydraulic evidence without inventing a numerical flow rate.
+const evidMeasured=HPC_NETWORK.flowEvidence(plan,
+  hass({'switch.ladepumpe':'on','sensor.durchfluss':[245,'l/h']}));
+check(evidMeasured.get('e3')?.state==='measured'&&
+  evidMeasured.get('e4')?.state==='measured',
+  'Positive volumetric measurement is reported as measured evidence');
+check(evidMeasured.get('e5')?.state==='inferred',
+  'A shared return is not falsely labelled as directly measured');
+const evidOff=HPC_NETWORK.flowEvidence(plan,
+  hass({'switch.ladepumpe':'off','sensor.durchfluss':[240,'l/h']}));
+check(evidOff.get('e4')?.state==='stopped'&&
+  evidOff.get('e5')?.state==='stopped',
+  'Stopped charging pump marks both coil legs definitively interrupted');
+const evidUnknown=HPC_NETWORK.flowEvidence(plan,hass());
+check(evidUnknown.get('e4')?.state==='unknown'&&
+  evidUnknown.get('e5')?.state==='unknown',
+  'Missing measurements and pump state remain unknown');
+const evidValved=HPC_NETWORK.flowEvidence(valvePlan,
+  hass({'sensor.valve':'Heizen','switch.main_pump':'on'}));
+check(evidValved.get('wwfeed')?.state==='stopped'&&
+  evidValved.get('wwback')?.state==='stopped',
+  'Heating changeover stops the entire WW coil including its return');
+const crossing=HPC_NETWORK.mergeRoutes([
+  {edge:{id:'hot',from_port:'flow',to_port:'flow_in'},d:'M0 25 H100',on:true},
+  {edge:{id:'cold',from_port:'return_out',to_port:'bottom_in'},
+    d:'M50 0 V50',on:true}
+]);
+check(crossing.get('hot')?.pipe.includes('H44')&&
+  crossing.get('hot')?.pipe.includes('M56 25 H100')&&
+  crossing.get('cold')?.pipe==='M50 0 V50',
+  'Crossing hot flow has a drafting gap; unrelated return is continuous');
+const actualTee=HPC_NETWORK.mergeRoutes([
+  {edge:{id:'t1',from_port:'top_out',to_port:'flow_in'},
+    d:'M0 25 H100',on:true},
+  {edge:{id:'t2',from_port:'top_out',to_port:'flow_in'},
+    d:'M50 25 V60',on:true}
+]);
+check(!actualTee.get('t1')?.pipe.includes('H44')&&
+  actualTee.get('t1')?.pipe.includes('H100'),
+  'Shared supply T-junction does not acquire a false crossing gap');
+// Explicit parallel coupling must never be guessed from serial tank order.
+const parallelBase=HPC_FREE.normalize({
+  components:[{id:'oil_source',type:'oil_boiler',name:'Ölkessel',sensors:{}},
+    {id:'b1',type:'buffer',name:'Puffer 1',sensors:{}},
+    {id:'b2',type:'buffer',name:'Puffer 2',sensors:{}},
+    {id:'b3',type:'buffer',name:'Puffer 3',sensors:{}}],
+  connections:[]
+});
+const parallel=HPC_FREE.connectBuffersParallel(parallelBase,'oil_source');
+check(parallel?.connections.length===6&&
+  HPC_NETWORK.bufferTopology(parallel).mode==='parallel'&&
+  HPC_NETWORK.bufferTopology(parallel).sourceId==='oil_source',
+  'Parallel tank headers require explicit selected generator and real hot/return legs');
+const parallelAgain=HPC_FREE.connectBuffersParallel(parallel,'oil_source');
+check(parallelAgain?.connections.length===6,
+  'Parallel linking is idempotent and never duplicates common headers');
+const confirmedSerial=HPC_FREE.connectBufferSeries(parallelBase);
+check(HPC_FREE.connectBuffersParallel(confirmedSerial,'oil_source')===null&&
+  confirmedSerial.connections.length===4,
+  'User-defined serial topology cannot be silently replaced by a parallel guess');
 document.querySelector('#result').textContent=checks.every(line=>line.startsWith('OK'))?'PASS':'FAIL';
 document.querySelector('#log').textContent=checks.join('\n');
 </script></body></html>

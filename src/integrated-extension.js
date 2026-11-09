@@ -49,8 +49,9 @@ const HPC_INTEGRATED = (() => {
     // primary source. The diagram grows by rows, without custom-sized tiles
     // that looked like unrelated cards.
     for(const [index,node] of byGroup.source.entries()){
-      points.set(node.id,{x:50+Math.floor(index/4)*265,
-        y:475+(index%4)*260,w:240,h:235,type:node.type});
+      // All additional heat sources remain left of the buffer. A new
+      // column after source #5 would overlap the first native tank.
+      points.set(node.id,{x:50,y:475+index*260,w:240,h:235,type:node.type});
     }
     // Discover the buffer sequence from the user's directed pipe connections.
     // This works regardless of the order in which buffers were added.
@@ -62,20 +63,29 @@ const HPC_INTEGRATED = (() => {
     // below original heating circuits, otherwise the third tank could
     // overlap an original radiator or its mixer.
     const bottomHeating=330+(Math.max(1,Math.min(hcCount,6))-1)*250+140;
-    const bufferStartY=Math.max(555,bottomHeating+65);
+    const bufferMode=HPC_NETWORK.bufferTopology(p).mode;
+    const bufferStartY=bufferMode==='parallel'?555:
+      Math.max(555,bottomHeating+65);
     orderedBuffers.forEach((node,index)=>{
-      points.set(node.id,{x:680+index*160,
-        y:bufferStartY,w:120,h:200,type:node.type});
+      // True parallel tanks are in one vertical bank; directed serial
+      // connections are laid left-to-right with facing hot-water ports.
+      points.set(node.id,bufferMode==='parallel'
+        ?{x:520,y:bufferStartY+index*225,w:120,h:200,type:node.type}
+        :{x:680+index*160,y:bufferStartY,w:120,h:200,type:node.type});
     });
     // Buffer-fed WW coils belong to the consumer column, just like a heating
     // circuit; all other tanks continue to use the original storage artwork.
     let consumerTanks=0,otherTanks=0;
+    const lastBufferRight=orderedBuffers.length
+      ?Math.max(...orderedBuffers.map(n=>points.get(n.id).x+120))
+      :firstBuffer?640:0;
+    const consumerX=Math.max(1040,lastBufferRight+80);
     extraDhw.forEach(node=>{
       const chargingFromBuffer=bufferFedTanks.has(node.id);
       const index=chargingFromBuffer?consumerTanks++:otherTanks++;
       points.set(node.id,chargingFromBuffer
-        ?{x:1040,y:300+index*225,w:120,h:200,type:node.type}
-        :{x:680+(index%2)*160,y:40+Math.floor(index/2)*220,w:120,h:200,type:node.type});
+        ?{x:consumerX,y:300+index*225,w:120,h:200,type:node.type}
+        :{x:680+index*160,y:40,w:120,h:200,type:node.type});
     });
     // WW charging devices sit next to their coil, not in a disconnected
     // column at the other end of the schematic. They are still real
@@ -100,12 +110,12 @@ const HPC_INTEGRATED = (() => {
           // Pick a distinct piece of the actual charging supply for each
           // tank. This also avoids placing two loading-pump icons on top of
           // each other when a buffer has multiple DHW charging branches.
-          const laneX=sourceBox
-            ?Math.min(tankBox.x-80,sourceBox.x+sourceBox.w+80)
-            :tankBox.x-80;
-          const laneY=sourceBox?.type==='buffer'
-            ?Math.max(sourceBox.y+sourceBox.h*.2-20,tankBox.y+20)
-            :tankBox.y+20;
+          const laneX=tankBox.x-70;
+          // Charge from the unobstructed shoulder just above each tank,
+          // instead of sending the loading pump through the original
+          // radiator/mixer column at y=330..470.
+          const laneY=bufferFedTanks.has(tank.id)
+            ?Math.max(50,tankBox.y-70):tankBox.y+20;
           points.set(node.id,{x:laneX,y:laneY,w:40,h:40,type:node.type,inline:true});
           return;
         }
@@ -113,7 +123,10 @@ const HPC_INTEGRATED = (() => {
       const [w,h]=HPC_FREE.dimension(node.type);
       points.set(node.id,{x:320,y:72+index*242,w,h,type:node.type});
     });
-    const controlStart=Math.max(1190,storageStart+530);
+    const directTankEnd=Math.max(0,...extraDhw.map(n=>
+      points.get(n.id).x+points.get(n.id).w));
+    const controlStart=Math.max(1190,storageStart+530,
+      lastBufferRight+70,consumerTanks?consumerX+200:0,directTankEnd+60);
     const controlEnd=placeColumn(
       byGroup.control.filter(n=>!chargeControls.includes(n)),
       controlStart,90,265,260);
@@ -225,7 +238,8 @@ const HPC_INTEGRATED = (() => {
       };
       return positions[key]||{x:shape.x,y:shape.y+40};
     }
-    if(shape.type==='heating_circuit')return{x:shape.x,y:key==='return_out'?shape.y+135:shape.y+30};
+    // Ports coincide with the ORIGINAL radiator body, not its surrounding tile.
+    if(shape.type==='heating_circuit')return{x:shape.x+11,y:key==='return_out'?shape.y+125:shape.y+30};
     const def=HPC_FREE.ports(node.type).find(p=>p.id===key);
     return{x:shape.x+(def?.side==='R'?shape.w:0),y:shape.y+(def?.y??.5)*shape.h};
   }
@@ -400,7 +414,9 @@ const HPC_INTEGRATED = (() => {
     const all=Object.fromEntries(plan.components.map(c=>[c.id,c]));
     const loc=id=>anchored.get(id)||points.get(id);
     const defs=plan.components.filter(isTank).map(c=>'<linearGradient id="hpi-'+c.id+'" x1="0" y1="0" x2="0" y2="1">'+stops(c,hass)+'</linearGradient>').join('');
-    const flowing=flowStates(plan,hass);
+    const evidence=HPC_NETWORK.flowEvidence(plan,hass);
+    const flowing=new Set([...evidence].filter(([,reading])=>reading.active)
+      .map(([edgeId])=>edgeId));
     // The WW coil is a selectable consumer of the shared heating supply
     // and return. Mark branch junctions without creating fake components.
     const branchTankIds=new Set(plan.components.filter(n=>
@@ -439,12 +455,10 @@ const HPC_INTEGRATED = (() => {
       // A return enters on the LEFT of the buffer, so do not place a fake
       // tee on the right-hand heating collector. Draw its real return route.
     }
-    const routeRecords=plan.connections.map(edge=>{
-      // The original circuit artwork already contains its shared risers,
-      // valves and radiators. Only supplemental routes need drawing.
-      if((all[edge.from]?.type==='heating_circuit'||
-          all[edge.to]?.type==='heating_circuit')&&
-          anchored.has(edge.from)&&anchored.has(edge.to))return null;
+    const obstacles=[...anchored,...points].map(([id,b])=>({id,...b}));
+    const routeRecords=[...plan.connections,...HPC_NETWORK.auxiliaryEdges(plan,hass)].map(edge=>{
+      // Native heating circuits keep their original radiator/mixer pictograms,
+      // but their actual supply/return paths use this very same pipe registry.
       const fromShape=loc(edge.from),toShape=loc(edge.to);
       if(!fromShape||!toShape)return null;
       const p=port(all[edge.from],fromShape,edge.from_port);
@@ -455,7 +469,7 @@ const HPC_INTEGRATED = (() => {
       const returnTee=returnTees.get(edge.id);
       const d=HPC_NETWORK.route({
         edge,fromNode:all[edge.from],toNode:all[edge.to],
-        fromShape,toShape,p,q,fromSide,toSide,supplyTee,returnTee
+        fromShape,toShape,p,q,fromSide,toSide,supplyTee,returnTee,obstacles
       });
       const from=all[edge.from],field=edge.from_port;
       const inferred=field==='flow'?from.sensors.flow:
@@ -463,24 +477,44 @@ const HPC_INTEGRATED = (() => {
         field==='mid_out'?from.sensors.middle:
         field==='bottom_out'?from.sensors.bottom:'';
       const reading=HPC_FREE.state(hass,edge.temperature_entity||inferred);
-      return {edge,d,on:flowing.has(edge.id),
+      const nativeCircuit=all[edge.to]?.type==='heating_circuit'&&anchored.has(edge.to)
+        ?edge.to:all[edge.from]?.type==='heating_circuit'&&anchored.has(edge.from)
+          ?edge.from:null;
+      return {edge,d,nativeCircuit,on:edge.kind==='return_lift'?edge.active:flowing.has(edge.id),
+        evidence:edge.kind==='return_lift'?(edge.active?'inferred':'stopped'):
+          evidence.get(edge.id)?.state||'unknown',
         color:reading?HPC_FREE.color(reading):null,
         junction:supplyTee||returnTee};
     }).filter(Boolean);
     // Resolve all route overlaps together, rather than having every boiler,
     // tank or heating circuit draw a second copy of the same collector.
     const physicalPipes=HPC_NETWORK.mergeRoutes(routeRecords);
-    const links=routeRecords.map(({edge,on,color,junction})=>{
+    const nativePipes={};
+    for(const record of routeRecords.filter(r=>r.nativeCircuit)){
+      const direction=record.edge.to===record.nativeCircuit?'flow':'return';
+      const pair=physicalPipes.get(record.edge.id)||{pipe:'',flow:''};
+      const group=nativePipes[record.nativeCircuit]||(nativePipes[record.nativeCircuit]={});
+      const leg=group[direction]||(group[direction]={pipe:'',flow:''});
+      leg.pipe+=(leg.pipe?' ':'')+pair.pipe;
+      leg.flow+=(leg.flow?' ':'')+pair.flow;
+    }
+    const links=routeRecords.filter(r=>!r.nativeCircuit)
+      .map(({edge,on,color,junction,evidence:pipeState})=>{
       const paths=physicalPipes.get(edge.id)||{pipe:'',flow:''};
       const tee=junction?'<circle class="hpi-coil-branch" cx="'+junction.x+
         '" cy="'+junction.y+'" r="5" fill="var(--card-background-color,#fff)" stroke="'+
         (on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+
         '" stroke-width="2"/>':'';
-      return '<g class="hpi-link" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"><title>'+
+      const rla=edge.kind==='return_lift';
+      return '<g class="hpi-link'+(rla?' hpi-rla':'')+
+        '" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"'+
+        (rla?' data-hpi-rla="'+HPC_FREE.esc(edge.from)+'"':'')+
+        ' data-flow-evidence="'+HPC_FREE.esc(pipeState)+'"><title>'+
         HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'+
-        '<path class="pipe'+(paths.flow?' on':'')+'" d="'+paths.pipe+'"'+
-        (color?' style="--pc:'+color+'"':'')+'/>'+
-        '<path class="flow'+(paths.flow?' on':'')+'" d="'+paths.flow+'"/>'+tee+'</g>';
+        '<path class="pipe'+(rla?' hpi-rla-bypass':'')+(paths.flow?' on':'')+
+        '" d="'+paths.pipe+'"'+(color?' style="--pc:'+color+'"':'')+'/>'+
+        (paths.flow?'<path class="flow'+(rla?' hpi-rla-flow':'')+
+          ' on" d="'+paths.flow+'"/>':'')+tee+'</g>';
     }).join('');
     const nodes=extras.map(node=>{
       const b=points.get(node.id);if(!b)return '';
@@ -658,38 +692,26 @@ const HPC_INTEGRATED = (() => {
       }
       return readings.join('');
     }).join('');
-    const lift=plan.components.filter(node=>node.type==='wood_gasifier'&&node.options?.return_lift)
-      .map(node=>{
-        const b=loc(node.id);
-        if(!b)return '';
-        const isCore=anchored.has(node.id);
-        const outletX=b.x+b.w;
-        const supplyY=isCore?250:b.y+57;
-        const returnY=isCore?380:b.y+b.h-34;
-        const valveX=outletX+42;
-        const fromX=outletX;
-        // Attached RLA loop: two real attachment points at the boiler flow
-        // and return; the visual branch must not end in mid-air.
-        const returnX=isCore?outletX:b.x;
-        const bypass=isCore
-          ?'M'+fromX+' '+supplyY+' H'+valveX+' V'+returnY+' H'+returnX
-          :'M'+fromX+' '+supplyY+' H'+valveX+' V'+returnY+
-            ' V'+(b.y+b.h+22)+' H'+(b.x-22)+' V'+returnY+' H'+returnX;
-        const state=HPC_FREE.state(hass,node.sensors.pump);
-        const flowing=state!==null&&HPC_FREE.active(state);
-        const position=HPC_FREE.state(hass,node.sensors.mixer);
-        const percentage=position?.number!==null&&Number.isFinite(position?.number)
-          ?' '+Math.round(position.number)+' %':'';
-        const label=String(hass?.locale?.language||'de').startsWith('de')?'RLA':'RLT';
-        return '<g class="hpi-rla" data-hpi-rla="'+HPC_FREE.esc(node.id)+'">'
-          +'<title>'+HPC_FREE.esc('Rücklaufanhebung / Return-temperature lift – '+node.name)+'</title>'
-          +'<path class="hpi-rla-bypass" d="'+bypass+'"/>'
-          +(flowing?'<path class="hpi-rla-flow" d="'+bypass+'"/>':'')
-          +'<circle class="hpi-rla-valve" cx="'+valveX+'" cy="'+returnY+'" r="14"/>'
-          +'<path class="hpi-rla-symbol" d="M'+(valveX-8)+' '+(returnY-7)+' L'+valveX+' '+returnY+' L'+(valveX+8)+' '+(returnY-7)+' M'+valveX+' '+returnY+' v10"/>'
-          +'<text class="hpi-rla-label" x="'+(valveX+20)+'" y="'+(returnY-10)+'">'+HPC_FREE.esc(label+percentage)+'</text>'
-          +'</g>';
-      }).join('');
+    const lift=HPC_NETWORK.auxiliaryEdges(plan,hass).map(edge=>{
+      const node=all[edge.from],b=loc(edge.from);
+      if(!node||!b)return '';
+      const outlet=port(node,b,'flow'),returnPort=port(node,b,'return');
+      const valveX=Math.max(outlet.x,returnPort.x)+42;
+      const returnY=returnPort.y;
+      const position=HPC_FREE.state(hass,node.sensors.mixer);
+      const percentage=position?.number!==null&&Number.isFinite(position?.number)
+        ?' '+Math.round(position.number)+' %':'';
+      const label=String(hass?.locale?.language||'de').startsWith('de')?'RLA':'RLT';
+      // Only the valve pictogram is overlaid. Its actual bypass pipe and
+      // animation are generated by HPC_NETWORK and deduplicated with all
+      // other physical hydraulic segments.
+      return '<g class="hpi-rla-marker" data-hpi-rla-marker="'+HPC_FREE.esc(node.id)+'">'
+        +'<title>'+HPC_FREE.esc('Rücklaufanhebung / Return-temperature lift – '+node.name)+'</title>'
+        +'<circle class="hpi-rla-valve" cx="'+valveX+'" cy="'+returnY+'" r="14"/>'
+        +'<path class="hpi-rla-symbol" d="M'+(valveX-8)+' '+(returnY-7)+' L'+valveX+' '+returnY+' L'+(valveX+8)+' '+(returnY-7)+' M'+valveX+' '+returnY+' v10"/>'
+        +'<text class="hpi-rla-label" x="'+(valveX+20)+'" y="'+(returnY-10)+'">'+HPC_FREE.esc(label+percentage)+'</text>'
+        +'</g>';
+    }).join('');
     const firstSource=plan.components.find(isSource);
     const sourceStatus=firstSource&&HPC_FREE.state(hass,firstSource.sensors.state);
     const primaryChip=firstSource?.type==='wood_chip_boiler'
@@ -710,7 +732,7 @@ const HPC_INTEGRATED = (() => {
     const firstBuffer=HPC_NETWORK.orderedBuffers(plan)[0];
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank'&&anchored.has(c.id));
     return {defs,body:'<g id="hpc-integrated">'+links+nodes+accessories+pipeLabels+lift+primaryChip+primaryOil+primaryGas+'</g>',
-      firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
+      nativePipes,firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
   return {layout,coreConfig,svg,tankPoints,flowStates,isSource};
 })();

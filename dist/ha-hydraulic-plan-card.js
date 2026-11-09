@@ -7570,7 +7570,7 @@ const HPC_FREE = (function makeFreeHelpers() {
   };
   const byType = Object.fromEntries(types.map(t=>[t.type,t]));
   const entityRx = /^(?:sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/;
-  const isId = id => typeof id==="string" && /^[a-z][a-z0-9_]{0,43}$/.test(id);
+  const isId = id => typeof id==="string" && /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(id);
   const esc = v => String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const text = (de,en,lang) => lang==="en"?en:de;
   const display = (type,lang="de") => byType[type] ? text(byType[type].de,byType[type].en,lang) : type;
@@ -7691,7 +7691,8 @@ const HPC_FREE = (function makeFreeHelpers() {
         flow_entity:entityRx.test(e.flow_entity||"")?e.flow_entity:"",
         temperature_entity:entityRx.test(e.temperature_entity||"")?e.temperature_entity:""});
     }
-    return {components,connections};
+    // Keep forward-compatible plan metadata even when this version cannot render it.
+    return {...raw,components,connections};
   }
   // Read the hydraulic direction from each port. Valves allow both directions,
   // whereas a boiler return port is never a valid pipe source.
@@ -7828,6 +7829,38 @@ const HPC_FREE = (function makeFreeHelpers() {
     }
     return normalize(plan);
   }
+
+  // Parallel buffers have individual source feed and return branches.
+  // Do not convert an existing serial arrangement or invent an unknown
+  // manifold. The user explicitly chooses the real upstream heat generator.
+  function connectBuffersParallel(input,sourceId){
+    const plan=normalize(input);
+    const source=plan.components.find(n=>n.id===sourceId&&byType[n.type]?.group==='source');
+    const buffers=plan.components.filter(n=>n.type==='buffer');
+    if(!source||buffers.length<2)return null;
+    const bufferIds=new Set(buffers.map(n=>n.id));
+    if(plan.connections.some(e=>bufferIds.has(e.from)&&bufferIds.has(e.to)))
+      return null; // existing series or another confirmed buffer topology
+    const pairs=[];
+    for(const tank of buffers){
+      pairs.push([source.id,'flow',tank.id,'top_in']);
+      pairs.push([tank.id,'bottom_out',source.id,'return']);
+    }
+    const used=new Set(plan.connections.map(e=>
+      [e.from,e.from_port,e.to,e.to_port].join('|')));
+    const ids=new Set(plan.connections.map(e=>e.id));
+    for(const [from,from_port,to,to_port] of pairs){
+      const key=[from,from_port,to,to_port].join('|');
+      if(used.has(key))continue;
+      if(!validConnection(plan,from,from_port,to,to_port))return null;
+      const id=nextId('leitung',ids);
+      ids.add(id);used.add(key);
+      plan.connections.push({id,from,from_port,to,to_port,
+        flow_entity:'',temperature_entity:''});
+    }
+    return normalize(plan);
+  }
+
   const nextId=(prefix,ids)=>{let i=1;while(ids.has(prefix+"_"+i))i++;return prefix+"_"+i;};
   function newNode(type,plan) {
     if(!byType[type])return null;
@@ -8055,7 +8088,7 @@ const HPC_FREE = (function makeFreeHelpers() {
   </svg>`;
 }
   const css="\n  :host { display:block; --hpc-muted: var(--secondary-text-color, #7b8798); }\n  ha-card { background:var(--ha-card-background,var(--card-background-color,#fff)); padding:14px;overflow:hidden; }\n  .hpc-board {width:100%;overflow:auto;overscroll-behavior:contain;border-radius:12px;\n    border:1px solid var(--divider-color,rgba(110,125,145,.22));\n    background:var(--card-background-color,rgba(0,0,0,.02));}\n  #hpc-free-svg{min-width:650px;display:block;width:100%;height:auto;max-height:72vh;}\n  .hpc-appliance .hpc-unit-border{fill:var(--secondary-background-color,rgba(126,144,160,.1));\n    stroke:var(--divider-color,#9ca3af);stroke-width:2.3;}\n  .hpc-appliance.is-on .hpc-unit-border{stroke:var(--hfc-heat,#ca793e);}\n  .hpc-node.is-selected .hpc-unit-border,.hpc-node.is-selected .hpc-tank-shadow{\n    stroke:var(--primary-color,#2196f3);stroke-width:4;}\n  .hpc-unit-border,.hpc-tank-shadow,.hpc-tank-main{filter:drop-shadow(0 2px 3px rgba(0,0,0,.08))}\n  .hpc-component-icon{stroke:var(--hpc-muted);fill:none;stroke-width:2.8}\n  .hpc-component-icon.is-on{stroke:var(--hfc-hot,#b35b38)}\n  .hpc-component-icon circle,.hpc-component-icon rect{fill:var(--card-background-color,#fff)}\n  .hpc-node{cursor:pointer}.hpc-node:hover .hpc-unit-border{stroke:var(--primary-color,#2196f3)}\n  .hpc-label{font:600 16px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-name{font-size:15px}\n  .hpc-reading{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--primary-text-color,#222);}\n  .hpc-tank-reading{font:600 12px var(--ha-font-family-body,system-ui,sans-serif);\n    fill:#fff;stroke:rgba(29,46,62,.85);paint-order:stroke fill;stroke-width:3px;}\n  .hpc-detail{font:13px var(--ha-font-family-body,system-ui,sans-serif);fill:var(--secondary-text-color,#7d8590);}\n  .hpc-tank-shadow{fill:var(--card-background-color,#fff);stroke:var(--divider-color,#8e9bab);stroke-width:2.4;}\n  .hpc-tank-main{stroke:var(--divider-color,rgba(70,90,110,.6));stroke-width:1.3}\n  .hpc-tank-shine{fill:none;stroke:rgba(255,255,255,.28);stroke-width:6;stroke-linecap:round}\n  .hpc-tank-tick{fill:none;stroke:rgba(255,255,255,.50);stroke-width:1.1;}\n  .hpc-port{fill:var(--card-background-color,#fff);stroke:var(--hfc-flow-hot,#ad584b);stroke-width:2}\n  .hpc-route{pointer-events:none;}\n  .hpc-pipe-outline{fill:none;stroke:var(--divider-color,rgba(110,125,145,.5));\n    stroke-width:13;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-pipe{fill:none;stroke-width:9;stroke-linecap:round;stroke-linejoin:round;}\n  .hpc-arrow{fill:var(--primary-text-color,#516274);}\n  .hpc-pulse{fill:none;stroke:rgba(255,255,255,.9);stroke-width:3;stroke-dasharray:5 13;\n    animation:hpc-motion 1.35s linear infinite;}\n  @keyframes hpc-motion{to{stroke-dashoffset:-36}}\n  @media(prefers-reduced-motion:reduce){.hpc-pulse{animation:none;}}\n  .hpc-note{font-size:.82em;color:var(--secondary-text-color,#7d8590);margin:10px 3px 4px;}\n  .hpc-editor{font-family:var(--ha-font-family-body,inherit);color:var(--primary-text-color,inherit);}\n  .hpc-editor h3{font-size:1.02em;font-weight:600;margin:18px 0 9px;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding-bottom:6px}\n  .hpc-editor p{font-size:.88em;line-height:1.5;color:var(--secondary-text-color,#7d8590)}\n  .hpc-actions,.hpc-row{display:flex;flex-wrap:wrap;gap:8px;align-items:end;margin:9px 0}\n  .hpc-editor button,.hpc-editor select,.hpc-editor input{\n    box-sizing:border-box;font:inherit;border-radius:10px;\n    border:1px solid var(--divider-color,rgba(127,127,127,.34));\n    padding:10px 12px;color:var(--primary-text-color,inherit);\n    background:var(--card-background-color,#fff);max-width:100%;min-width:0}\n  .hpc-editor input:focus,.hpc-editor select:focus{outline:2px solid var(--primary-color,#03a9f4);outline-offset:1px}\n  .hpc-editor button{cursor:pointer;font-weight:500}\n  .hpc-editor button:hover{background:var(--secondary-background-color,rgba(127,127,127,.12))}\n  .hpc-editor button.hpc-primary{background:var(--primary-color,#03a9f4);color:#fff;border:0;}\n  .hpc-editor label{display:flex;flex-direction:column;gap:5px;font-size:.86em;font-weight:500;flex:1 1 170px;}\n  .hpc-editor .hpc-checkbox{display:flex;flex-direction:row;align-items:center;gap:11px;flex:1 1 100%;cursor:pointer;padding:11px 12px;border:1px solid var(--divider-color,rgba(127,127,127,.32));border-radius:10px;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-editor .hpc-checkbox input{width:19px;height:19px;margin:0;flex:0 0 auto;accent-color:var(--primary-color,#03a9f4);}\n  .hpc-editor .hpc-field{margin:6px 0;}\n  .hpc-editor .hpc-component-list{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}\n  .hpc-editor .hpc-pictogram{width:29px;height:29px;flex:none;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-add-preview{display:flex;align-items:center;justify-content:center;min-width:46px;min-height:46px;border-radius:12px;background:var(--secondary-background-color,rgba(127,127,127,.09))}\n  .hpc-editor .hpc-add-preview .hpc-pictogram{width:34px;height:34px;color:var(--primary-color,#03a9f4)}\n  .hpc-editor .hpc-config-title{display:flex;align-items:center;gap:9px}\n  .hpc-editor .hpc-config-title .hpc-pictogram{width:25px;height:25px}\n  .hpc-editor .hpc-component-list button{display:inline-flex;align-items:center;gap:8px;text-align:left}\n  .hpc-editor .hpc-component-list button span{display:flex;flex-direction:column;line-height:1.3}\n  .hpc-editor .hpc-component-list button small{font-size:.75em;font-weight:400;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-native-form{margin:8px 0 16px;--ha-form-grid-column-min-width:220px}\n  .hpc-editor .hpc-native-form ha-form{display:block}\n  .hpc-ems{border:1px solid var(--primary-color,#03a9f4);border-radius:12px;padding:8px 14px 14px;margin:14px 0;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-ems h3{margin-top:5px;}\n  .hpc-connection-warning{color:var(--error-color,#e16a42)!important;font-weight:600;}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-quick-connect{margin:8px 0 4px}\n  .hpc-editor .hpc-quick-connect label{flex:1 1 260px}\n  .hpc-editor .hpc-connection-hint{margin:4px 0 14px;font-size:.82em}\n  .hpc-editor details summary{cursor:pointer;font-weight:600;padding:8px 2px}\n  .hpc-editor .hpc-advanced-pipes{border-top:1px solid var(--divider-color,rgba(127,127,127,.16));margin:13px 0}\n  .hpc-editor .hpc-pipe-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding:9px 0}\n  .hpc-editor .hpc-pipe-row>span{display:flex;flex:1 1 230px;flex-direction:column;font-weight:500;font-size:.9em;line-height:1.4}\n  .hpc-editor .hpc-pipe-row small{font-weight:400;font-size:.87em;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-pipe-row details{flex:1 1 100%;font-size:.85em}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
-  return {types,byType,ports,portRole,validConnection,connectPair,connectDhwCharge,connectionPairs,connectBufferSeries,dimension,display,fieldLabel,icon,esc,normalize,newNode,sample,state,active,format,color,portXY,draw,css,text};
+  return {types,byType,ports,portRole,validConnection,connectPair,connectDhwCharge,connectionPairs,connectBufferSeries,connectBuffersParallel,dimension,display,fieldLabel,icon,esc,normalize,newNode,sample,state,active,format,color,portXY,draw,css,text};
 })();
 
 // Additional heating components share the original Heat Pump Hydraulic Card SVG.
@@ -8086,7 +8119,7 @@ const HPC_MIGRATION = (() => {
       warnings.push('Die Anlage überschreitet die unterstützte Bauteil- oder Leitungsanzahl.');
     for(const n of components){
       if(!n||!HPC_FREE.byType[n.type]||typeof n.id!=='string'||
-        !/^[a-z][a-z0-9_]{0,43}$/.test(n.id)||ids.has(n.id)){
+        !/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(n.id)||ids.has(n.id)){
         warnings.push('Unbekannter oder doppelter Bauteiltyp/Bezeichner; keine automatische Änderung.');
         continue;
       }
@@ -8133,7 +8166,7 @@ const HPC_MIGRATION = (() => {
       const from=components.find(n=>n?.id===e?.from);
       const to=components.find(n=>n?.id===e?.to);
       const targetPort=to?.type==='buffer'&&e?.to_port==='return_in'?'bottom_in':e?.to_port;
-      if(!e||typeof e.id!=='string'||! /^[a-z][a-z0-9_]{0,43}$/.test(e.id)||
+      if(!e||typeof e.id!=='string'||! /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(e.id)||
         edges.has(e.id)||!from||!to||e.from===e.to||
         !HPC_FREE.ports(from.type).some(p=>p.id===e.from_port)||
         !HPC_FREE.ports(to.type).some(p=>p.id===targetPort)){
@@ -8290,6 +8323,22 @@ const HPC_NETWORK = (() => {
   }
 
 
+  function bufferTopology(plan) {
+    const buffers=orderedBuffers(plan);
+    if(buffers.length<2)return {mode:'single',sourceId:null,buffers};
+    const ids=new Set(buffers.map(n=>n.id));
+    const serial=plan.connections.some(e=>ids.has(e.from)&&ids.has(e.to));
+    const sourceCandidates=plan.components.filter(isSource).filter(source=>
+      buffers.every(tank=>
+        plan.connections.some(e=>e.from===source.id&&e.from_port==='flow'&&
+          e.to===tank.id&&e.to_port==='top_in')&&
+        plan.connections.some(e=>e.from===tank.id&&e.from_port==='bottom_out'&&
+          e.to===source.id&&e.to_port==='return')));
+    if(!serial&&sourceCandidates.length)
+      return {mode:'parallel',sourceId:sourceCandidates[0].id,buffers};
+    return {mode:serial?'series':'independent',sourceId:null,buffers};
+  }
+
   // The state of a three-way changeover valve is not a pump signal.
   // 0%/100% is manufacturer-specific, so it is only interpreted when the
   // installer explicitly configures its corresponding text/value.
@@ -8312,154 +8361,332 @@ const HPC_NETWORK = (() => {
     return null;
   }
 
-  function flowStates(plan, hass) {
-    const { nodes, incoming, outgoing, adjacent } = graph(plan);
-    const flowing = new Set();
-    const state = id => id ? HPC_FREE.state(hass, id) : null;
-    const measured = id => {
-      const reading = state(id);
-      if (!reading) return null;
-      if (reading.number !== null) return reading.number > 0;
-      return HPC_FREE.active(reading);
-    };
-    const mappedFlow = edge => edge.flow_entity ? measured(edge.flow_entity) : null;
-    const valvePortOpen = edge => {
-      for (const [id,port] of [[edge.from,edge.from_port],[edge.to,edge.to_port]]) {
-        const node=nodes.get(id);
-        if (node?.type !== 'diverter' || port === 'ab') continue;
-        if (port !== 'a' && port !== 'b') continue;
-        if (diverterActivePort(node,hass) !== port) return false;
-      }
-      return true;
-    };
-    const pumpEntity = node => {
-      if (node.type === 'pump') return node.sensors?.state || node.sensors?.pump;
-      if (isSource(node) || node.type === 'heating_circuit') return node.sensors?.pump;
+  // Every inferred active pipe belongs to a closed, directed hydraulic loop
+  // through a running pump. Each port is a vertex, including component internals.
+  function flowStates(plan,hass) {
+    const active=new Set(),nodes=new Map(plan.components.map(n=>[n.id,n]));
+    const connections=[],forward=new Map(),reverse=new Map();
+    const key=(id,port)=>id+'::'+port;
+    const read=id=>id?HPC_FREE.state(hass,id):null;
+    const signal=id=>{
+      const r=read(id);
+      if(!r)return null;
+      if(r.number!==null)return r.number>0;
+      const value=r.text.toLowerCase();
+      if(['on','open','active','running','ein','an','aktiv'].includes(value))return true;
+      if(['off','closed','idle','standby','aus'].includes(value))return false;
       return null;
     };
-    const pumpState = node => {
-      // A measured zero is stronger evidence than an on-command.
-      const volumeId = node.sensors?.volume;
-      const volumeState = state(volumeId);
-      if (volumeState?.number !== null && volumeState?.number <= 0) return false;
-      const reading = state(pumpEntity(node));
-      if (reading) return HPC_FREE.active(reading);
-      if (volumeState?.number > 0) return true;
-      return null;
+    const pumpSensor=n=>n.type==='pump'?(n.sensors?.state||n.sensors?.pump):
+      isSource(n)||n.type==='heating_circuit'?n.sensors?.pump:null;
+    const pumpStatus=n=>{
+      const volume=signal(n.sensors?.volume);
+      if(volume===false)return false;
+      const pump=signal(pumpSensor(n));
+      return pump===null?volume:pump;
     };
-    const blocked = node => pumpState(node) === false;
-    const stoppedCharge = new Set(), stoppedReturn = new Set();
-
-    for (const tank of plan.components.filter(n => n.type === 'dhw_tank')) {
-      const feeders = (incoming.get(tank.id) || []).filter(e => e.to_port === 'coil_in');
-      const returns = (outgoing.get(tank.id) || []).filter(e => e.from_port === 'coil_out');
-      if (!feeders.length || !returns.length) continue;
-      const seen = new Set();
-      const stoppedSupply = id => {
-        if (seen.has(id)) return false;
-        seen.add(id);
-        const n = nodes.get(id);
-        if (!n || n.type === 'dhw_tank') return false;
-        if (blocked(n)) return true;
-        if (isSource(n) || n.type === 'heating_circuit') return false;
-        return (incoming.get(id) || []).some(e =>
-          !valvePortOpen(e) || mappedFlow(e) === false || stoppedSupply(e.from));
-      };
-      const stopped = feeders.some(e => !valvePortOpen(e) ||
-        mappedFlow(e) === false || stoppedSupply(e.from)) ||
-        returns.some(e => !valvePortOpen(e) || mappedFlow(e) === false);
-      if (!stopped) continue;
-      stoppedCharge.add(tank.id);
-      // Stop the coil's dedicated return only, not a shared heating collector.
-      const visit = (id, visited = new Set()) => {
-        if (visited.has(id)) return;
-        visited.add(id);
-        for (const edge of outgoing.get(id) || []) {
-          if (id === tank.id && edge.from_port !== 'coil_out') continue;
-          const next = nodes.get(edge.to);
-          if (!next) continue;
-          stoppedReturn.add(edge.id);
-          if (!isSource(next) && next.type !== 'dhw_tank' &&
-              next.type !== 'heating_circuit' &&
-              (adjacent.get(next.id) || []).length <= 2) visit(next.id, visited);
-        }
-      };
-      visit(tank.id);
+    const isPump=n=>n.type==='pump'||n.type==='heating_circuit'||isSource(n);
+    const blocked=n=>isPump(n)&&(
+      pumpStatus(n)===false||
+      !!pumpSensor(n)&&pumpStatus(n)===null||
+      n.type==='pump'&&pumpStatus(n)!==true);
+    const add=(a,b,edge=null)=>{
+      const arc={from:a,to:b,edge};
+      if(!forward.has(a))forward.set(a,[]);
+      if(!reverse.has(b))reverse.set(b,[]);
+      forward.get(a).push(arc);reverse.get(b).push(arc);
+      connections.push(arc);
+    };
+    for(const e of plan.connections){
+      const from=nodes.get(e.from),to=nodes.get(e.to);
+      if(!from||!to||blocked(from)||blocked(to)||signal(e.flow_entity)===false)continue;
+      const selected=(n,port)=>n.type!=='diverter'||port==='ab'||
+        diverterActivePort(n,hass)===port;
+      if(selected(from,e.from_port)&&selected(to,e.to_port))
+        add(key(e.from,e.from_port),key(e.to,e.to_port),e);
     }
-
-    const allowed = edge => valvePortOpen(edge) && mappedFlow(edge) !== false &&
-      !stoppedReturn.has(edge.id) &&
-      !stoppedCharge.has(edge.from) && !stoppedCharge.has(edge.to);
-
-    for (const edge of plan.connections)
-      if (mappedFlow(edge) === true && allowed(edge)) flowing.add(edge.id);
-
-    // A WW charging pump drives its own heating-coil loop. It is NOT proof
-    // that a parallel radiator without a running circuit pump also flows.
-    // Build the dedicated loop from the actual two coil ports, stopping at
-    // the reservoir/heat source instead of crossing into unrelated branches.
-    const chargingEdges = pump => {
-      if (pump.type !== 'pump') return null;
-      const out = outgoing.get(pump.id) || [];
-      const coils = out.filter(edge =>
-        edge.to_port === 'coil_in' && nodes.get(edge.to)?.type === 'dhw_tank');
-      if (!coils.length || coils.length !== out.length) return null;
-      const selected = new Set(coils.map(edge => edge.id));
-      const upstream = (id, seen = new Set()) => {
-        if (seen.has(id)) return;
-        seen.add(id);
-        for (const edge of incoming.get(id) || []) {
-          selected.add(edge.id);
-          const prev=nodes.get(edge.from);
-          if (prev && !isSource(prev) && prev.type !== 'buffer')
-            upstream(prev.id,seen);
+    for(const n of plan.components){
+      if(blocked(n))continue;
+      const connect=(a,b)=>add(key(n.id,a),key(n.id,b));
+      switch(n.type){
+        case 'pump':connect('in','out');break;
+        case 'heating_circuit':connect('flow_in','return_out');break;
+        case 'dhw_tank':connect('coil_in','coil_out');break;
+        case 'diverter':{
+          const selected=diverterActivePort(n,hass);
+          if(selected){connect('ab',selected);connect(selected,'ab');}
+          break;
         }
-      };
-      const downstream = (id, seen = new Set()) => {
-        if (seen.has(id)) return;
-        seen.add(id);
-        for (const edge of outgoing.get(id) || []) {
-          if (id !== pump.id && nodes.get(id)?.type === 'dhw_tank' &&
-              edge.from_port !== 'coil_out') continue;
-          selected.add(edge.id);
-          const next=nodes.get(edge.to);
-          if (next && !isSource(next) && next.type !== 'buffer' &&
-              next.type !== 'dhw_tank')
-            downstream(next.id,seen);
-        }
-      };
-      upstream(pump.id);
-      for (const coil of coils) downstream(coil.to);
-      return selected;
-    };
-
-    for (const pump of plan.components.filter(n => pumpState(n) === true)) {
-      const queue = [pump.id], visited = new Set();
-      const dedicatedCircuit = chargingEdges(pump);
-      while (queue.length) {
-        const id = queue.shift();
-        if (visited.has(id)) continue;
-        visited.add(id);
-        for (const { edge, neighbor } of adjacent.get(id) || []) {
-          if (!allowed(edge) || dedicatedCircuit && !dedicatedCircuit.has(edge.id)) continue;
-          const next = nodes.get(neighbor);
-          if (!next || blocked(next)) continue;
-          flowing.add(edge.id);
-          // One pump is not evidence that an unrelated zone or boiler flows.
-          const otherUnmeteredCircuit = (isSource(next) || next.type === 'heating_circuit') &&
-            !pumpEntity(next) && !next.sensors?.volume && next.id !== pump.id;
-          if (!otherUnmeteredCircuit && !visited.has(neighbor)) queue.push(neighbor);
-        }
+        case 'mixer':
+          for(const port of ['a','b']){connect(port,'ab');connect('ab',port);}
+          break;
+        case 'buffer':
+          for(const inlet of ['top_in','mid_in','bottom_in','return_in'])
+            for(const outlet of ['top_out','mid_out','bottom_out'])
+              connect(inlet,outlet);
+          break;
+        case 'manifold':
+          for(const a of ['a','b','c'])for(const z of ['d','e','f']){
+            connect(a,z);connect(z,a);
+          }
+          break;
+        case 'electric_heater':connect('in','out');break;
+        case 'particle_separator':break;
+        default:
+          if(isSource(n)){
+            connect('return','flow');
+            if(n.type==='oil_boiler')connect('return','dhw');
+          }
       }
     }
-    return flowing;
+    const scan=(seeds,adj,stops,accept)=>{
+      const visited=new Set(seeds),queue=[...seeds];
+      while(queue.length){
+        const vertex=queue.shift();
+        if(stops.has(vertex))continue;
+        for(const arc of adj.get(vertex)||[]){
+          if(!accept(arc))continue;
+          const next=adj===forward?arc.to:arc.from;
+          if(!visited.has(next)){visited.add(next);queue.push(next);}
+        }
+      }
+      return visited;
+    };
+    for(const pump of plan.components.filter(n=>isPump(n)&&pumpStatus(n)===true)){
+      const outlets=pump.type==='pump'?['out']:
+        pump.type==='heating_circuit'?['return_out']:
+        pump.type==='oil_boiler'?['flow','dhw']:['flow'];
+      const inlets=pump.type==='pump'?['in']:
+        pump.type==='heating_circuit'?['flow_in']:['return'];
+      const start=outlets.map(p=>key(pump.id,p)),end=inlets.map(p=>key(pump.id,p));
+      const coilBranches=plan.connections.filter(e=>e.from===pump.id &&
+        e.from_port==='out'&&e.to_port==='coil_in'&&nodes.get(e.to)?.type==='dhw_tank');
+      const exclusiveCoil=pump.type==='pump'&&coilBranches.length>0&&
+        plan.connections.filter(e=>e.from===pump.id&&e.from_port==='out').length===coilBranches.length;
+      const coilIds=new Set(coilBranches.map(e=>e.to));
+      // A pump dedicated to a WW coil cannot prove circulation in a radiator.
+      // Conversely, an individual radiator pump cannot energise a WW charger.
+      const accept=arc=>{
+        for(const vertex of [arc.from,arc.to]){
+          const id=vertex.slice(0,vertex.indexOf('::')),node=nodes.get(id);
+          if(!node)continue;
+          if(exclusiveCoil&&(node.type==='heating_circuit'||
+            node.type==='dhw_tank'&&!coilIds.has(id)))return false;
+          if(pump.type==='heating_circuit'&&
+            (node.type==='dhw_tank'||node.type==='heating_circuit'&&id!==pump.id))
+            return false;
+        }
+        return true;
+      };
+      const reachable=scan(start,forward,new Set(end),accept);
+      if(!end.some(vertex=>reachable.has(vertex)))continue;
+      const toReturn=scan(end,reverse,new Set(start),accept);
+      for(const arc of connections)
+        if(arc.edge&&accept(arc)&&reachable.has(arc.from)&&toReturn.has(arc.to))
+          active.add(arc.edge.id);
+    }
+    // A genuine volumetric reading > 0 proves flow in that particular edge
+    // only, never in its unmetered neighbours. A switch alone is not a meter.
+    for(const arc of connections){
+      if(!arc.edge?.flow_entity)continue;
+      const reading=read(arc.edge.flow_entity);
+      if(reading?.number>0)active.add(arc.edge.id);
+    }
+    return active;
+  }
+
+  // Evidence is a separate property of the hydraulic edge. Consumers may
+  // animate inferred circulation, but must never present it as a flow reading.
+  // This is based on the same active-edge set as the renderer, not a second
+  // independent hydraulic solver.
+  function flowEvidence(plan, hass) {
+    const active=flowStates(plan,hass);
+    const {nodes,incoming,outgoing}=graph(plan);
+    const read=id=>id?HPC_FREE.state(hass,id):null;
+    const asFlow=id=>{
+      const value=read(id);
+      // Textual switch states may be an explicit pipe activity signal, not
+      // an actual volumetric measurement.
+      if(!value)return {state:'unknown',measured:false};
+      if(value.number!==null)
+        return {state:value.number>0?'active':'stopped',measured:true};
+      const word=value.text.trim().toLowerCase();
+      if(['on','open','active','running','ein','an','aktiv'].includes(word))
+        return {state:'active',measured:false};
+      if(['off','closed','idle','standby','aus'].includes(word))
+        return {state:'stopped',measured:false};
+      return {state:'unknown',measured:false};
+    };
+    const atPort=(node,port)=>{
+      if(node?.type!=='diverter'||!['a','b'].includes(port))return false;
+      return diverterActivePort(node,hass)!==port;
+    };
+    const pumpOff=node=>{
+      if(!node||!['pump','heating_circuit','wood_gasifier','oil_boiler',
+        'gas_boiler','wood_chip_boiler','pellet_boiler','heat_pump'].includes(node.type))
+        return false;
+      const volume=asFlow(node.sensors?.volume);
+      if(volume.measured&&volume.state==='stopped')return true;
+      const pump=read(node.type==='pump'?node.sensors?.state:node.sensors?.pump);
+      if(!pump)return false;
+      const status=pump.text.trim().toLowerCase();
+      return ['off','closed','idle','standby','aus'].includes(status)||
+        pump.number===0;
+    };
+    const tankCoilStopped=new Set();
+    const blockedUpstream=(nodeId,visited=new Set())=>{
+      if(visited.has(nodeId))return false;
+      visited.add(nodeId);
+      const node=nodes.get(nodeId);
+      if(!node)return false;
+      if(pumpOff(node))return true;
+      if(isSource(node)||node.type==='buffer')return false;
+      return (incoming.get(nodeId)||[]).some(edge=>
+        asFlow(edge.flow_entity).state==='stopped'||
+        atPort(nodes.get(edge.from),edge.from_port)||
+        atPort(node,edge.to_port)||
+        blockedUpstream(edge.from,visited));
+    };
+    for(const tank of plan.components.filter(node=>node.type==='dhw_tank')){
+      const feed=(incoming.get(tank.id)||[]).filter(edge=>edge.to_port==='coil_in');
+      if(feed.some(edge=>
+        asFlow(edge.flow_entity).state==='stopped'||
+        atPort(nodes.get(edge.from),edge.from_port)||
+        blockedUpstream(edge.from))){
+        tankCoilStopped.add(tank.id);
+      }
+    }
+    const result=new Map();
+    for(const edge of plan.connections){
+      const source=nodes.get(edge.from),destination=nodes.get(edge.to);
+      const reported=asFlow(edge.flow_entity);
+      let state='unknown',basis='none';
+      if(reported.state==='stopped'){
+        state='stopped';basis=reported.measured?'meter':'switch';
+      }else if(atPort(source,edge.from_port)||atPort(destination,edge.to_port)){
+        state='stopped';basis='valve';
+      }else if(pumpOff(source)||pumpOff(destination)||
+        tankCoilStopped.has(edge.from)&&edge.from_port==='coil_out'){
+        state='stopped';basis='pump';
+      }else if(active.has(edge.id)){
+        const adjacentPumps=[source,destination].filter(n=>n?.type==='pump');
+        const measuredPump=adjacentPumps.some(n=>
+          asFlow(n.sensors?.volume).measured&&asFlow(n.sensors?.volume).state==='active');
+        state=reported.state==='active'&&reported.measured||measuredPump
+          ?'measured':'inferred';
+        basis=state==='measured'?'meter':'state';
+      }
+      result.set(edge.id,{state,basis,active:active.has(edge.id)});
+    }
+    // Inferred flow on a shared return header remains inferred even if a
+    // different branch has a measured value; measurement never leaks across
+    // devices. Keep edge identity stable for SVG and editor diagnostics.
+    return result;
+  }
+
+  // A checked return-temperature lift implies an internal boiler bypass.
+  // Represent that visible bypass as a virtual hydraulic edge, routed by the
+  // same graph/segment renderer as every other water pipe. Never persist
+  // synthetic plumbing and never overlay an explicitly connected mixer.
+  function auxiliaryEdges(plan,hass) {
+    const edges=[];
+    for(const node of plan.components){
+      if(node.type!=='wood_gasifier'||node.options?.return_lift!==true)continue;
+      if(plan.connections.some(edge=>
+        edge.to===node.id&&edge.to_port==='return'&&
+        plan.components.some(candidate=>candidate.id===edge.from&&
+          candidate.type==='mixer')))continue;
+      const pump=HPC_FREE.state(hass,node.sensors?.pump);
+      const volume=HPC_FREE.state(hass,node.sensors?.volume);
+      const stopped=volume?.number!==null&&volume?.number<=0||
+        pump?.text?.toLowerCase()==='off';
+      const active=!stopped&&(volume?.number>0||
+        pump!==null&&HPC_FREE.active(pump));
+      edges.push({
+        id:'rla_'+node.id,kind:'return_lift',
+        from:node.id,from_port:'flow',to:node.id,to_port:'return',
+        active,flow_entity:'',temperature_entity:''
+      });
+    }
+    return edges;
+  }
+
+  // Check physical component bounds after routing, including label clearance.
+  // Routes without obstructions retain their original geometry and proportions.
+  function avoidComponents(original,p,q,fromSide,toSide,obstacles,fromId,toId) {
+    const blockers=obstacles.filter(b=>b.id!==fromId&&b.id!==toId);
+    const pieces=d=>{
+      const tokens=(d||'').match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
+      const segments=[];let x=0,y=0;
+      for(let i=0;i<tokens.length;){
+        const op=tokens[i++];
+        if(op==='M'){x=+tokens[i++];y=+tokens[i++];continue;}
+        const nx=op==='H'?+tokens[i++]:x,ny=op==='V'?+tokens[i++]:y;
+        segments.push({x,y,nx,ny});x=nx;y=ny;
+      }
+      return segments;
+    };
+    const crosses=path=>pieces(path).some(s=>blockers.some(box=>{
+      const padding=9,l=box.x-padding,r=box.x+box.w+padding;
+      const top=box.y-padding,bottom=box.y+box.h+padding;
+      return s.x===s.nx?s.x>l&&s.x<r&&
+        Math.max(s.y,s.ny)>top&&Math.min(s.y,s.ny)<bottom:
+        s.y>top&&s.y<bottom&&
+        Math.max(s.x,s.nx)>l&&Math.min(s.x,s.nx)<r;
+    }));
+    if(!crosses(original))return original;
+    const stub=18;
+    const a={x:p.x+(fromSide==='L'?-stub:stub),y:p.y};
+    const b={x:q.x+(toSide==='L'?-stub:stub),y:q.y};
+    const boxes=[...blockers,{x:p.x,y:p.y,w:0,h:0},{x:q.x,y:q.y,w:0,h:0}];
+    const unique=values=>[...new Set(values.map(Math.round))].sort((x,y)=>x-y);
+    const xs=unique([(a.x+b.x)/2,...boxes.flatMap(box=>[box.x-30,box.x+box.w+30])]);
+    const ys=unique([(a.y+b.y)/2,...boxes.flatMap(box=>[box.y-30,box.y+box.h+30])]);
+    let best=null;
+    const propose=points=>{
+      const segments=points.filter((n,i)=>i===0||n.x!==points[i-1].x||n.y!==points[i-1].y);
+      let d='M'+segments[0].x+' '+segments[0].y,score=0,prev='';
+      for(let i=1;i<segments.length;i++){
+        const from=segments[i-1],to=segments[i];
+        const op=from.x===to.x?'V':from.y===to.y?'H':null;
+        if(!op)return;
+        d+=' '+op+(op==='V'?to.y:to.x);
+        score+=Math.abs(from.x-to.x)+Math.abs(from.y-to.y);
+        if(prev&&prev!==op)score+=22;
+        prev=op;
+      }
+      if(best&&score>=best.score||crosses(d))return;
+      best={d,score};
+    };
+    for(const x of xs)propose([p,a,{x,y:a.y},{x,y:b.y},b,q]);
+    for(const y of ys)propose([p,a,{x:a.x,y},{x:b.x,y},b,q]);
+    if(!best)for(const x of [xs[0],xs.at(-1)])for(const y of [ys[0],ys.at(-1)])
+      propose([p,a,{x,y:a.y},{x,y},{x:b.x,y},b,q]);
+    return best?.d||original;
   }
 
   // One orthogonal router for every non-native SVG pipe. It uses actual ports,
   // not the stored legacy X/Y values or assumptions based on a component name.
   function route({ edge, fromNode, toNode, fromShape, toShape, p, q,
-                   fromSide, toSide, supplyTee = null, returnTee = null }) {
+                   fromSide, toSide, supplyTee = null, returnTee = null, obstacles = [] }) {
     const h = (x, y) => String(x) + ' ' + String(y);
+    if(edge.kind==='return_lift'){
+      const x=Math.max(p.x,q.x)+42;
+      return 'M'+h(p.x,p.y)+' H'+x+' V'+q.y+' H'+q.x;
+    }
+    // Keep the ORIGINAL mixer and radiator connectors exactly in the hot
+    // and return routes. Their artwork is retained, not an independent pipe.
+    if(fromNode.type==='heating_circuit'&&
+       fromShape.type==='heating_circuit'&&edge.from_port==='return_out'){
+      const bendX=fromShape.x-10;
+      const joinX=fromShape.x-55;
+      const joinY=fromShape.y+165;
+      let d='M'+h(p.x,p.y)+' H'+bendX+' V'+(p.y+20)+
+        ' H'+(bendX-20)+' V'+joinY+' H'+joinX;
+      if(Math.abs(q.y-joinY)<.01)return d+' H'+q.x;
+      const laneX=Math.min(joinX-35,q.x-35);
+      return d+' H'+laneX+' V'+q.y+' H'+q.x;
+    }
     let d;
     if (p.x > q.x + 8 || fromSide === 'L' || toSide === 'R') {
       const farX = p.x + (fromSide === 'L' ? -36 : 38);
@@ -8510,7 +8737,7 @@ const HPC_NETWORK = (() => {
       d = 'M' + h(p.x, p.y) + ' H' + (p.x - 70) + ' V' + below +
         ' H' + (q.x - 35) + ' V' + q.y + ' H' + q.x;
     }
-    return d;
+    return avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to);
   }
 
 
@@ -8535,7 +8762,7 @@ const HPC_NETWORK = (() => {
           const axis=op==='H'?'h':'v',fixed=op==='H'?y:x;
           const from=op==='H'?x:y,to=op==='H'?nx:ny;
           const key=role+'|'+axis+'|'+fixed.toFixed(3);
-          const segment={key,axis,fixed,from,to,low:Math.min(from,to),
+          const segment={key,role,axis,fixed,from,to,low:Math.min(from,to),
             high:Math.max(from,to),routeIndex,segmentIndex:segmentIndex++,active:route.on};
           if (!grouped.has(key)) grouped.set(key,[]);
           grouped.get(key).push(segment);
@@ -8544,17 +8771,40 @@ const HPC_NETWORK = (() => {
         x=nx;y=ny;
       }
     }
+    // A hot flow line may CROSS a cool return line without joining it.
+    // Leave a small drafting gap only in the flow at true interior crossings.
+    // Real same-temperature T junctions stay continuous.
+    const gaps=new Map();
+    const horizontal=all.filter(segment=>segment.axis==='h');
+    const vertical=all.filter(segment=>segment.axis==='v');
+    const addGap=(segment,at)=>{
+      if(!gaps.has(segment.key))gaps.set(segment.key,[]);
+      gaps.get(segment.key).push(at);
+    };
+    for(const h of horizontal)for(const v of vertical){
+      if(h.role===v.role||h.routeIndex===v.routeIndex)continue;
+      if(v.fixed<=h.low+9||v.fixed>=h.high-9||
+        h.fixed<=v.low+9||h.fixed>=v.high-9)continue;
+      if(h.role==='flow')addGap(h,v.fixed);
+      else if(v.role==='flow')addGap(v,h.fixed);
+    }
     const pieces=routes.map(()=>[]);
     for (const [key,segments] of grouped) {
-      const boundaries=[...new Set(segments.flatMap(s=>[s.low,s.high]))].sort((a,b)=>a-b);
+      const base=segments.flatMap(s=>[s.low,s.high]);
+      const ranges=segments.flatMap(s=>gaps.get(key)||[])
+        .flatMap(at=>[at-6,at+6]);
+      const boundaries=[...new Set([...base,...ranges])].sort((a,b)=>a-b);
       for (let i=1;i<boundaries.length;i++) {
         const a=boundaries[i-1],b=boundaries[i];
         if (b-a<0.001) continue;
         const owners=segments.filter(s=>s.low<=a+0.001&&s.high>=b-0.001);
         if (!owners.length) continue;
+        if((gaps.get(key)||[]).some(cross=>a>=cross-6-0.001&&
+          b<=cross+6+0.001))continue;
         // The first user-defined connection owns the shared line segment.
         // A hot and a cold header never share a physical segment identity.
-        owners.sort((a,b)=>a.routeIndex-b.routeIndex||a.segmentIndex-b.segmentIndex);
+        owners.sort((a,b)=>Number(b.active)-Number(a.active)||
+          a.routeIndex-b.routeIndex||a.segmentIndex-b.segmentIndex);
         const owner=owners[0], forward=owner.to>=owner.from;
         const start=forward?a:b, finish=forward?b:a;
         const d=owner.axis==='h'
@@ -8577,7 +8827,7 @@ const HPC_NETWORK = (() => {
     }));
   }
 
-  return { graph, orderedBuffers, diverterActivePort, flowStates, route, mergeRoutes };
+  return { graph, orderedBuffers, bufferTopology, diverterActivePort, flowStates, flowEvidence, auxiliaryEdges, route, mergeRoutes };
 })();
 
 const HPC_INTEGRATED = (() => {
@@ -8628,8 +8878,9 @@ const HPC_INTEGRATED = (() => {
     // primary source. The diagram grows by rows, without custom-sized tiles
     // that looked like unrelated cards.
     for(const [index,node] of byGroup.source.entries()){
-      points.set(node.id,{x:50+Math.floor(index/4)*265,
-        y:475+(index%4)*260,w:240,h:235,type:node.type});
+      // All additional heat sources remain left of the buffer. A new
+      // column after source #5 would overlap the first native tank.
+      points.set(node.id,{x:50,y:475+index*260,w:240,h:235,type:node.type});
     }
     // Discover the buffer sequence from the user's directed pipe connections.
     // This works regardless of the order in which buffers were added.
@@ -8641,20 +8892,29 @@ const HPC_INTEGRATED = (() => {
     // below original heating circuits, otherwise the third tank could
     // overlap an original radiator or its mixer.
     const bottomHeating=330+(Math.max(1,Math.min(hcCount,6))-1)*250+140;
-    const bufferStartY=Math.max(555,bottomHeating+65);
+    const bufferMode=HPC_NETWORK.bufferTopology(p).mode;
+    const bufferStartY=bufferMode==='parallel'?555:
+      Math.max(555,bottomHeating+65);
     orderedBuffers.forEach((node,index)=>{
-      points.set(node.id,{x:680+index*160,
-        y:bufferStartY,w:120,h:200,type:node.type});
+      // True parallel tanks are in one vertical bank; directed serial
+      // connections are laid left-to-right with facing hot-water ports.
+      points.set(node.id,bufferMode==='parallel'
+        ?{x:520,y:bufferStartY+index*225,w:120,h:200,type:node.type}
+        :{x:680+index*160,y:bufferStartY,w:120,h:200,type:node.type});
     });
     // Buffer-fed WW coils belong to the consumer column, just like a heating
     // circuit; all other tanks continue to use the original storage artwork.
     let consumerTanks=0,otherTanks=0;
+    const lastBufferRight=orderedBuffers.length
+      ?Math.max(...orderedBuffers.map(n=>points.get(n.id).x+120))
+      :firstBuffer?640:0;
+    const consumerX=Math.max(1040,lastBufferRight+80);
     extraDhw.forEach(node=>{
       const chargingFromBuffer=bufferFedTanks.has(node.id);
       const index=chargingFromBuffer?consumerTanks++:otherTanks++;
       points.set(node.id,chargingFromBuffer
-        ?{x:1040,y:300+index*225,w:120,h:200,type:node.type}
-        :{x:680+(index%2)*160,y:40+Math.floor(index/2)*220,w:120,h:200,type:node.type});
+        ?{x:consumerX,y:300+index*225,w:120,h:200,type:node.type}
+        :{x:680+index*160,y:40,w:120,h:200,type:node.type});
     });
     // WW charging devices sit next to their coil, not in a disconnected
     // column at the other end of the schematic. They are still real
@@ -8679,12 +8939,12 @@ const HPC_INTEGRATED = (() => {
           // Pick a distinct piece of the actual charging supply for each
           // tank. This also avoids placing two loading-pump icons on top of
           // each other when a buffer has multiple DHW charging branches.
-          const laneX=sourceBox
-            ?Math.min(tankBox.x-80,sourceBox.x+sourceBox.w+80)
-            :tankBox.x-80;
-          const laneY=sourceBox?.type==='buffer'
-            ?Math.max(sourceBox.y+sourceBox.h*.2-20,tankBox.y+20)
-            :tankBox.y+20;
+          const laneX=tankBox.x-70;
+          // Charge from the unobstructed shoulder just above each tank,
+          // instead of sending the loading pump through the original
+          // radiator/mixer column at y=330..470.
+          const laneY=bufferFedTanks.has(tank.id)
+            ?Math.max(50,tankBox.y-70):tankBox.y+20;
           points.set(node.id,{x:laneX,y:laneY,w:40,h:40,type:node.type,inline:true});
           return;
         }
@@ -8692,7 +8952,10 @@ const HPC_INTEGRATED = (() => {
       const [w,h]=HPC_FREE.dimension(node.type);
       points.set(node.id,{x:320,y:72+index*242,w,h,type:node.type});
     });
-    const controlStart=Math.max(1190,storageStart+530);
+    const directTankEnd=Math.max(0,...extraDhw.map(n=>
+      points.get(n.id).x+points.get(n.id).w));
+    const controlStart=Math.max(1190,storageStart+530,
+      lastBufferRight+70,consumerTanks?consumerX+200:0,directTankEnd+60);
     const controlEnd=placeColumn(
       byGroup.control.filter(n=>!chargeControls.includes(n)),
       controlStart,90,265,260);
@@ -8804,7 +9067,8 @@ const HPC_INTEGRATED = (() => {
       };
       return positions[key]||{x:shape.x,y:shape.y+40};
     }
-    if(shape.type==='heating_circuit')return{x:shape.x,y:key==='return_out'?shape.y+135:shape.y+30};
+    // Ports coincide with the ORIGINAL radiator body, not its surrounding tile.
+    if(shape.type==='heating_circuit')return{x:shape.x+11,y:key==='return_out'?shape.y+125:shape.y+30};
     const def=HPC_FREE.ports(node.type).find(p=>p.id===key);
     return{x:shape.x+(def?.side==='R'?shape.w:0),y:shape.y+(def?.y??.5)*shape.h};
   }
@@ -8979,7 +9243,9 @@ const HPC_INTEGRATED = (() => {
     const all=Object.fromEntries(plan.components.map(c=>[c.id,c]));
     const loc=id=>anchored.get(id)||points.get(id);
     const defs=plan.components.filter(isTank).map(c=>'<linearGradient id="hpi-'+c.id+'" x1="0" y1="0" x2="0" y2="1">'+stops(c,hass)+'</linearGradient>').join('');
-    const flowing=flowStates(plan,hass);
+    const evidence=HPC_NETWORK.flowEvidence(plan,hass);
+    const flowing=new Set([...evidence].filter(([,reading])=>reading.active)
+      .map(([edgeId])=>edgeId));
     // The WW coil is a selectable consumer of the shared heating supply
     // and return. Mark branch junctions without creating fake components.
     const branchTankIds=new Set(plan.components.filter(n=>
@@ -9018,12 +9284,10 @@ const HPC_INTEGRATED = (() => {
       // A return enters on the LEFT of the buffer, so do not place a fake
       // tee on the right-hand heating collector. Draw its real return route.
     }
-    const routeRecords=plan.connections.map(edge=>{
-      // The original circuit artwork already contains its shared risers,
-      // valves and radiators. Only supplemental routes need drawing.
-      if((all[edge.from]?.type==='heating_circuit'||
-          all[edge.to]?.type==='heating_circuit')&&
-          anchored.has(edge.from)&&anchored.has(edge.to))return null;
+    const obstacles=[...anchored,...points].map(([id,b])=>({id,...b}));
+    const routeRecords=[...plan.connections,...HPC_NETWORK.auxiliaryEdges(plan,hass)].map(edge=>{
+      // Native heating circuits keep their original radiator/mixer pictograms,
+      // but their actual supply/return paths use this very same pipe registry.
       const fromShape=loc(edge.from),toShape=loc(edge.to);
       if(!fromShape||!toShape)return null;
       const p=port(all[edge.from],fromShape,edge.from_port);
@@ -9034,7 +9298,7 @@ const HPC_INTEGRATED = (() => {
       const returnTee=returnTees.get(edge.id);
       const d=HPC_NETWORK.route({
         edge,fromNode:all[edge.from],toNode:all[edge.to],
-        fromShape,toShape,p,q,fromSide,toSide,supplyTee,returnTee
+        fromShape,toShape,p,q,fromSide,toSide,supplyTee,returnTee,obstacles
       });
       const from=all[edge.from],field=edge.from_port;
       const inferred=field==='flow'?from.sensors.flow:
@@ -9042,24 +9306,44 @@ const HPC_INTEGRATED = (() => {
         field==='mid_out'?from.sensors.middle:
         field==='bottom_out'?from.sensors.bottom:'';
       const reading=HPC_FREE.state(hass,edge.temperature_entity||inferred);
-      return {edge,d,on:flowing.has(edge.id),
+      const nativeCircuit=all[edge.to]?.type==='heating_circuit'&&anchored.has(edge.to)
+        ?edge.to:all[edge.from]?.type==='heating_circuit'&&anchored.has(edge.from)
+          ?edge.from:null;
+      return {edge,d,nativeCircuit,on:edge.kind==='return_lift'?edge.active:flowing.has(edge.id),
+        evidence:edge.kind==='return_lift'?(edge.active?'inferred':'stopped'):
+          evidence.get(edge.id)?.state||'unknown',
         color:reading?HPC_FREE.color(reading):null,
         junction:supplyTee||returnTee};
     }).filter(Boolean);
     // Resolve all route overlaps together, rather than having every boiler,
     // tank or heating circuit draw a second copy of the same collector.
     const physicalPipes=HPC_NETWORK.mergeRoutes(routeRecords);
-    const links=routeRecords.map(({edge,on,color,junction})=>{
+    const nativePipes={};
+    for(const record of routeRecords.filter(r=>r.nativeCircuit)){
+      const direction=record.edge.to===record.nativeCircuit?'flow':'return';
+      const pair=physicalPipes.get(record.edge.id)||{pipe:'',flow:''};
+      const group=nativePipes[record.nativeCircuit]||(nativePipes[record.nativeCircuit]={});
+      const leg=group[direction]||(group[direction]={pipe:'',flow:''});
+      leg.pipe+=(leg.pipe?' ':'')+pair.pipe;
+      leg.flow+=(leg.flow?' ':'')+pair.flow;
+    }
+    const links=routeRecords.filter(r=>!r.nativeCircuit)
+      .map(({edge,on,color,junction,evidence:pipeState})=>{
       const paths=physicalPipes.get(edge.id)||{pipe:'',flow:''};
       const tee=junction?'<circle class="hpi-coil-branch" cx="'+junction.x+
         '" cy="'+junction.y+'" r="5" fill="var(--card-background-color,#fff)" stroke="'+
         (on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+
         '" stroke-width="2"/>':'';
-      return '<g class="hpi-link" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"><title>'+
+      const rla=edge.kind==='return_lift';
+      return '<g class="hpi-link'+(rla?' hpi-rla':'')+
+        '" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"'+
+        (rla?' data-hpi-rla="'+HPC_FREE.esc(edge.from)+'"':'')+
+        ' data-flow-evidence="'+HPC_FREE.esc(pipeState)+'"><title>'+
         HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'+
-        '<path class="pipe'+(paths.flow?' on':'')+'" d="'+paths.pipe+'"'+
-        (color?' style="--pc:'+color+'"':'')+'/>'+
-        '<path class="flow'+(paths.flow?' on':'')+'" d="'+paths.flow+'"/>'+tee+'</g>';
+        '<path class="pipe'+(rla?' hpi-rla-bypass':'')+(paths.flow?' on':'')+
+        '" d="'+paths.pipe+'"'+(color?' style="--pc:'+color+'"':'')+'/>'+
+        (paths.flow?'<path class="flow'+(rla?' hpi-rla-flow':'')+
+          ' on" d="'+paths.flow+'"/>':'')+tee+'</g>';
     }).join('');
     const nodes=extras.map(node=>{
       const b=points.get(node.id);if(!b)return '';
@@ -9237,38 +9521,26 @@ const HPC_INTEGRATED = (() => {
       }
       return readings.join('');
     }).join('');
-    const lift=plan.components.filter(node=>node.type==='wood_gasifier'&&node.options?.return_lift)
-      .map(node=>{
-        const b=loc(node.id);
-        if(!b)return '';
-        const isCore=anchored.has(node.id);
-        const outletX=b.x+b.w;
-        const supplyY=isCore?250:b.y+57;
-        const returnY=isCore?380:b.y+b.h-34;
-        const valveX=outletX+42;
-        const fromX=outletX;
-        // Attached RLA loop: two real attachment points at the boiler flow
-        // and return; the visual branch must not end in mid-air.
-        const returnX=isCore?outletX:b.x;
-        const bypass=isCore
-          ?'M'+fromX+' '+supplyY+' H'+valveX+' V'+returnY+' H'+returnX
-          :'M'+fromX+' '+supplyY+' H'+valveX+' V'+returnY+
-            ' V'+(b.y+b.h+22)+' H'+(b.x-22)+' V'+returnY+' H'+returnX;
-        const state=HPC_FREE.state(hass,node.sensors.pump);
-        const flowing=state!==null&&HPC_FREE.active(state);
-        const position=HPC_FREE.state(hass,node.sensors.mixer);
-        const percentage=position?.number!==null&&Number.isFinite(position?.number)
-          ?' '+Math.round(position.number)+' %':'';
-        const label=String(hass?.locale?.language||'de').startsWith('de')?'RLA':'RLT';
-        return '<g class="hpi-rla" data-hpi-rla="'+HPC_FREE.esc(node.id)+'">'
-          +'<title>'+HPC_FREE.esc('Rücklaufanhebung / Return-temperature lift – '+node.name)+'</title>'
-          +'<path class="hpi-rla-bypass" d="'+bypass+'"/>'
-          +(flowing?'<path class="hpi-rla-flow" d="'+bypass+'"/>':'')
-          +'<circle class="hpi-rla-valve" cx="'+valveX+'" cy="'+returnY+'" r="14"/>'
-          +'<path class="hpi-rla-symbol" d="M'+(valveX-8)+' '+(returnY-7)+' L'+valveX+' '+returnY+' L'+(valveX+8)+' '+(returnY-7)+' M'+valveX+' '+returnY+' v10"/>'
-          +'<text class="hpi-rla-label" x="'+(valveX+20)+'" y="'+(returnY-10)+'">'+HPC_FREE.esc(label+percentage)+'</text>'
-          +'</g>';
-      }).join('');
+    const lift=HPC_NETWORK.auxiliaryEdges(plan,hass).map(edge=>{
+      const node=all[edge.from],b=loc(edge.from);
+      if(!node||!b)return '';
+      const outlet=port(node,b,'flow'),returnPort=port(node,b,'return');
+      const valveX=Math.max(outlet.x,returnPort.x)+42;
+      const returnY=returnPort.y;
+      const position=HPC_FREE.state(hass,node.sensors.mixer);
+      const percentage=position?.number!==null&&Number.isFinite(position?.number)
+        ?' '+Math.round(position.number)+' %':'';
+      const label=String(hass?.locale?.language||'de').startsWith('de')?'RLA':'RLT';
+      // Only the valve pictogram is overlaid. Its actual bypass pipe and
+      // animation are generated by HPC_NETWORK and deduplicated with all
+      // other physical hydraulic segments.
+      return '<g class="hpi-rla-marker" data-hpi-rla-marker="'+HPC_FREE.esc(node.id)+'">'
+        +'<title>'+HPC_FREE.esc('Rücklaufanhebung / Return-temperature lift – '+node.name)+'</title>'
+        +'<circle class="hpi-rla-valve" cx="'+valveX+'" cy="'+returnY+'" r="14"/>'
+        +'<path class="hpi-rla-symbol" d="M'+(valveX-8)+' '+(returnY-7)+' L'+valveX+' '+returnY+' L'+(valveX+8)+' '+(returnY-7)+' M'+valveX+' '+returnY+' v10"/>'
+        +'<text class="hpi-rla-label" x="'+(valveX+20)+'" y="'+(returnY-10)+'">'+HPC_FREE.esc(label+percentage)+'</text>'
+        +'</g>';
+    }).join('');
     const firstSource=plan.components.find(isSource);
     const sourceStatus=firstSource&&HPC_FREE.state(hass,firstSource.sensors.state);
     const primaryChip=firstSource?.type==='wood_chip_boiler'
@@ -9289,7 +9561,7 @@ const HPC_INTEGRATED = (() => {
     const firstBuffer=HPC_NETWORK.orderedBuffers(plan)[0];
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank'&&anchored.has(c.id));
     return {defs,body:'<g id="hpc-integrated">'+links+nodes+accessories+pipeLabels+lift+primaryChip+primaryOil+primaryGas+'</g>',
-      firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
+      nativePipes,firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
   return {layout,coreConfig,svg,tankPoints,flowStates,isSource};
 })();
@@ -9653,6 +9925,46 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         tank.setAttribute('stroke-width','1.25');
       }
     }
+    _syncNativeCircuitFlow(svg,plan,nativePaths={}) {
+      // The original radiator, mixer and pump art remains untouched. Only
+      // activation of its existing pipe segments follows the SAME graph used
+      // by additional generators and WW charging loops.
+      const evidence=HPC_NETWORK.flowEvidence(plan,this._hass);
+      const circuits=plan.components.filter(n=>n.type==='heating_circuit').slice(0,6);
+      const allActive=[];
+      for(const [index,circuit] of circuits.entries()){
+        const suffix=index?String(index+1):'';
+        const flow=plan.connections.filter(e=>e.to===circuit.id&&e.to_port==='flow_in');
+        const ret=plan.connections.filter(e=>e.from===circuit.id&&e.from_port==='return_out');
+        const active=flow.length>0&&ret.length>0&&
+          flow.some(e=>evidence.get(e.id)?.active)&&
+          ret.some(e=>evidence.get(e.id)?.active);
+        allActive.push(active);
+        // The original radiator and mixer paths remain in their SVG group,
+        // but the external pipe geometry comes from HPC_NETWORK.mergeRoutes.
+        const paths=nativePaths[circuit.id]||{};
+        for(const [leg,part] of [['flow','vl'],['return','rl']]){
+          const pipe=svg.querySelector('#p-hc-'+part+suffix);
+          const flowPath=svg.querySelector('#f-hc-'+part+suffix);
+          if(pipe)pipe.setAttribute('d',paths[leg]?.pipe||'');
+          if(flowPath)flowPath.setAttribute('d',paths[leg]?.flow||'');
+          if(flowPath)flowPath.classList.toggle('on',active&&!!paths[leg]?.flow);
+        }
+        const body=svg.querySelector('#f-hc-body'+suffix);
+        if(body)body.classList.toggle('on',active);
+        const mixer=svg.querySelector('#p-hc-mix'+suffix);
+        if(mixer)mixer.classList.toggle('on',active);
+      }
+      // Legacy risers and collector strips were independent fixed pipe
+      // geometry. The graph routes now own those segments exactly once.
+      for(const path of svg.querySelectorAll(
+        'path[id^="p-hc-trunk"],path[id^="f-hc-trunk"],'+
+        'path[id^="p-hc-up"],path[id^="f-hc-up"],'+
+        'path[id^="p-hc-down"],path[id^="f-hc-down"]')){
+        path.setAttribute('d','');
+        path.classList.remove('on');
+      }
+    }
     _syncAdditional(force=false) {
       const p=this._integratedPlan;
       if(!this._hass||!p?.components.length)return;
@@ -9728,6 +10040,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(title)title.textContent=p.components.find(c=>c.id===firstBuffer)?.name||title.textContent;
       }
       this._polishBufferPipes(svg,p,firstBuffer);
+      this._syncNativeCircuitFlow(svg,p,rendered.nativePipes);
       if(firstDhw){
         svg.querySelector('rect.tank[x="520"][y="40"]')?.setAttribute('fill','url(#hpi-'+firstDhw+')');
         const title=svg.querySelector('text.tank-title[x="580"][y="30"]');
@@ -10296,7 +10609,19 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           ${bufferList.length>=2?`<div class="hpc-ems">
             <strong>${t("Pufferspeicher verbinden","Connect buffer tanks")}</strong>
             <p>${t("Reihenschaltung: Vorlauf jeweils oben zum nächsten Puffer, Rücklauf unten zurück zum vorherigen. Bereits vorhandene Verbindungen bleiben erhalten; prüfe die tatsächliche Verrohrung.","Series layout: hot flow at the top to the next buffer, cooler return at the bottom to the previous. Existing connections are retained; check your actual pipework.")}</p>
-            <button type="button" data-action="buffer-series">${t("Puffer in Reihe verbinden","Connect buffers in series")}</button>
+            <div class="hpc-row">
+              <button type="button" data-action="buffer-series">${t("Puffer in Reihe verbinden","Connect buffers in series")}</button>
+              <label class="hpc-field">${t("Wärmeerzeuger für parallele Puffer","Heat source for parallel buffers")}
+                <select id="hpc-buffer-source">
+                  ${p.components.filter(c=>HPC_FREE.byType[c.type]?.group==='source')
+                    .map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+                </select>
+              </label>
+              <button type="button" data-action="buffer-parallel"
+                ${p.components.some(c=>HPC_FREE.byType[c.type]?.group==='source')?'':'disabled'}>
+                ${t("Puffer parallel verbinden","Connect buffers in parallel")}</button>
+            </div>
+            <p id="hpc-buffer-notice" role="alert" class="hpc-connection-warning"></p>
           </div>`:""}
           ${misplacedBufferEdges.length?`<p class="hpc-connection-warning">${t("Achtung: Eine Pufferleitung ist von unten nach oben verbunden. Bitte prüfen, ob das der tatsächlichen Verrohrung entspricht.","Warning: a buffer pipe links bottom to top. Verify this corresponds to the actual installation.")}</p>`:""}
           <details class="hpc-advanced-pipes">
@@ -10611,6 +10936,19 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         }
         if(action==="buffer-series"){
           const next=HPC_FREE.connectBufferSeries(p);
+          if(next.connections.length===p.connections.length)return;
+          return this._applyPlan(next);
+        }
+        if(action==="buffer-parallel"){
+          const source=root.querySelector('#hpc-buffer-source')?.value;
+          const next=HPC_FREE.connectBuffersParallel(p,source);
+          if(!next){
+            const notice=root.querySelector('#hpc-buffer-notice');
+            if(notice)notice.textContent=t(
+              'Bestehende Pufferverbindungen zuerst prüfen: eine Reihenschaltung wird nicht automatisch überschrieben.',
+              'Check existing buffer connections: confirmed series piping is never overwritten.');
+            return;
+          }
           if(next.connections.length===p.connections.length)return;
           return this._applyPlan(next);
         }

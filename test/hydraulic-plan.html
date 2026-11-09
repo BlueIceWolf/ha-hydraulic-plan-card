@@ -12,6 +12,11 @@
   const check = (condition, name) => {
     messages.push((condition ? 'OK: ' : 'FAIL: ') + name);
     if (!condition) failures.push(name);
+    // Write a live checkpoint so failures reveal where a render stalls.
+    document.getElementById('log').textContent =
+      messages.join('\n') + '\nCURRENT: ' + name;
+    // Stream checkpoints so a timeout exposes the last completed assertion.
+    document.getElementById('log').textContent = messages.join('\\n');
   };
   const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
   const state = (id, value, unit) => ({
@@ -231,8 +236,8 @@
       'Existing first tank gets the five-point temperature gradient');
     check(freeSvg?.querySelector('rect.tank[x="520"][y="320"]')?.getAttribute('fill')==='url(#hpi-puffer1)',
       'Original tank fill adopts the configurable temperature gradient');
-    check(freeSvg?.querySelectorAll('g.hpi-link path.flow.on').length===2,
-      'Explicitly mapped active pump animates all connected pipes');
+    check(freeSvg?.querySelectorAll('g.hpi-link path.flow.on').length===0,
+      'A pump command never animates unclosed, partially configured pipe paths');
     free.hass=hassOf({
       [ids.pump]:state(ids.pump,'off'),
       'sensor.buffer_25':state('sensor.buffer_25',65,'°C'),
@@ -747,21 +752,22 @@
           to:'buffer_test',to_port:'bottom_in'}
       ]}},hassOf());
     const bufferSvg=bufferBridged.shadowRoot.getElementById('svg');
-    check(bufferSvg.querySelectorAll('#p-hc-up2').length===1 &&
-      bufferSvg.querySelectorAll('#f-hc-up2').length===1 &&
-      bufferSvg.querySelector('#p-hc-up2')?.getAttribute('d')?.includes('M660 503') &&
-      bufferSvg.querySelector('#f-hc-up2')?.getAttribute('d')?.includes('M660 503'),
-      'Supply riser has a short crossing gap, leaving the return uninterrupted');
+    check(!!bufferSvg.querySelector('#p-hc-vl')?.getAttribute('d') &&
+      !!bufferSvg.querySelector('#p-hc-rl')?.getAttribute('d') &&
+      bufferSvg.querySelector('#p-hc-vl2')?.getAttribute('d')==='' &&
+      bufferSvg.querySelector('#p-hc-rl2')?.getAttribute('d')==='',
+      'Only the wired heating circuit has real supply and return routes');
     check(bufferSvg.querySelectorAll('#hpi-riser-bridge-2').length===0 &&
       bufferSvg.querySelectorAll('#hpi-buffer-couplings').length===0 &&
-      bufferSvg.querySelectorAll('#p-hc-down2').length===1 &&
-      bufferSvg.querySelectorAll('#f-hc-down2').length===1 &&
-      bufferSvg.querySelector('#p-hc-down2')?.getAttribute('d')==='M676 745 V495',
-      'One original return collector joins both circuits without extra loops or connection rings');
+      bufferSvg.querySelector('#p-hc-up2')?.getAttribute('d')==='' &&
+      bufferSvg.querySelector('#p-hc-down2')?.getAttribute('d')==='' &&
+      bufferSvg.querySelectorAll('g.hpi-link[data-hpi-edge="buf_hot"]').length===0,
+      'One graph-owned pipe renderer replaces independent legacy risers and duplicated links');
     bufferBridged.hass=hassOf({[ids.bufTop]:state(ids.bufTop,68,'°C')});
     check(bufferBridged.shadowRoot.querySelectorAll('#hpi-riser-bridge-2').length===0 &&
-      bufferBridged.shadowRoot.querySelectorAll('#p-hc-down2').length===1,
-      'Live sensor updates preserve one return line without duplicate loops');
+      !!bufferBridged.shadowRoot.querySelector('#p-hc-rl')?.getAttribute('d') &&
+      bufferBridged.shadowRoot.querySelector('#p-hc-down2')?.getAttribute('d')==='',
+      'Live temperature updates preserve only graph-owned return geometry');
     bufferBridged.remove();
 
     // A stopped domestic-hot-water loading pump closes the entire coil
@@ -797,7 +803,7 @@
       !wwById('heat_flow')&&!wwById('heat_return')&&
       !!wwCard.shadowRoot.querySelector('#p-hc-vl')&&
       !!wwCard.shadowRoot.querySelector('#p-hc-rl'),
-      'WW charging pump off: coil pipes stop and the independent native heating loop is kept');
+      'WW charging pump off: coil stops with independent native heater (active='+wwActive().join(',')+')');
     wwCard.hass=hassOf({[wwPumpId]:state(wwPumpId,'on'),
       [heatPumpId]:state(heatPumpId,'on')});
     check(wwById('ww_flow')&&wwById('ww_return'),
@@ -805,7 +811,7 @@
     wwCard.hass=hassOf({[wwPumpId]:state(wwPumpId,'off'),
       [heatPumpId]:state(heatPumpId,'on')});
     check(!wwById('ww_flow')&&!wwById('ww_return'),
-      'WW charging pump switching off stops return animation immediately');
+      'WW charging pump switches off including return (active='+wwActive().join(',')+')');
     wwCard.remove();
 
     // Mixer percentage is a valve position; it must NOT suppress a pump-driven
@@ -823,14 +829,15 @@
       {id:'l2',from:'pump',from_port:'out',to:'mix',to_port:'a'},
       {id:'l3',from:'mix',from_port:'ab',to:'buffer2',to_port:'top_in'},
       {id:'l4',from:'buffer2',from_port:'bottom_out',to:'buffer',to_port:'bottom_in'},
+      {id:'l5',from:'buffer',from_port:'bottom_out',to:'source',to_port:'return'},
     ];
     const flowCard=await mount({type:'custom:hydraulic-plan-card',preset:'none',
       plan:{components:flowNodes,connections:flowEdges}},
       hassOf({'sensor.test_mix_position':state('sensor.test_mix_position',0,'%')}));
     const activeFlow=()=>flowCard.shadowRoot.querySelectorAll('g.hpi-link path.flow.on').length;
-    check(activeFlow()===4,'Running mapped pump animates connected flow even when mixer is at 0%');
+    check(activeFlow()===5,'Complete pump-driven flow and return remain active when mixer is at 0%');
     flowCard.hass=hassOf({'sensor.test_mix_position':state('sensor.test_mix_position',100,'%')});
-    check(activeFlow()===4,'Running mapped pump animates connected flow when mixer is at 100%');
+    check(activeFlow()===5,'Complete pump-driven flow and return remain active when mixer is at 100%');
     flowCard.hass=hassOf({[ids.pump]:state(ids.pump,'off'),
       'sensor.test_mix_position':state('sensor.test_mix_position',100,'%')});
     check(activeFlow()===0,'Stopped pump disables inferred flow irrespective of mixer position');
@@ -1101,6 +1108,42 @@
       (futureEditor.textContent||'').includes('Nicht unterstützte Bauteile'),
       'Editor never discards unknown future components when adding another item');
     futureEditor.remove();
+
+    // Native original heater and mixer artwork shares the same live
+    // hydraulic activity calculation as the supplemental WW coil.
+    const sharedNative=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[
+        {id:'shared_puffer',type:'buffer',name:'Puffer',sensors:{}},
+        {id:'shared_hk',type:'heating_circuit',name:'Heizkreis',
+          sensors:{pump:'switch.heizkreispumpe'},options:{mixed:true}},
+        {id:'shared_ww_pumpe',type:'pump',name:'WW Ladepumpe',
+          sensors:{state:'switch.ww_pumpe'}},
+        {id:'shared_ww',type:'dhw_tank',name:'WW Speicher',sensors:{}}
+      ],connections:[
+        {id:'shared_hc_vl',from:'shared_puffer',from_port:'top_out',to:'shared_hk',to_port:'flow_in'},
+        {id:'shared_hc_rl',from:'shared_hk',from_port:'return_out',to:'shared_puffer',to_port:'bottom_in'},
+        {id:'shared_ww_vl',from:'shared_puffer',from_port:'top_out',to:'shared_ww_pumpe',to_port:'in'},
+        {id:'shared_ww_coil',from:'shared_ww_pumpe',from_port:'out',to:'shared_ww',to_port:'coil_in'},
+        {id:'shared_ww_rl',from:'shared_ww',from_port:'coil_out',to:'shared_puffer',to_port:'bottom_in'}
+      ]}},hassOf({
+        'switch.heizkreispumpe':state('switch.heizkreispumpe','on'),
+        'switch.ww_pumpe':state('switch.ww_pumpe','off')
+      }));
+    const sharedNativeSvg=sharedNative.shadowRoot.getElementById('svg');
+    check(sharedNativeSvg.querySelector('#f-hc-vl')?.classList.contains('on')&&
+      sharedNativeSvg.querySelector('#f-hc-rl')?.classList.contains('on')&&
+      !sharedNativeSvg.querySelector('g[data-hpi-edge="shared_ww_rl"] path.flow.on'),
+      'Original radiator circuit is animated while an independent WW charging branch is stopped');
+    sharedNative.hass=hassOf({
+      'switch.heizkreispumpe':state('switch.heizkreispumpe','off'),
+      'switch.ww_pumpe':state('switch.ww_pumpe','on')
+    });
+    const refreshedNative=sharedNative.shadowRoot.getElementById('svg');
+    check(!refreshedNative.querySelector('#f-hc-vl')?.classList.contains('on')&&
+      !refreshedNative.querySelector('#f-hc-rl')?.classList.contains('on')&&
+      !!refreshedNative.querySelector('g[data-hpi-edge="shared_ww_rl"] path.flow.on'),
+      'Original radiator return stops independently while WW loading coil continues');
+    sharedNative.remove();
 
     wood.remove(); oil.remove(); hybrid.remove();
   } catch (err) {

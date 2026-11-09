@@ -70,6 +70,31 @@ const guarded=HPC_MIGRATION.upgrade(futureNode);
 pass=check(!guarded.changed&&guarded.warnings.length>0&&
   JSON.stringify(futureNode)===unchangedFuture,
   'v3 unknown extension is reported without modifying original config')&&pass;
+
+const mixedIds=structuredClone(original);
+mixedIds.plan.extensions={futureRouter:{grouping:'kept'}};
+mixedIds.plan.components[0].id='BufferA';
+mixedIds.plan.components[1].id='HotWaterB';
+mixedIds.plan.components[2].id='ChargePumpC';
+mixedIds.plan.connections[0].id='flowSupply1';
+mixedIds.plan.connections[0].from='BufferA';
+mixedIds.plan.connections[0].to='ChargePumpC';
+mixedIds.plan.connections[1].id='flowSupply2';
+mixedIds.plan.connections[1].from='ChargePumpC';
+mixedIds.plan.connections[1].to='HotWaterB';
+mixedIds.plan.connections[2].id='returnLine1';
+mixedIds.plan.connections[2].from='HotWaterB';
+mixedIds.plan.connections[2].to='BufferA';
+const mixedMigrated=HPC_MIGRATION.upgrade(mixedIds);
+pass=check(mixedMigrated.changed&&
+  mixedMigrated.config.plan.components.length===3&&
+  mixedMigrated.config.plan.connections.length===3&&
+  mixedMigrated.config.plan.connections[2].id==='returnLine1',
+  'mixed-case legacy component and pipe identifiers retain all connections')&&pass;
+pass=check(mixedMigrated.config.plan.extensions?.futureRouter?.grouping==='kept'&&
+  HPC_MIGRATION.restore(mixedMigrated.config).plan.extensions?.futureRouter?.grouping==='kept',
+  'future plan-level metadata survives upgrade and restore')&&pass;
+
 document.querySelector('#result').textContent=pass?'PASS':'FAIL';
 document.querySelector('#log').textContent=log.join('\n');
 </script></html>
