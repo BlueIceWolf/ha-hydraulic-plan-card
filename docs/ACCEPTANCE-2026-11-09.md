@@ -9,7 +9,9 @@
 - Layout- und Anlagen-Testharnesses stellen die originalen Wärmepumpen-Galeriekonstanten bereit.
 - `HPC_FREE.normalize` und `HPC_MIGRATION.check` unterstützen existierende gemischtschreibweise IDs konsistent; unbekannte Plan-Metadaten werden übernommen.
 - `HPC_NETWORK.flowStates` begrenzt Pumpenwirkung an Speichern/Erzeugern und berücksichtigt nicht verfügbare Fremdpumpen. Separate WW-Lade- und Heizkreise unterdrücken einander nicht.
-- Die früher fest gezeichneten Heizkreis-Sammel- und Steigleitungen wurden für den integrierten Plan deaktiviert. Stattdessen werden ihre Vor- und Rücklaufpfade aus dem gemeinsamen Rohr-Router gespeist. Der Router berücksichtigt inzwischen die Bauteilgrenzen beim Umfahren.\n- Der installierbare `dist/ha-hydraulic-plan-card.js` stimmt nach der Nachsynchronisierung wieder mit den sechs Quellmodulen überein; HACS, Syntax sowie Chromium- und Firefox-Tests liefen für Commit `9a2a897` erfolgreich.\n- README sowie die Anleitungen für Kessel und Komponenten wurden auf Deutsch neu gefasst; ein englischer Einstieg ist ergänzt.
+- Die früher fest gezeichneten Heizkreis-Sammel- und Steigleitungen wurden für den integrierten Plan deaktiviert. Stattdessen werden ihre Vor- und Rücklaufpfade aus dem gemeinsamen Rohr-Router gespeist. Der Router berücksichtigt inzwischen die Bauteilgrenzen beim Umfahren.
+- Der installierbare `dist/ha-hydraulic-plan-card.js` stimmt nach der Nachsynchronisierung wieder mit den sechs Quellmodulen überein; HACS, Syntax sowie Chromium- und Firefox-Tests liefen für Commit `9a2a897` erfolgreich.
+- README sowie die Anleitungen für Kessel und Komponenten wurden auf Deutsch neu gefasst; ein englischer Einstieg ist ergänzt.
 
 ## Einzelprüfung der 29 ursprünglichen Abnahmekriterien
 
