@@ -40,7 +40,7 @@ const HPC_EMS = (() => {
       // but never print that long catalogue as a component name.
       const label=String(device.name_by_user||device.name||'').trim();
       const model=String(device.model||'').trim();
-      const generic=/^ems[-_\\s]?esp(?:\\s+(?:boiler|kessel|heizung))?$/i.test(label);
+      const generic=/^ems[-_\s]?esp(?:\s+(?:boiler|kessel|heizung))?$/i.test(label);
       const familyList=model.includes(',')||model.length>60;
       const displayName=!generic&&label?label:(!familyList&&model?model:'EMS-ESP Heizung');
       if(!found.has(group))found.set(group,{group,entities:{},evidence:[],marker:false,
