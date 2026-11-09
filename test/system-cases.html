@@ -154,7 +154,7 @@ check(b.points.get('puffer_2').x>b.anchored.get('puffer_1').x+
 const buffer=HPC_FREE.normalize({components:[n('tank','buffer')],connections:[]}).components[0];
 const bufferShape={x:100,y:100,w:120,h:200,type:'buffer'};
 for(const [key,expected] of [['top_in','L'],['top_out','R'],['mid_in','L'],
-  ['mid_out','R'],['bottom_in','L'],['bottom_out','R']]){
+  ['mid_out','R'],['bottom_in','R'],['bottom_out','R']]){
   const point=HPC_INTEGRATED.port(buffer,bufferShape,key);
   check(HPC_INTEGRATED.portSide(buffer,bufferShape,key)===expected&&
     point.x===(expected==='R'?220:100),
@@ -168,8 +168,8 @@ const returnEdge=e('circuit_return','circuit','return_out','tank','bottom_in');
 const returnRoute=HPC_NETWORK.route({
   edge:returnEdge,fromNode:circuit,toNode:buffer,
   fromShape:{x:400,y:330,w:155,h:140,type:'heating_circuit'},
-  toShape:bufferShape,p:{x:411,y:455},q:{x:100,y:275},
-  fromSide:'L',toSide:'L',
+  toShape:bufferShape,p:{x:411,y:455},q:{x:220,y:275},
+  fromSide:'L',toSide:'R',
   obstacles:[{id:'pump',x:240,y:440,w:80,h:70}]
 });
 const routeSegments=returnRoute.match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];

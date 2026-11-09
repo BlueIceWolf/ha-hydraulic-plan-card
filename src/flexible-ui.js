@@ -44,40 +44,6 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       super.hass=hass;
       this._syncAdditional();
     }
-    _polishBufferPipes(svg,plan,bufferId) {
-      if(!bufferId)return;
-      const count=Math.min(6,plan.components.filter(c=>c.type==='heating_circuit').length);
-      // All heating-circuit returns belong to the ONE original collector at
-      // x=676. The first circuit already connects it to the buffer at y=495;
-      // every further circuit uses one segment of the same return riser.
-      // Avoid extra custom blue return paths and any red bridge around it.
-      for(let n=2;n<=count;n++){
-        const y=360+(n-2)*250;
-        const cross=y+135;
-        const bottom=y+250;
-        // The rising supply crosses an existing horizontal return. Leave a
-        // small drafting gap in the SUPPLY at that crossing. The return stays
-        // completely straight/continuous, so it cannot look like another
-        // parallel branch or an additional hydraulic connection.
-        const d='M660 '+y+' V'+(cross-8)
-          +' M660 '+(cross+8)+' V'+bottom;
-        const pipe=svg.querySelector('#p-hc-up'+n);
-        const flow=svg.querySelector('#f-hc-up'+n);
-        if(pipe)pipe.setAttribute('d',d);
-        if(flow)flow.setAttribute('d',d);
-        svg.querySelector('#hpi-riser-bridge-'+n)?.remove();
-      }
-      // Remove the prominent port circles added in an earlier iteration:
-      // they covered the real pipe junctions and made one return look like
-      // two independently connected return lines.
-      svg.querySelector('#hpi-buffer-couplings')?.remove();
-      const tank=svg.querySelector('rect.tank[x="520"][y="320"]');
-      if(tank){
-        tank.setAttribute('rx','23');
-        tank.setAttribute('stroke','var(--divider-color,#737b82)');
-        tank.setAttribute('stroke-width','1.25');
-      }
-    }
     _syncNativeCircuitFlow(svg,plan,nativePaths={}) {
       // The original radiator, mixer and pump art remains untouched. Only
       // activation of its existing pipe segments follows the SAME graph used
@@ -188,11 +154,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const firstBuffer=rendered.firstBuffer;
       const firstDhw=rendered.firstDhw;
       if(firstBuffer){
-        svg.querySelector('rect.tank[x="520"][y="320"]')?.setAttribute('fill','url(#hpi-'+firstBuffer+')');
+        const tank=svg.querySelector('rect.tank[x="520"][y="320"]');
+        if(tank){
+          tank.setAttribute('fill','url(#hpi-'+firstBuffer+')');
+          tank.setAttribute('rx','23');
+          tank.setAttribute('stroke','var(--divider-color,#737b82)');
+          tank.setAttribute('stroke-width','1.25');
+        }
         const title=svg.querySelector('text.tank-title[x="580"][y="310"]');
         if(title)title.textContent=p.components.find(c=>c.id===firstBuffer)?.name||title.textContent;
       }
-      this._polishBufferPipes(svg,p,firstBuffer);
       this._syncNativeCircuitFlow(svg,p,rendered.nativePipes);
       if(firstDhw){
         svg.querySelector('rect.tank[x="520"][y="40"]')?.setAttribute('fill','url(#hpi-'+firstDhw+')');

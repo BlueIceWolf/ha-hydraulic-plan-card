@@ -29,7 +29,7 @@ const migrated=HPC_MIGRATION.upgrade(original);
 pass=check(migrated.changed&&migrated.config.hpc_schema_version===3,'versions migration')&&pass;
 pass=check(JSON.stringify(original)===before,'source is not mutated')&&pass;
 pass=check(migrated.config.plan.components[2].discovery?.provider==='eta-system','ETA discovery retained')&&pass;
-pass=check(migrated.config.plan.connections[2].to_port==='bottom_in','legacy return mapped left')&&pass;
+pass=check(migrated.config.plan.connections[2].to_port==='bottom_in','legacy return maps to the consumer buffer port')&&pass;
 pass=check(migrated.config.plan.connections[2].flow_entity==='switch.ww_ladepumpe','pipe signal retained')&&pass;
 pass=check(migrated.config.plan.connections[2].temperature_entity==='sensor.ww_return','pipe temperature retained')&&pass;
 pass=check(!HPC_MIGRATION.upgrade(migrated.config).changed,'idempotence')&&pass;

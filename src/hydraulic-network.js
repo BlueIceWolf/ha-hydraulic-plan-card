@@ -595,7 +595,7 @@ const HPC_NETWORK = (() => {
         ' H'+(bendX-20)+' V'+joinY+' H'+joinX;
       if(Math.abs(q.y-joinY)<.01)d+=' H'+q.x;
       else {
-        const laneX=Math.min(joinX-15,q.x-15);
+        const laneX=Math.max(joinX+20,q.x+35);
         d+=' H'+laneX+' V'+q.y+' H'+q.x;
       }
       return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));

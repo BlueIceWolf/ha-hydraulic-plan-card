@@ -7545,7 +7545,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     {type:"wood_chip_boiler",de:"ETA Hackschnitzelkessel",en:"ETA Wood-chip boiler",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","fuel_feed","ash_removal","fuel_level","particle_state","particle_voltage","particle_current","volume"],ports:["flow:R:.25","return:L:.75"]},
     {type:"gas_boiler",de:"Gaskessel",en:"Gas boiler",group:"source",fields:["state","flow","return","power","pump","volume"],ports:["flow:R:.25","return:L:.75"]},
     {type:"heat_pump",de:"Wärmepumpe",en:"Heat pump",group:"source",fields:["state","flow","return","power","pump","volume"],ports:["flow:R:.25","return:L:.75"]},
-    {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:L:.8","return_in:L:.8","bottom_out:R:.8"]},
+    {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:R:.8","return_in:L:.8","bottom_out:R:.8"]},
     {type:"dhw_tank",de:"Warmwasserspeicher",en:"Hot-water tank",group:"storage",fields:["top","middle","bottom"],ports:["coil_in:L:.28","coil_out:L:.74","hot_out:R:.24","cold_in:R:.78"]},
     {type:"heating_circuit",de:"Heizkreis (gemischt/ungemischt)",en:"Heating circuit",group:"load",fields:["flow","return","target","pump","volume","mixer","mixer_opening","mixer_closing"],ports:["flow_in:L:.25","return_out:L:.75"]},
     {type:"pump",de:"Umwälzpumpe",en:"Circulation pump",group:"control",fields:["state","power","volume"],ports:["in:L:.5","out:R:.5"]},
@@ -7688,9 +7688,8 @@ const HPC_FREE = (function makeFreeHelpers() {
     const connections=[], edgeIds=new Set(), connectionKeys=new Set();
     for(const e of (Array.isArray(raw.connections)?raw.connections:[]).slice(0,180)){
       if(!e||!isId(e.id)||edgeIds.has(e.id)||!byId[e.from]||!byId[e.to])continue;
-      // Incoming pipes must terminate on the left side of a buffer.
-      // Keep old "return_in" connections as a compatibility alias, but
-      // all new consumer returns use bottom_in like other tank inlets.
+      // Keep old "return_in" connections as a compatibility alias. New
+      // consumer returns use bottom_in, the right-side consumer connection.
       const toPort=byId[e.to].type==='buffer'&&e.to_port==='return_in'
         ?'bottom_in':e.to_port;
       if(e.from===e.to||!ports(byId[e.from].type).some(p=>p.id===e.from_port)||
@@ -8985,7 +8984,7 @@ const HPC_NETWORK = (() => {
         ' H'+(bendX-20)+' V'+joinY+' H'+joinX;
       if(Math.abs(q.y-joinY)<.01)d+=' H'+q.x;
       else {
-        const laneX=Math.min(joinX-15,q.x-15);
+        const laneX=Math.max(joinX+20,q.x+35);
         d+=' H'+laneX+' V'+q.y+' H'+q.x;
       }
       return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
@@ -9171,7 +9170,9 @@ const HPC_INTEGRATED = (() => {
     if(firstSource)anchored.set(firstSource.id,{x:50,y:190,w:240,h:235,type:'source'});
     if(firstBuffer)anchored.set(firstBuffer.id,{x:520,y:320,w:120,h:200,type:'buffer'});
     if(firstDhw&&!bufferFedTanks.has(firstDhw.id))anchored.set(firstDhw.id,{x:520,y:40,w:120,h:200,type:'dhw_tank'});
-    p.components.filter(c=>c.type==='heating_circuit').slice(0,Math.min(hcCount,6))
+    const circuitCount=Math.min(6,p.components.filter(c=>
+      c.type==='heating_circuit').length);
+    p.components.filter(c=>c.type==='heating_circuit').slice(0,circuitCount)
       .forEach((c,index)=>anchored.set(c.id,{x:815,y:330+index*250,w:155,h:140,type:'heating_circuit'}));
     // Deterministic automatic layout: no manual X/Y placement is required.
     // Keep the original Heat Pump Hydraulic Card positions for its main units,
@@ -9207,7 +9208,7 @@ const HPC_INTEGRATED = (() => {
     // buffer must face the next tank's left inlet. Position this extension
     // below original heating circuits, otherwise the third tank could
     // overlap an original radiator or its mixer.
-    const bottomHeating=330+(Math.max(1,Math.min(hcCount,6))-1)*250+140;
+    const bottomHeating=330+(Math.max(1,circuitCount)-1)*250+140;
     const bufferMode=HPC_NETWORK.bufferTopology(p).mode;
     const bufferStartY=bufferMode==='parallel'?555:
       Math.max(555,bottomHeating+65);
@@ -9283,7 +9284,8 @@ const HPC_INTEGRATED = (() => {
     }
     placeColumn(byGroup.load,controlEnd+90,115,230,225,3);
     const maxX=Math.max(1000,...[...points.values()].map(n=>n.x+n.w+70));
-    const maxY=Math.max(560+(hcCount-1)*250,...[...points.values()].map(n=>n.y+n.h+70));
+    const maxY=Math.max(560+(Math.max(1,circuitCount)-1)*250,
+      ...[...points.values()].map(n=>n.y+n.h+70));
     return {plan:p,anchored,points,extras,width:maxX,height:maxY};
   }
   function coreConfig(config) {
@@ -9372,8 +9374,8 @@ const HPC_INTEGRATED = (() => {
       return{x,y:shape.y+60};
     }
     if(shape.type==='buffer'){
-      // Ports are defined by flow DIRECTION: every inlet is on the left,
-      // every outlet is on the right, including consumer return inlets.
+      // The port definitions encode the physical side; consumer bottom_in
+      // stays on the right regardless of the return's flow direction.
       const def=HPC_FREE.ports(node.type).find(p=>p.id===key);
       const y=shape.y+shape.h*(key.includes('bottom')||key==='return_in'?.875:
         key.includes('mid')?.54:.20);
@@ -9401,6 +9403,20 @@ const HPC_INTEGRATED = (() => {
     if(shape.type==='dhw_tank')return key.startsWith('coil_')?'L':'R';
     if(shape.type==='heating_circuit')return 'L';
     return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'R';
+  }
+  function localizeCircuitPath(path,offsetY) {
+    if(!offsetY)return path;
+    // The original SVG translates each circuit group; routed points are global.
+    const tokens=(path||'').match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
+    const commands=[];
+    for(let i=0;i<tokens.length;){
+      const command=tokens[i++];
+      if(command==='M')commands.push('M'+tokens[i++]+' '+(Number(tokens[i++])-offsetY));
+      else if(command==='H')commands.push('H'+tokens[i++]);
+      else if(command==='V')commands.push('V'+(Number(tokens[i++])-offsetY));
+      else throw new Error('Unsupported native heating-circuit pipe command');
+    }
+    return commands.join(' ');
   }
   function tankPoints(node,hass) {
     const points=[['top',0],['middle',50],['bottom',100]]
@@ -9604,8 +9620,8 @@ const HPC_INTEGRATED = (() => {
       if(!hx)continue;
       const teeX=Math.min(hx.x-55,Math.max(sourceShape.x+sourceShape.w+20,660));
       supplyTees.set(supply.id,{x:teeX,y:hot.y});
-      // A return enters on the LEFT of the buffer, so do not place a fake
-      // tee on the right-hand heating collector. Draw its real return route.
+      // Draw the real coil return into its configured buffer port. Do not
+      // place a synthetic tee on the heating collector.
     }
     const obstacles=[...anchored,...points].map(([id,b])=>({id,...b}));
     const routedPaths=[];
@@ -9644,13 +9660,16 @@ const HPC_INTEGRATED = (() => {
     // tank or heating circuit draw a second copy of the same collector.
     const physicalPipes=HPC_NETWORK.mergeRoutes(routeRecords);
     const nativePipes={};
+    const circuitIndexes=new Map(plan.components.filter(node=>
+      node.type==='heating_circuit').map((node,index)=>[node.id,index]));
     for(const record of routeRecords.filter(r=>r.nativeCircuit)){
       const direction=record.edge.to===record.nativeCircuit?'flow':'return';
       const pair=physicalPipes.get(record.edge.id)||{pipe:'',flow:''};
       const group=nativePipes[record.nativeCircuit]||(nativePipes[record.nativeCircuit]={});
       const leg=group[direction]||(group[direction]={pipe:'',flow:''});
-      leg.pipe+=(leg.pipe?' ':'')+pair.pipe;
-      leg.flow+=(leg.flow?' ':'')+pair.flow;
+      const offsetY=(circuitIndexes.get(record.nativeCircuit)||0)*250;
+      leg.pipe+=(leg.pipe?' ':'')+localizeCircuitPath(pair.pipe,offsetY);
+      leg.flow+=(leg.flow?' ':'')+localizeCircuitPath(pair.flow,offsetY);
     }
     const links=routeRecords.filter(r=>!r.nativeCircuit)
       .map(({edge,on,color,junction,evidence:pipeState})=>{
@@ -10326,40 +10345,6 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       super.hass=hass;
       this._syncAdditional();
     }
-    _polishBufferPipes(svg,plan,bufferId) {
-      if(!bufferId)return;
-      const count=Math.min(6,plan.components.filter(c=>c.type==='heating_circuit').length);
-      // All heating-circuit returns belong to the ONE original collector at
-      // x=676. The first circuit already connects it to the buffer at y=495;
-      // every further circuit uses one segment of the same return riser.
-      // Avoid extra custom blue return paths and any red bridge around it.
-      for(let n=2;n<=count;n++){
-        const y=360+(n-2)*250;
-        const cross=y+135;
-        const bottom=y+250;
-        // The rising supply crosses an existing horizontal return. Leave a
-        // small drafting gap in the SUPPLY at that crossing. The return stays
-        // completely straight/continuous, so it cannot look like another
-        // parallel branch or an additional hydraulic connection.
-        const d='M660 '+y+' V'+(cross-8)
-          +' M660 '+(cross+8)+' V'+bottom;
-        const pipe=svg.querySelector('#p-hc-up'+n);
-        const flow=svg.querySelector('#f-hc-up'+n);
-        if(pipe)pipe.setAttribute('d',d);
-        if(flow)flow.setAttribute('d',d);
-        svg.querySelector('#hpi-riser-bridge-'+n)?.remove();
-      }
-      // Remove the prominent port circles added in an earlier iteration:
-      // they covered the real pipe junctions and made one return look like
-      // two independently connected return lines.
-      svg.querySelector('#hpi-buffer-couplings')?.remove();
-      const tank=svg.querySelector('rect.tank[x="520"][y="320"]');
-      if(tank){
-        tank.setAttribute('rx','23');
-        tank.setAttribute('stroke','var(--divider-color,#737b82)');
-        tank.setAttribute('stroke-width','1.25');
-      }
-    }
     _syncNativeCircuitFlow(svg,plan,nativePaths={}) {
       // The original radiator, mixer and pump art remains untouched. Only
       // activation of its existing pipe segments follows the SAME graph used
@@ -10470,11 +10455,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const firstBuffer=rendered.firstBuffer;
       const firstDhw=rendered.firstDhw;
       if(firstBuffer){
-        svg.querySelector('rect.tank[x="520"][y="320"]')?.setAttribute('fill','url(#hpi-'+firstBuffer+')');
+        const tank=svg.querySelector('rect.tank[x="520"][y="320"]');
+        if(tank){
+          tank.setAttribute('fill','url(#hpi-'+firstBuffer+')');
+          tank.setAttribute('rx','23');
+          tank.setAttribute('stroke','var(--divider-color,#737b82)');
+          tank.setAttribute('stroke-width','1.25');
+        }
         const title=svg.querySelector('text.tank-title[x="580"][y="310"]');
         if(title)title.textContent=p.components.find(c=>c.id===firstBuffer)?.name||title.textContent;
       }
-      this._polishBufferPipes(svg,p,firstBuffer);
       this._syncNativeCircuitFlow(svg,p,rendered.nativePipes);
       if(firstDhw){
         svg.querySelector('rect.tank[x="520"][y="40"]')?.setAttribute('fill','url(#hpi-'+firstDhw+')');

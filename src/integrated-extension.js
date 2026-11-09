@@ -32,7 +32,9 @@ const HPC_INTEGRATED = (() => {
     if(firstSource)anchored.set(firstSource.id,{x:50,y:190,w:240,h:235,type:'source'});
     if(firstBuffer)anchored.set(firstBuffer.id,{x:520,y:320,w:120,h:200,type:'buffer'});
     if(firstDhw&&!bufferFedTanks.has(firstDhw.id))anchored.set(firstDhw.id,{x:520,y:40,w:120,h:200,type:'dhw_tank'});
-    p.components.filter(c=>c.type==='heating_circuit').slice(0,Math.min(hcCount,6))
+    const circuitCount=Math.min(6,p.components.filter(c=>
+      c.type==='heating_circuit').length);
+    p.components.filter(c=>c.type==='heating_circuit').slice(0,circuitCount)
       .forEach((c,index)=>anchored.set(c.id,{x:815,y:330+index*250,w:155,h:140,type:'heating_circuit'}));
     // Deterministic automatic layout: no manual X/Y placement is required.
     // Keep the original Heat Pump Hydraulic Card positions for its main units,
@@ -68,7 +70,7 @@ const HPC_INTEGRATED = (() => {
     // buffer must face the next tank's left inlet. Position this extension
     // below original heating circuits, otherwise the third tank could
     // overlap an original radiator or its mixer.
-    const bottomHeating=330+(Math.max(1,Math.min(hcCount,6))-1)*250+140;
+    const bottomHeating=330+(Math.max(1,circuitCount)-1)*250+140;
     const bufferMode=HPC_NETWORK.bufferTopology(p).mode;
     const bufferStartY=bufferMode==='parallel'?555:
       Math.max(555,bottomHeating+65);
@@ -144,7 +146,8 @@ const HPC_INTEGRATED = (() => {
     }
     placeColumn(byGroup.load,controlEnd+90,115,230,225,3);
     const maxX=Math.max(1000,...[...points.values()].map(n=>n.x+n.w+70));
-    const maxY=Math.max(560+(hcCount-1)*250,...[...points.values()].map(n=>n.y+n.h+70));
+    const maxY=Math.max(560+(Math.max(1,circuitCount)-1)*250,
+      ...[...points.values()].map(n=>n.y+n.h+70));
     return {plan:p,anchored,points,extras,width:maxX,height:maxY};
   }
   function coreConfig(config) {
@@ -233,8 +236,8 @@ const HPC_INTEGRATED = (() => {
       return{x,y:shape.y+60};
     }
     if(shape.type==='buffer'){
-      // Ports are defined by flow DIRECTION: every inlet is on the left,
-      // every outlet is on the right, including consumer return inlets.
+      // The port definitions encode the physical side; consumer bottom_in
+      // stays on the right regardless of the return's flow direction.
       const def=HPC_FREE.ports(node.type).find(p=>p.id===key);
       const y=shape.y+shape.h*(key.includes('bottom')||key==='return_in'?.875:
         key.includes('mid')?.54:.20);
@@ -262,6 +265,20 @@ const HPC_INTEGRATED = (() => {
     if(shape.type==='dhw_tank')return key.startsWith('coil_')?'L':'R';
     if(shape.type==='heating_circuit')return 'L';
     return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'R';
+  }
+  function localizeCircuitPath(path,offsetY) {
+    if(!offsetY)return path;
+    // The original SVG translates each circuit group; routed points are global.
+    const tokens=(path||'').match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
+    const commands=[];
+    for(let i=0;i<tokens.length;){
+      const command=tokens[i++];
+      if(command==='M')commands.push('M'+tokens[i++]+' '+(Number(tokens[i++])-offsetY));
+      else if(command==='H')commands.push('H'+tokens[i++]);
+      else if(command==='V')commands.push('V'+(Number(tokens[i++])-offsetY));
+      else throw new Error('Unsupported native heating-circuit pipe command');
+    }
+    return commands.join(' ');
   }
   function tankPoints(node,hass) {
     const points=[['top',0],['middle',50],['bottom',100]]
@@ -465,8 +482,8 @@ const HPC_INTEGRATED = (() => {
       if(!hx)continue;
       const teeX=Math.min(hx.x-55,Math.max(sourceShape.x+sourceShape.w+20,660));
       supplyTees.set(supply.id,{x:teeX,y:hot.y});
-      // A return enters on the LEFT of the buffer, so do not place a fake
-      // tee on the right-hand heating collector. Draw its real return route.
+      // Draw the real coil return into its configured buffer port. Do not
+      // place a synthetic tee on the heating collector.
     }
     const obstacles=[...anchored,...points].map(([id,b])=>({id,...b}));
     const routedPaths=[];
@@ -505,13 +522,16 @@ const HPC_INTEGRATED = (() => {
     // tank or heating circuit draw a second copy of the same collector.
     const physicalPipes=HPC_NETWORK.mergeRoutes(routeRecords);
     const nativePipes={};
+    const circuitIndexes=new Map(plan.components.filter(node=>
+      node.type==='heating_circuit').map((node,index)=>[node.id,index]));
     for(const record of routeRecords.filter(r=>r.nativeCircuit)){
       const direction=record.edge.to===record.nativeCircuit?'flow':'return';
       const pair=physicalPipes.get(record.edge.id)||{pipe:'',flow:''};
       const group=nativePipes[record.nativeCircuit]||(nativePipes[record.nativeCircuit]={});
       const leg=group[direction]||(group[direction]={pipe:'',flow:''});
-      leg.pipe+=(leg.pipe?' ':'')+pair.pipe;
-      leg.flow+=(leg.flow?' ':'')+pair.flow;
+      const offsetY=(circuitIndexes.get(record.nativeCircuit)||0)*250;
+      leg.pipe+=(leg.pipe?' ':'')+localizeCircuitPath(pair.pipe,offsetY);
+      leg.flow+=(leg.flow?' ':'')+localizeCircuitPath(pair.flow,offsetY);
     }
     const links=routeRecords.filter(r=>!r.nativeCircuit)
       .map(({edge,on,color,junction,evidence:pipeState})=>{
