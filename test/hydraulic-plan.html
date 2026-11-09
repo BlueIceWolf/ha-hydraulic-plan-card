@@ -633,8 +633,11 @@
       'g.hpi-link[data-hpi-edge="second_supply"] path.pipe')?.getAttribute('d');
     const secondaryReturn=secondGenerator.shadowRoot.querySelector(
       'g.hpi-link[data-hpi-edge="second_return"] path.pipe')?.getAttribute('d');
-    check(secondarySupply?.startsWith('M290 535')&&
-      secondaryReturn?.includes('665'),
+    // Extra boilers use their declared 25% / 75% port heights within the
+    // 235px cabinet. The original primary boiler uses separate legacy ports.
+    check(secondarySupply?.startsWith('M290 533.75')&&
+      secondaryReturn?.includes('651.25') &&
+      !secondarySupply?.startsWith('M290 250'),
       'Second boiler supplies and returns at its own real pictogram ports, not the first generator');
     secondGenerator.remove();
 
