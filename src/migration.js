@@ -23,7 +23,7 @@ const HPC_MIGRATION = (() => {
       warnings.push('Die Anlage überschreitet die unterstützte Bauteil- oder Leitungsanzahl.');
     for(const n of components){
       if(!n||!HPC_FREE.byType[n.type]||typeof n.id!=='string'||
-        !/^[a-z][a-z0-9_]{0,43}$/.test(n.id)||ids.has(n.id)){
+        !/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(n.id)||ids.has(n.id)){
         warnings.push('Unbekannter oder doppelter Bauteiltyp/Bezeichner; keine automatische Änderung.');
         continue;
       }
@@ -70,7 +70,7 @@ const HPC_MIGRATION = (() => {
       const from=components.find(n=>n?.id===e?.from);
       const to=components.find(n=>n?.id===e?.to);
       const targetPort=to?.type==='buffer'&&e?.to_port==='return_in'?'bottom_in':e?.to_port;
-      if(!e||typeof e.id!=='string'||! /^[a-z][a-z0-9_]{0,43}$/.test(e.id)||
+      if(!e||typeof e.id!=='string'||! /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(e.id)||
         edges.has(e.id)||!from||!to||e.from===e.to||
         !HPC_FREE.ports(from.type).some(p=>p.id===e.from_port)||
         !HPC_FREE.ports(to.type).some(p=>p.id===targetPort)){
