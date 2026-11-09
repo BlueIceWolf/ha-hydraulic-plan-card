@@ -63,10 +63,15 @@ const HPC_INTEGRATED = (() => {
     // below original heating circuits, otherwise the third tank could
     // overlap an original radiator or its mixer.
     const bottomHeating=330+(Math.max(1,Math.min(hcCount,6))-1)*250+140;
-    const bufferStartY=Math.max(555,bottomHeating+65);
+    const bufferMode=HPC_NETWORK.bufferTopology(p).mode;
+    const bufferStartY=bufferMode==='parallel'?555:
+      Math.max(555,bottomHeating+65);
     orderedBuffers.forEach((node,index)=>{
-      points.set(node.id,{x:680+index*160,
-        y:bufferStartY,w:120,h:200,type:node.type});
+      // True parallel tanks are in one vertical bank; directed serial
+      // connections are laid left-to-right with facing hot-water ports.
+      points.set(node.id,bufferMode==='parallel'
+        ?{x:520,y:bufferStartY+index*225,w:120,h:200,type:node.type}
+        :{x:680+index*160,y:bufferStartY,w:120,h:200,type:node.type});
     });
     // Buffer-fed WW coils belong to the consumer column, just like a heating
     // circuit; all other tanks continue to use the original storage artwork.
