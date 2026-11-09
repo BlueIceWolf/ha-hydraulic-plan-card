@@ -381,7 +381,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // Live HA data changes frequently. Never replace the whole configuration form;
       // this would interrupt typing, select popovers and drag operations.
       if(this._free()||this._unconfigured()){
-        const candidateSignature=JSON.stringify({ems:HPC_EMS.detect(hass).map(x=>[x.id,x.type,x.count,Object.values(x.entities)]),emsCircuits:HPC_EMS.detectCircuits(hass).map(x=>[x.id,x.count,Object.values(x.entities)]),eta:HPC_ETA.detect(hass).map(x=>[x.id,x.model,x.count,Object.values(x.entities)])});
+        const candidateSignature=JSON.stringify({ems:HPC_EMS.detect(hass).map(x=>[x.id,x.type,x.count,Object.values(x.entities)]),emsCircuits:HPC_EMS.detectCircuits(hass).map(x=>[x.id,x.count,Object.values(x.entities)]),emsDhw:HPC_EMS.detectDhw(hass).map(x=>[x.id,x.count,Object.values(x.entities)]),eta:HPC_ETA.detect(hass).map(x=>[x.id,x.model,x.count,Object.values(x.entities)])});
         if(first||!this._freeUi?.isConnected||candidateSignature!==this._emsSignature){
           this._emsSignature=candidateSignature;
           this._renderFlex();
@@ -458,6 +458,18 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const configured=true;
       const emsCandidates=HPC_EMS.detect(this._hass);
       const emsCircuitCandidates=HPC_EMS.detectCircuits(this._hass);
+      const emsDhwCandidates=HPC_EMS.detectDhw(this._hass);
+      const pendingEmsDhw=emsDhwCandidates.filter(candidate=>{
+        const ids=new Set(Object.values(candidate.entities));
+        const current=p.components.find(node=>node.type==='dhw_tank'&&(
+          node.discovery?.provider==='ems-esp'&&node.discovery.id===candidate.id||
+          Object.values(node.sensors||{}).some(id=>ids.has(id))));
+        // There is usually only one EMS-ESP-controlled DHW tank. Never
+        // create a duplicate beside an existing, manually configured tank.
+        if(current)return Object.entries(candidate.entities).some(([key,id])=>id&&!current.sensors?.[key]);
+        return !p.components.some(n=>n.type==='dhw_tank') &&
+          Object.keys(candidate.entities).length>0;
+      });
       const matchedEmsCircuit=(c,plan=p)=>{
         const ids=new Set(Object.values(c.entities));
         return plan.components.find(node=>node.type==='heating_circuit'&&(
@@ -503,6 +515,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         <p>${pendingEmsCircuits.map(c=>esc(c.name)+" ("+c.count+" "+t("Messwerte","values")+")").join(" · ")}</p>
         <p>${t("Erkannte Sensoren werden ergänzt. Eigene Namen und Zuordnungen bleiben erhalten. Rohrleitungen werden nicht automatisch verbunden.","Detected values will be added without changing existing names or mappings. Pipework is never inferred.")}</p>
         <button type="button" data-action="ems-circuits-apply">${t("Heizkreise übernehmen","Add heating circuits")}</button>
+      </section>`:'';
+      const emsDhwInfo=pendingEmsDhw.length?`<section class="hpc-ems">
+        <h3>${t("EMS-ESP-Warmwasser erkannt","EMS-ESP hot-water storage found")}</h3>
+        <p>${t("Speichertemperatur gefunden. Bestehende Messwerte und Rohrverbindungen bleiben erhalten.","Storage temperature found. Existing sensor choices and pipework will be preserved.")}</p>
+        <button type="button" data-action="ems-dhw-apply">${t("Warmwasserspeicher übernehmen","Add hot-water tank")}</button>
       </section>`:'';
       const etaLabel=chosenEta?({ehack:'ETA eHACK',hack:'ETA HACK',hack_vr:'ETA HACK VR'}[chosenEta.model]||'ETA Hackschnitzelkessel'):'';
       const etaInfo=chosenEta?`<section class="hpc-ems">
@@ -739,6 +756,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           </details>
           ${emsInfo}
           ${emsCircuitInfo}
+          ${emsDhwInfo}
           ${etaInfo}
           ${etaPartInfo}
           ${chosenEta||chosenEtaPart?`<div class="hpc-actions"><button type="button" class="hpc-primary" data-action="eta-scan-all">${t("ETA-Anlage automatisch erkennen","Detect ETA system automatically")}</button></div>`:""}
@@ -1016,6 +1034,34 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               node.sensors[key]=id;
           }
           this._selectedId=node.id;
+          return this._applyPlan(copy,{hpc_legacy_imported:true});
+        }
+        if(action==="ems-dhw-apply"&&pendingEmsDhw.length){
+          const copy=HPC_FREE.normalize(p);
+          let last=null;
+          for(const candidate of pendingEmsDhw){
+            const ids=new Set(Object.values(candidate.entities));
+            let tank=copy.components.find(node=>node.type==='dhw_tank'&&(
+              node.discovery?.provider==='ems-esp'&&node.discovery.id===candidate.id||
+              Object.values(node.sensors||{}).some(id=>ids.has(id))));
+            if(!tank){
+              // Keep user-created tanks untouched rather than adding a
+              // second, unconnected boiler-controlled storage.
+              if(copy.components.some(node=>node.type==='dhw_tank'))continue;
+              tank=HPC_FREE.newNode('dhw_tank',copy);
+              if(!tank)continue;
+              tank.name=candidate.name;
+              copy.components.push(tank);
+            }
+            tank.discovery={provider:'ems-esp',id:candidate.id};
+            for(const [key,id] of Object.entries(candidate.entities)){
+              if(HPC_FREE.byType.dhw_tank.fields.includes(key)&&!tank.sensors[key])
+                tank.sensors[key]=id;
+            }
+            last=tank;
+          }
+          if(!last)return;
+          this._selectedId=last.id;
           return this._applyPlan(copy,{hpc_legacy_imported:true});
         }
         if(action==="ems-circuits-apply"&&pendingEmsCircuits.length){
