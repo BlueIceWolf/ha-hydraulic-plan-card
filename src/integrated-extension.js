@@ -10,9 +10,22 @@ const HPC_INTEGRATED = (() => {
     const firstSource=p.components.find(isSource);
     const firstBuffer=HPC_NETWORK.orderedBuffers(p)[0];
     const firstDhw=p.components.find(c=>c.type==='dhw_tank');
+    // A buffer-fed DHW coil is a consumer, not a second storage node in the
+    // central bank. Preserve the native tank placement for direct source
+    // charging; only relocated coils get the original tank pictogram in SVG.
+    const bufferFedTanks=new Set();
+    for(const tank of p.components.filter(n=>n.type==='dhw_tank')){
+      const feed=p.connections.find(e=>e.to===tank.id&&e.to_port==='coil_in');
+      const feeder=feed&&p.components.find(n=>n.id===feed.from);
+      const source=feeder&&['pump','diverter'].includes(feeder.type)
+        ?p.connections.find(e=>e.to===feeder.id)
+        :feed;
+      if(source&&p.components.some(n=>n.id===source.from&&n.type==='buffer'))
+        bufferFedTanks.add(tank.id);
+    }
     if(firstSource)anchored.set(firstSource.id,{x:50,y:190,w:240,h:235,type:'source'});
     if(firstBuffer)anchored.set(firstBuffer.id,{x:520,y:320,w:120,h:200,type:'buffer'});
-    if(firstDhw)anchored.set(firstDhw.id,{x:520,y:40,w:120,h:200,type:'dhw_tank'});
+    if(firstDhw&&!bufferFedTanks.has(firstDhw.id))anchored.set(firstDhw.id,{x:520,y:40,w:120,h:200,type:'dhw_tank'});
     p.components.filter(c=>c.type==='heating_circuit').slice(0,Math.min(hcCount,6))
       .forEach((c,index)=>anchored.set(c.id,{x:815,y:330+index*250,w:155,h:140,type:'heating_circuit'}));
     // Deterministic automatic layout: no manual X/Y placement is required.
@@ -52,10 +65,15 @@ const HPC_INTEGRATED = (() => {
       points.set(node.id,{x:520,
         y:bufferStartY+index*225,w:120,h:200,type:node.type});
     });
-    // Preserve the original DHW proportions as well.
-    extraDhw.forEach((node,index)=>{
-      points.set(node.id,{x:680+(index%2)*160,
-        y:40+Math.floor(index/2)*220,w:120,h:200,type:node.type});
+    // Buffer-fed WW coils belong to the consumer column, just like a heating
+    // circuit; all other tanks continue to use the original storage artwork.
+    let consumerTanks=0,otherTanks=0;
+    extraDhw.forEach(node=>{
+      const chargingFromBuffer=bufferFedTanks.has(node.id);
+      const index=chargingFromBuffer?consumerTanks++:otherTanks++;
+      points.set(node.id,chargingFromBuffer
+        ?{x:1040,y:300+index*225,w:120,h:200,type:node.type}
+        :{x:680+(index%2)*160,y:40+Math.floor(index/2)*220,w:120,h:200,type:node.type});
     });
     // WW charging devices sit next to their coil, not in a disconnected
     // column at the other end of the schematic. They are still real
@@ -79,7 +97,7 @@ const HPC_INTEGRATED = (() => {
           const sourceBox=source&&(anchored.get(source.id)||points.get(source.id));
           const laneX=sourceBox?.type==='buffer'?sourceBox.x+sourceBox.w+80:
             tankBox.x+220;
-          const laneY=sourceBox?.type==='buffer'?sourceBox.y-64:tankBox.y+250;
+          const laneY=sourceBox?.type==='buffer'?sourceBox.y+sourceBox.h*.2-20:tankBox.y+20;
           points.set(node.id,{x:laneX,y:laneY,w:40,h:40,type:'pump',inline:true});
           return;
         }
@@ -667,7 +685,7 @@ const HPC_INTEGRATED = (() => {
         +additionalSourceArt('gas_boiler',{x:50,y:195},!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource)+'</g>'
       :'';
     const firstBuffer=HPC_NETWORK.orderedBuffers(plan)[0];
-    const firstDhw=plan.components.find(c=>c.type==='dhw_tank');
+    const firstDhw=plan.components.find(c=>c.type==='dhw_tank'&&anchored.has(c.id));
     return {defs,body:'<g id="hpc-integrated">'+links+nodes+accessories+pipeLabels+lift+primaryChip+primaryOil+primaryGas+'</g>',
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
