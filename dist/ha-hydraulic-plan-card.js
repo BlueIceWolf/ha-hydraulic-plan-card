@@ -8502,6 +8502,10 @@ const HPC_NETWORK = (() => {
             !!pumpEntity(next) && pumpState(next) === null;
           if (unknownPump) continue;
           flowing.add(edge.id);
+          // A storage tank/source is the boundary of a driven subcircuit.
+          // Do not propagate a radiator pump into unrelated WW, boiler or
+          // buffer branches simply because they share a reservoir.
+          if ((next.type === 'buffer' || isSource(next)) && next.id !== pump.id) continue;
           // One pump is not evidence that an unrelated zone or boiler flows.
           const otherUnmeteredCircuit = (isSource(next) || next.type === 'heating_circuit') &&
             !pumpEntity(next) && !next.sensors?.volume && next.id !== pump.id;
