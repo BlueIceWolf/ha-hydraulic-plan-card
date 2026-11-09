@@ -8636,9 +8636,15 @@ const HPC_INTEGRATED = (() => {
           const feeder=p.connections.find(c=>c.to===node.id&&c.to_port==='in');
           const source=feeder&&p.components.find(c=>c.id===feeder.from);
           const sourceBox=source&&(anchored.get(source.id)||points.get(source.id));
-          const laneX=sourceBox?.type==='buffer'?sourceBox.x+sourceBox.w+80:
-            tankBox.x+220;
-          const laneY=sourceBox?.type==='buffer'?sourceBox.y+sourceBox.h*.2-20:tankBox.y+20;
+          // Pick a distinct piece of the actual charging supply for each
+          // tank. This also avoids placing two loading-pump icons on top of
+          // each other when a buffer has multiple DHW charging branches.
+          const laneX=sourceBox
+            ?Math.min(tankBox.x-80,sourceBox.x+sourceBox.w+80)
+            :tankBox.x-80;
+          const laneY=sourceBox?.type==='buffer'
+            ?Math.max(sourceBox.y+sourceBox.h*.2-20,tankBox.y+20)
+            :tankBox.y+20;
           points.set(node.id,{x:laneX,y:laneY,w:40,h:40,type:'pump',inline:true});
           return;
         }
