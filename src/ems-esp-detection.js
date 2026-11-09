@@ -143,7 +143,50 @@ const HPC_EMS = (() => {
     return [...groups.values()].map(c=>({...c,count:Object.keys(c.entities).length}))
       .sort((a,b)=>a.number-b.number||a.id.localeCompare(b.id));
   }
-  return {detect,detectCircuits};
+
+  // EMS-ESP publishes the storage temperature on the boiler device, usually
+  // as "wwtemp" or "dhwtemp". There may be no separate "DHW tank" device.
+  // Only a measured storage temperature can identify a tank here: a target
+  // temperature or a tap-water activity flag is not a tank sensor.
+  function detectDhw(hass) {
+    if(!hass?.states)return [];
+    const registries=hass.entities||{},devices=hass.devices||{};
+    const hasEmsBoiler=detect(hass).length>0;
+    const groups=new Map();
+    const clean=value=>String(value||'').toLowerCase()
+      .normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
+      .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+    for(const [id,state] of Object.entries(hass.states)){
+      if(!id.startsWith('sensor.'))continue;
+      const raw=clean(id.split('.').slice(1).join('.'));
+      const reg=registries[id]||{};
+      const device=devices[reg.device_id]||{};
+      const gateway=devices[device.via_device_id]||{};
+      const meta=[reg.unique_id,device.name,device.name_by_user,device.model,
+        device.manufacturer,gateway.name,gateway.manufacturer,
+        JSON.stringify(device.identifiers||[])].join(' ').toLowerCase();
+      const explicitEMS=/ems[-_\s]?esp|emsesp/.test(meta);
+      const scoped=/(?:^|_)(?:boiler|dhw|tapwater|hotwater|ww|wwc\d?)(?:_|$)/.test(raw);
+      if(!explicitEMS&&!(hasEmsBoiler&&scoped))continue;
+      // Exact EMS-ESP measurement keys; avoid "wwseltemp", "dhwsettemp",
+      // flow temperatures, circulation and the "tapwater_active" boolean.
+      const key=raw.replace(/^.*?(?:boiler_)?(?=(?:ww|dhw|tapwater|hotwater))/, '');
+      const measurement=/^(?:wwtemp|wwcurtemp|wwtanktemp|wwstoragetemp|wwstoredtemp|dhwtemp|dhwcurtemp|dhwtanktemp|dhwstoragetemp|tapwatertemp|hotwatertemp)$/.test(key) ||
+        /(?:^|_)(?:ww|dhw|warmwasser)_(?:ist|actual|current|storage|tank)_?temp(?:eratur|erature)?$/.test(raw);
+      if(!measurement)continue;
+      const unit=String(state?.attributes?.unit_of_measurement||'').toLowerCase();
+      if(unit&&!['°c','c','°f','f','k'].includes(unit))continue;
+      const group='dhw:'+(reg.device_id||'ems-esp');
+      if(!groups.has(group))groups.set(group,{
+        id:group,type:'dhw_tank',name:'Warmwasserspeicher',
+        source:'EMS-ESP',entities:{},count:0
+      });
+      const candidate=groups.get(group);
+      if(!candidate.entities.top)candidate.entities.top=id;
+    }
+    return [...groups.values()].map(c=>({...c,count:Object.keys(c.entities).length}));
+  }
+  return {detect,detectCircuits,detectDhw};
 })();
 
 
