@@ -615,6 +615,50 @@
       'Hot-water charging supply and coil return use distinct real ports');
     dual.remove();
 
+    // A warm-water coil loaded from the buffer belongs among consumers.
+    // The native tank is hidden, while its original-style SVG pictogram is
+    // reused at the hydraulic charging position to the right of the buffer.
+    const bufferCharge=await mount({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[
+        {id:'bh',type:'buffer',name:'Puffer',sensors:{}},
+        {id:'bp',type:'pump',name:'WW Ladepumpe',sensors:{state:'switch.buffer_ww_pump'}},
+        {id:'bt',type:'dhw_tank',name:'Warmwasserspeicher',sensors:{}}
+      ],connections:[
+        {id:'bflow',from:'bh',from_port:'top_out',to:'bp',to_port:'in'},
+        {id:'pflow',from:'bp',from_port:'out',to:'bt',to_port:'coil_in'},
+        {id:'breturn',from:'bt',from_port:'coil_out',to:'bh',to_port:'bottom_in'}
+      ]}},hassOf({'switch.buffer_ww_pump':state('switch.buffer_ww_pump','on')}));
+    const bufferChargeSvg=bufferCharge.shadowRoot.getElementById('svg');
+    const chargedTank=bufferChargeSvg.querySelector('[data-hpi-node="bt"] rect.tank');
+    check(Number(chargedTank?.getAttribute('x'))>=1000 &&
+      bufferChargeSvg.querySelector('rect.tank[x="520"][y="40"]')?.closest('g.tap')?.style.display==='none',
+      'Buffer-fed warm-water tank uses the original pictogram in consumer column without duplication');
+    const chargedPump=bufferChargeSvg.querySelector('g.hpi-inline-pump[data-hpi-node="bp"]');
+    check(!!chargedPump &&
+      Number(chargedPump.querySelector('circle.pump')?.getAttribute('cx'))>640,
+      'Charging pump is directly in buffer supply pipe, not a separate rectangular tile');
+    bufferCharge.hass=hassOf({'switch.buffer_ww_pump':state('switch.buffer_ww_pump','off')});
+    check(!bufferCharge.shadowRoot.querySelector('g[data-hpi-edge="pflow"] path.flow.on') &&
+      !bufferCharge.shadowRoot.querySelector('g[data-hpi-edge="breturn"] path.flow.on'),
+      'Buffer-fed WW charging pump off: both hydraulic legs stop together');
+    bufferCharge.remove();
+
+    const diverterEditor=document.createElement('hydraulic-plan-card-editor');
+    diverterEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[{id:'ww_valve',type:'diverter',name:'Umschaltventil',
+        sensors:{position:'sensor.ww_valve'},options:{dhw_port:'a'}}],connections:[]}});
+    document.body.append(diverterEditor);diverterEditor.hass=hassOf();
+    let diverterSaved;
+    diverterEditor.addEventListener('config-changed',e=>diverterSaved=e.detail.config);
+    const valvePort=diverterEditor.querySelector('[data-diverter-port="ww_valve"]');
+    const valveValue=diverterEditor.querySelector('[data-diverter-dhw="ww_valve"]');
+    if(valvePort){valvePort.value='b';valvePort.dispatchEvent(new Event('change',{bubbles:true}));}
+    if(valveValue){valveValue.value='0';valveValue.dispatchEvent(new Event('change',{bubbles:true}));}
+    check(!!valvePort&&!!valveValue &&
+      diverterSaved?.plan.components[0].options.dhw_port==='b'&&
+      diverterSaved?.plan.components[0].options.dhw_state==='0',
+      'Diverter routing and manufacturer-specific valve states are editable in native card setup');
+    diverterEditor.remove();
     const storageOnly=await mount({type:'custom:hydraulic-plan-card',
       generator_type:'oil',preset:'none',
       plan:{components:[{id:'tankonly',type:'buffer',name:'Puffer',sensors:{}}],connections:[]}},hassOf());
