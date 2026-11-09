@@ -336,10 +336,64 @@ const HPC_NETWORK = (() => {
     return edges;
   }
 
+  // Check physical component bounds after routing, including label clearance.
+  // Routes without obstructions retain their original geometry and proportions.
+  function avoidComponents(original,p,q,fromSide,toSide,obstacles,fromId,toId) {
+    const blockers=obstacles.filter(b=>b.id!==fromId&&b.id!==toId);
+    const pieces=d=>{
+      const tokens=(d||'').match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
+      const segments=[];let x=0,y=0;
+      for(let i=0;i<tokens.length;){
+        const op=tokens[i++];
+        if(op==='M'){x=+tokens[i++];y=+tokens[i++];continue;}
+        const nx=op==='H'?+tokens[i++]:x,ny=op==='V'?+tokens[i++]:y;
+        segments.push({x,y,nx,ny});x=nx;y=ny;
+      }
+      return segments;
+    };
+    const crosses=path=>pieces(path).some(s=>blockers.some(box=>{
+      const padding=9,l=box.x-padding,r=box.x+box.w+padding;
+      const top=box.y-padding,bottom=box.y+box.h+padding;
+      return s.x===s.nx?s.x>l&&s.x<r&&
+        Math.max(s.y,s.ny)>top&&Math.min(s.y,s.ny)<bottom:
+        s.y>top&&s.y<bottom&&
+        Math.max(s.x,s.nx)>l&&Math.min(s.x,s.nx)<r;
+    }));
+    if(!crosses(original))return original;
+    const stub=18;
+    const a={x:p.x+(fromSide==='L'?-stub:stub),y:p.y};
+    const b={x:q.x+(toSide==='L'?-stub:stub),y:q.y};
+    const boxes=[...blockers,{x:p.x,y:p.y,w:0,h:0},{x:q.x,y:q.y,w:0,h:0}];
+    const unique=values=>[...new Set(values.map(Math.round))].sort((x,y)=>x-y);
+    const xs=unique([(a.x+b.x)/2,...boxes.flatMap(box=>[box.x-30,box.x+box.w+30])]);
+    const ys=unique([(a.y+b.y)/2,...boxes.flatMap(box=>[box.y-30,box.y+box.h+30])]);
+    let best=null;
+    const propose=points=>{
+      const segments=points.filter((n,i)=>i===0||n.x!==points[i-1].x||n.y!==points[i-1].y);
+      let d='M'+segments[0].x+' '+segments[0].y,score=0,prev='';
+      for(let i=1;i<segments.length;i++){
+        const from=segments[i-1],to=segments[i];
+        const op=from.x===to.x?'V':from.y===to.y?'H':null;
+        if(!op)return;
+        d+=' '+op+(op==='V'?to.y:to.x);
+        score+=Math.abs(from.x-to.x)+Math.abs(from.y-to.y);
+        if(prev&&prev!==op)score+=22;
+        prev=op;
+      }
+      if(best&&score>=best.score||crosses(d))return;
+      best={d,score};
+    };
+    for(const x of xs)propose([p,a,{x,y:a.y},{x,y:b.y},b,q]);
+    for(const y of ys)propose([p,a,{x:a.x,y},{x:b.x,y},b,q]);
+    if(!best)for(const x of [xs[0],xs.at(-1)])for(const y of [ys[0],ys.at(-1)])
+      propose([p,a,{x,y:a.y},{x,y},{x:b.x,y},b,q]);
+    return best?.d||original;
+  }
+
   // One orthogonal router for every non-native SVG pipe. It uses actual ports,
   // not the stored legacy X/Y values or assumptions based on a component name.
   function route({ edge, fromNode, toNode, fromShape, toShape, p, q,
-                   fromSide, toSide, supplyTee = null, returnTee = null }) {
+                   fromSide, toSide, supplyTee = null, returnTee = null, obstacles = [] }) {
     const h = (x, y) => String(x) + ' ' + String(y);
     if(edge.kind==='return_lift'){
       const x=Math.max(p.x,q.x)+42;
@@ -408,7 +462,7 @@ const HPC_NETWORK = (() => {
       d = 'M' + h(p.x, p.y) + ' H' + (p.x - 70) + ' V' + below +
         ' H' + (q.x - 35) + ' V' + q.y + ' H' + q.x;
     }
-    return d;
+    return avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to);
   }
 
 
