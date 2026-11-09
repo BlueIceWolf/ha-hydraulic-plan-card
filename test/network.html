@@ -143,6 +143,28 @@ const splitRoutes=HPC_NETWORK.mergeRoutes([
 check(!splitRoutes.get('flow2').pipe.includes('M640 360 H680')&&
   splitRoutes.get('flow1').flow.includes('M640 360 H680'),
   'Shared hot-water header is drawn once and active if one branch circulates');
+// Classify hydraulic evidence without inventing a numerical flow rate.
+const evidMeasured=HPC_NETWORK.flowEvidence(plan,
+  hass({'switch.ladepumpe':'on','sensor.durchfluss':[245,'l/h']}));
+check(evidMeasured.get('e3')?.state==='measured'&&
+  evidMeasured.get('e4')?.state==='measured',
+  'Positive volumetric measurement is reported as measured evidence');
+check(evidMeasured.get('e5')?.state==='inferred',
+  'A shared return is not falsely labelled as directly measured');
+const evidOff=HPC_NETWORK.flowEvidence(plan,
+  hass({'switch.ladepumpe':'off','sensor.durchfluss':[240,'l/h']}));
+check(evidOff.get('e4')?.state==='stopped'&&
+  evidOff.get('e5')?.state==='stopped',
+  'Stopped charging pump marks both coil legs definitively interrupted');
+const evidUnknown=HPC_NETWORK.flowEvidence(plan,hass());
+check(evidUnknown.get('e4')?.state==='unknown'&&
+  evidUnknown.get('e5')?.state==='unknown',
+  'Missing measurements and pump state remain unknown');
+const evidValved=HPC_NETWORK.flowEvidence(valvePlan,
+  hass({'sensor.valve':'Heizen','switch.main_pump':'on'}));
+check(evidValved.get('wwfeed')?.state==='stopped'&&
+  evidValved.get('wwback')?.state==='stopped',
+  'Heating changeover stops the entire WW coil including its return');
 document.querySelector('#result').textContent=checks.every(line=>line.startsWith('OK'))?'PASS':'FAIL';
 document.querySelector('#log').textContent=checks.join('\n');
 </script></body></html>
