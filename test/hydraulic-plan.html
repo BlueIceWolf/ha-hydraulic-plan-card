@@ -461,6 +461,94 @@
       'Already manually assigned oil sensors are recognized, not duplicated');
     manualOilEditor.remove();
     emsEditor.remove();
+    // EMS-ESP publishes heating circuits through the thermostat and mixer
+    // MQTT devices, not as boiler_hc* sensors. Import them separately.
+    const circuitData={
+      'sensor.mixer_hc1_flowtemp':state('sensor.mixer_hc1_flowtemp',38,'°C'),
+      'binary_sensor.mixer_hc1_pumpstatus':state('binary_sensor.mixer_hc1_pumpstatus','on'),
+      'sensor.thermostat_hc1_seltemp':state('sensor.thermostat_hc1_seltemp',22,'°C'),
+      'sensor.mixer_hc2_flowtemp':state('sensor.mixer_hc2_flowtemp',32,'°C'),
+      'number.mixer_hc2_mixerposition':state('number.mixer_hc2_mixerposition',48,'%'),
+      'sensor.unrelated_hc3_flowtemp':state('sensor.unrelated_hc3_flowtemp',18,'°C')
+    };
+    const circuitsHass=hassOf(circuitData);
+    circuitsHass.entities=Object.fromEntries(Object.keys(circuitData).map(id=>[id,{
+      device_id:id.includes('thermostat_')?'ems_thermostat':
+        id.includes('unrelated_')?'other_device':'ems_mixer',
+      platform:'mqtt',unique_id:id.includes('unrelated_')?'other_'+id:'ems-esp_'+id
+    }]));
+    circuitsHass.devices={
+      ems_thermostat:{name:'EMS-ESP Thermostat',via_device_id:'ems_gateway'},
+      ems_mixer:{name:'EMS-ESP Mixer',via_device_id:'ems_gateway'},
+      ems_gateway:{name:'EMS-ESP Gateway'},
+      other_device:{name:'Unrelated temperature logger'}
+    };
+    const hcEditor=document.createElement('hydraulic-plan-card-editor');
+    hcEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[],connections:[]}});
+    document.body.append(hcEditor);hcEditor.hass=circuitsHass;
+    check(!!hcEditor.querySelector('[data-action="ems-circuits-apply"]')&&
+      hcEditor.textContent.includes('EMS-ESP-Heizkreise erkannt'),
+      'EMS-ESP suggests heating circuits from thermostat/mixer MQTT devices');
+    let hcConfig;
+    hcEditor.addEventListener('config-changed',ev=>hcConfig=ev.detail.config);
+    const oldConfirm=window.confirm;window.confirm=()=>true;
+    try {hcEditor.querySelector('[data-action="ems-circuits-apply"]')?.click();}
+    finally {window.confirm=oldConfirm;}
+    const importedHcs=hcConfig?.plan.components.filter(c=>c.type==='heating_circuit')||[];
+    check(importedHcs.length===2&&
+      importedHcs[0].sensors.flow==='sensor.mixer_hc1_flowtemp'&&
+      importedHcs[0].sensors.pump==='binary_sensor.mixer_hc1_pumpstatus'&&
+      !importedHcs[0].sensors.target&&
+      importedHcs[1].sensors.mixer==='number.mixer_hc2_mixerposition'&&
+      importedHcs[1].options?.mixed===true,
+      'EMS-ESP imports two real circuits without confusing room setpoint with flow');
+    check(!hcEditor.querySelector('[data-action="ems-circuits-apply"]'),
+      'Imported heating circuits are not offered again on refresh');
+    hcEditor.remove();
+
+    // The hot-water assistant belongs to the selected DHW tank, not every
+    // component. Other components retain the ordinary pipe editor.
+    const selective=document.createElement('hydraulic-plan-card-editor');
+    selective.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[
+        {id:'test_boiler',type:'oil_boiler',name:'Ölkessel',sensors:{}},
+        {id:'test_ww',type:'dhw_tank',name:'Warmwasser',sensors:{}},
+        {id:'test_hc',type:'heating_circuit',name:'Heizkreis',sensors:{}}
+      ],connections:[]}});
+    document.body.append(selective);selective.hass=hassOf();
+    check(!selective.querySelector('#hpc-dhw-source'),
+      'Warm-water connection panel stays hidden for selected boiler');
+    selective.querySelector('[data-select="test_ww"]')?.click();
+    check(!!selective.querySelector('#hpc-dhw-source')&&
+      selective.querySelector('#hpc-dhw-target')?.value==='test_ww',
+      'Warm-water connection panel appears only for chosen WW tank');
+    selective.querySelector('[data-select="test_hc"]')?.click();
+    check(!selective.querySelector('#hpc-dhw-source'),
+      'Selecting a heating circuit hides WW connection controls again');
+    selective.remove();
+
+    // The retained native radiator pictogram must use the component name
+    // from the editor and respond when the user renames the circuit.
+    const namedConfig={type:'custom:hydraulic-plan-card',preset:'none',
+      plan:{components:[
+        {id:'name_boiler',type:'oil_boiler',name:'Ölkessel',sensors:{}},
+        {id:'name_buffer',type:'buffer',name:'Puffer',sensors:{}},
+        {id:'name_hc',type:'heating_circuit',name:'Wohnzimmer OG',sensors:{}}
+      ],connections:[
+        {id:'name_vl',from:'name_buffer',from_port:'top_out',to:'name_hc',to_port:'flow_in'},
+        {id:'name_rl',from:'name_hc',from_port:'return_out',to:'name_buffer',to_port:'bottom_in'}
+      ]}};
+    const renamed=await mount(namedConfig,hassOf());
+    check(renamed.shadowRoot.getElementById('svg')?.textContent.includes('Wohnzimmer OG'),
+      'Original radiator displays the renamed heating circuit');
+    renamed.setConfig({...namedConfig,plan:{...namedConfig.plan,components:
+      namedConfig.plan.components.map(c=>c.id==='name_hc'?{...c,name:'Bad OG'}:c)}});
+    renamed.hass=hassOf();
+    await sleep(30);
+    check(renamed.shadowRoot.getElementById('svg')?.textContent.includes('Bad OG'),
+      'Renaming a heating circuit refreshes its label in the card');
+    renamed.remove();
     const unknownHass=hassOf({
       'binary_sensor.boiler_burngas':state('binary_sensor.boiler_burngas','on'),
       'sensor.boiler_curflowtemp':state('sensor.boiler_curflowtemp',72,'°C'),
