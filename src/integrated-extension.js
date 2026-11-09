@@ -409,15 +409,14 @@ const HPC_INTEGRATED = (() => {
       // A return enters on the LEFT of the buffer, so do not place a fake
       // tee on the right-hand heating collector. Draw its real return route.
     }
-    const links=plan.connections.map(edge=>{
-      // Original heating circuits own their valve, emitter and shared risers.
-      // Do not draw duplicate pipes over those native routes. Connections to
-      // additional (non-native) components still have to be drawn normally.
+    const routeRecords=plan.connections.map(edge=>{
+      // The original circuit artwork already contains its shared risers,
+      // valves and radiators. Only supplemental routes need drawing.
       if((all[edge.from]?.type==='heating_circuit'||
           all[edge.to]?.type==='heating_circuit')&&
-          anchored.has(edge.from)&&anchored.has(edge.to))return '';
-      // Draw only routes not already owned by the original heating circuits.
+          anchored.has(edge.from)&&anchored.has(edge.to))return null;
       const fromShape=loc(edge.from),toShape=loc(edge.to);
+      if(!fromShape||!toShape)return null;
       const p=port(all[edge.from],fromShape,edge.from_port);
       const q=port(all[edge.to],toShape,edge.to_port);
       const fromSide=portSide(all[edge.from],fromShape,edge.from_port);
@@ -428,26 +427,30 @@ const HPC_INTEGRATED = (() => {
         edge,fromNode:all[edge.from],toNode:all[edge.to],
         fromShape,toShape,p,q,fromSide,toSide,supplyTee,returnTee
       });
-      const inferred=(()=>{
-        const node=all[edge.from],field=edge.from_port;
-        if(field==="flow")return node.sensors.flow;
-        if(field==="top_out")return node.sensors.top;
-        if(field==="mid_out")return node.sensors.middle;
-        if(field==="bottom_out")return node.sensors.bottom;
-        return "";
-      })();
-      const s=HPC_FREE.state(hass,edge.temperature_entity||inferred);
-      const color=s?HPC_FREE.color(s):null;
-      const on=flowing.has(edge.id);
-      // A visible T junction at both coil legs identifies this as a branch
-      // of the heating distribution. Do not animate it independently:
-      // the edge flow state still controls both legs.
-      const branch=branchFeedEdges.has(edge.id)||branchReturnEdges.has(edge.id);
-      const junction=supplyTee||returnTee;
-      const tee=junction?'<circle class="hpi-coil-branch" cx="'+junction.x+'" cy="'+junction.y+'" r="5" fill="var(--card-background-color,#fff)" stroke="'+(on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+'" stroke-width="2"/>':'';
-      return '<g class="hpi-link" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"><title>'+HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'
-        +'<path class="pipe'+(on?' on':'')+'" d="'+d+'"'+(color?' style="--pc:'+color+'"':'')+'/>'
-        +'<path class="flow'+(on?' on':'')+'" d="'+d+'"/>'+tee+'</g>';
+      const from=all[edge.from],field=edge.from_port;
+      const inferred=field==='flow'?from.sensors.flow:
+        field==='top_out'?from.sensors.top:
+        field==='mid_out'?from.sensors.middle:
+        field==='bottom_out'?from.sensors.bottom:'';
+      const reading=HPC_FREE.state(hass,edge.temperature_entity||inferred);
+      return {edge,d,on:flowing.has(edge.id),
+        color:reading?HPC_FREE.color(reading):null,
+        junction:supplyTee||returnTee};
+    }).filter(Boolean);
+    // Resolve all route overlaps together, rather than having every boiler,
+    // tank or heating circuit draw a second copy of the same collector.
+    const physicalPipes=HPC_NETWORK.mergeRoutes(routeRecords);
+    const links=routeRecords.map(({edge,on,color,junction})=>{
+      const paths=physicalPipes.get(edge.id)||{pipe:'',flow:''};
+      const tee=junction?'<circle class="hpi-coil-branch" cx="'+junction.x+
+        '" cy="'+junction.y+'" r="5" fill="var(--card-background-color,#fff)" stroke="'+
+        (on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+
+        '" stroke-width="2"/>':'';
+      return '<g class="hpi-link" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"><title>'+
+        HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'+
+        '<path class="pipe'+(paths.flow?' on':'')+'" d="'+paths.pipe+'"'+
+        (color?' style="--pc:'+color+'"':'')+'/>'+
+        '<path class="flow'+(paths.flow?' on':'')+'" d="'+paths.flow+'"/>'+tee+'</g>';
     }).join('');
     const nodes=extras.map(node=>{
       const b=points.get(node.id);if(!b)return '';
