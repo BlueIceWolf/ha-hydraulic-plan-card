@@ -76,7 +76,65 @@ const HPC_EMS = (() => {
     }
     return output.sort((a,b)=>Number(b.confirmed)-Number(a.confirmed)||b.count-a.count);
   }
-  return {detect};
+
+  // EMS-ESP exports heating circuits via thermostat_hc1, mixer_hc1, etc.
+  // Room temperature and thermostat seltemp are not hydraulic supply values.
+  // Only known flow, return, pump and mixer entities are assigned.
+  function detectCircuits(hass) {
+    if(!hass?.states)return [];
+    const entities=hass.entities||{}, devices=hass.devices||{};
+    const groups=new Map();
+    const hasEmsBoiler=detect(hass).length>0;
+    const normalize=value=>String(value||'').toLowerCase()
+      .normalize('NFKD').replace(/[\u0300-\u036f]/g,'')
+      .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+    const circuitNumber=value=>{
+      const match=normalize(value).match(/(?:^|_)(?:hc|heizkreis)_?([1-6])(?:_|$)/);
+      return match?Number(match[1]):null;
+    };
+    const fields=[
+      ['flow',/(?:^|_)(?:flowtemp|flowtemperature|curflowtemp|supplytemp|vorlauftemp|vorlauftemperatur)(?:_|$)/],
+      ['return',/(?:^|_)(?:rettemp|returntemp|returntemperature|ruecklauftemp|rucklauftemp|ruecklauftemperatur)(?:_|$)/],
+      ['target',/(?:^|_)(?:targetflowtemp|targetflowtemperature|flowtarget|setflowtemp|sollvorlauf)(?:_|$)/],
+      ['pump',/(?:^|_)(?:pumpstatus|pumpstate|heatingpump|circuitpump|heizkreispumpe)(?:_|$)/],
+      ['mixer',/(?:^|_)(?:mixerposition|mixposition|mixervalue|valveposition|mischerposition|mischerstellung)(?:_|$)/]
+    ];
+    for(const [id,state] of Object.entries(hass.states)){
+      const [domain,raw]=id.split('.');
+      if(!raw||!['sensor','binary_sensor','switch','number','climate'].includes(domain))continue;
+      const registry=entities[id]||{};
+      const device=devices[registry.device_id]||{};
+      const gateway=devices[device.via_device_id]||{};
+      const friendly=state?.attributes?.friendly_name||'';
+      const number=circuitNumber(raw)||circuitNumber(friendly)||circuitNumber(registry.unique_id);
+      if(!number)continue;
+      const meta=[registry.unique_id,registry.platform,device.name,device.name_by_user,
+        device.model,device.manufacturer,gateway.name,gateway.model,gateway.manufacturer]
+        .filter(Boolean).join(' ').toLowerCase();
+      // A generic hc1 in another integration must not be imported as EMS-ESP.
+      const confirmed=/ems[-_\s]?esp|emsesp/.test(meta)||
+        (hasEmsBoiler&&/^(?:thermostat|mixer)_hc[1-6](?:_|$)/.test(raw));
+      if(!confirmed)continue;
+      const gatewayId=device.via_device_id||'ems-esp';
+      const key=gatewayId+':hc'+number;
+      if(!groups.has(key))groups.set(key,{id:key,number,type:'heating_circuit',
+        name:'Heizkreis '+number,source:'EMS-ESP',entities:{}});
+      const candidate=groups.get(key);
+      const suffix=normalize(raw);
+      const role=fields.find(([,pattern])=>pattern.test(suffix))?.[0];
+      if(!role)continue;
+      if(['flow','return','target'].includes(role)&&domain!=='sensor')continue;
+      if(role==='pump'&&domain==='sensor'&&
+        !/^(?:on|off|true|false|0|1|ein|aus)$/i.test(String(state?.state)))continue;
+      if(role==='mixer'&&domain!=='sensor'&&domain!=='number')continue;
+      if(role==='mixer'&&!Number.isFinite(Number(state?.state)))continue;
+      // Once selected by the user, this mapping never overwrites a value.
+      if(!candidate.entities[role])candidate.entities[role]=id;
+    }
+    return [...groups.values()].map(c=>({...c,count:Object.keys(c.entities).length}))
+      .sort((a,b)=>a.number-b.number||a.id.localeCompare(b.id));
+  }
+  return {detect,detectCircuits};
 })();
 
 
