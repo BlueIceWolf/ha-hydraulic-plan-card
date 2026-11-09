@@ -8755,8 +8755,14 @@ const HPC_NETWORK = (() => {
         if (op !== 'H' && op !== 'V') throw Error('Unsupported pipe routing command');
         const nx = op === 'H' ? Number(tokens[i++]) : x;
         const ny = op === 'V' ? Number(tokens[i++]) : y;
-        const role = /^(?:return_out|coil_out|bottom_out|return)$/.test(route.edge.from_port) ||
-          /^(?:return|return_in|bottom_in)$/.test(route.edge.to_port) ? 'return' : 'flow';
+        // The bypass borrows the real hot supply until the mixing leg, and
+          // rejoins the real return. A single edge can therefore own both
+          // hydraulic roles; otherwise two different-coloured copies of the
+          // same physical pipe appear beside the wood gasifier.
+          const role = route.edge.kind === 'return_lift'
+            ? (segmentIndex < 2 ? 'flow' : 'return')
+            : (/^(?:return_out|coil_out|bottom_out|return)$/.test(route.edge.from_port) ||
+              /^(?:return|return_in|bottom_in)$/.test(route.edge.to_port) ? 'return' : 'flow');
         if (Number.isFinite(nx) && Number.isFinite(ny) &&
             Math.abs(nx-x)+Math.abs(ny-y)>0.001) {
           const axis=op==='H'?'h':'v',fixed=op==='H'?y:x;
