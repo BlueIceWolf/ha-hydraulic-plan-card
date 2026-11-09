@@ -73,6 +73,11 @@ const heatingOnly=HPC_NETWORK.flowStates(independentlyPumped,
 check(!heatingOnly.has('e4')&&!heatingOnly.has('e5')&&
   heatingOnly.has('heatSupply')&&heatingOnly.has('heatReturn'),
   'Heating circuit still circulates when a separate WW loading pump is off');
+const unknownWwPump=HPC_NETWORK.flowStates(independentlyPumped,
+  hass({'switch.ladepumpe':'unavailable','switch.hk_pumpe':'on'}));
+check(unknownWwPump.has('heatSupply')&&unknownWwPump.has('heatReturn')&&
+  !unknownWwPump.has('e3')&&!unknownWwPump.has('e4')&&!unknownWwPump.has('e5'),
+  'Heating pump never activates an independent WW coil whose own pump is unavailable');
 const heatingOff=HPC_NETWORK.flowStates(independentlyPumped,
   hass({'switch.ladepumpe':'on','sensor.durchfluss':[240,'l/h'],
     'switch.hk_pumpe':'off'}));
