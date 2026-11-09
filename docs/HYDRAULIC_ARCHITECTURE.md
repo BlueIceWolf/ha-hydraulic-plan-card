@@ -43,6 +43,12 @@ Die Anordnung orientiert sich an echten Verbindungen; vorhandene alte `x`/`y`-Fe
 
 Die Darstellung nutzt weiterhin die Rohr- und Fluss-CSS-Klassen des Originals. Für die originalen Heizkreise liefert der gemeinsame Router jetzt die externen Vorlauf- und Rücklaufpfade: `_syncNativeCircuitFlow` ersetzt die alten Pfaddaten durch die berechneten Segmente und leert die früheren festen Steig- und Sammelleitungen. Die Heizkörper-, Pumpen- und Mischerzeichnungen bleiben erhalten. Auch die Sonderwege für Heizkreis-Rückläufe und Rücklaufanhebungen müssen die Bauteilgrenzen beim Routing berücksichtigen. Gemeinsame horizontale und vertikale Segmente werden nur einmal gezeichnet. Ob diese Wege in jeder denkbaren Anlagenvariante sauber verlaufen, ist damit **noch nicht visuell nachgewiesen**.
 
+## Hydraulische Temperaturanzeigen
+
+Für Wärmeerzeuger werden Vorlauf- und Rücklaufwerte nur dann zentral an einem Rohr beschriftet, wenn der jeweilige Sensor einen numerischen Messwert liefert und der entsprechende Komponentenport tatsächlich geroutet ist. Die Position wird aus einem Segment des zusammengeführten physischen Rohrwegs berechnet; Komponenten, andere Rohrsegmente und bereits belegte Labelbereiche werden dabei gemieden. Labelidentität ist **Komponenten-ID plus Messwertrolle** (`flow` oder `return`), niemals der formatierte Zahlenwert.
+
+Die zentrale Rohrbeschriftung ist die einzige Anzeige desselben Messpunkts. Das Original-SVG behält seine bestehenden Texte als Fallback: `t-vl`, `t-rl` und `t-boiler-flow` werden im Renderpfad nur geleert, wenn ein entsprechendes zentrales Label tatsächlich erzeugt wurde. Fehlende Sensorwerte, ungültige Werte oder nicht angeschlossene Ports behalten dadurch die bisherige Originalanzeige. Die Unterdrückung wird bei wiederholten Hass-Updates erneut angewendet, ohne die Sensorzuordnung oder andere Kesselanzeigen zu verändern.
+
 ## Durchfluss
 
 `HPC_NETWORK.flowStates()` ist eine konservative Anzeige von plausibel durchströmten Zweigen:

@@ -44,6 +44,20 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       super.hass=hass;
       this._syncAdditional();
     }
+    _syncNativeTemperatureLabels(svg,labels) {
+      for(const id of labels){
+        const label=svg.querySelector('#'+id);
+        if(label)label.textContent='';
+        if(id==='t-boiler-flow'){
+          const boiler=svg.querySelector('#boiler');
+          if(!boiler)continue;
+          const values=String(boiler.dataset.a11y||'').split(', ');
+          values.pop();
+          if(values.length)boiler.dataset.a11y=values.join(', ');
+          else boiler.removeAttribute('data-a11y');
+        }
+      }
+    }
     _syncNativeCircuitFlow(svg,plan,nativePaths={}) {
       // Reuse the original component artwork, while all heating pipes and
       // mixer bypass geometry come from the central hydraulic router.
@@ -125,7 +139,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         return id+':'+(st?.state??'unavailable')+':'+(st?.attributes?.unit_of_measurement??'');
       }).join('|');
       const signature=JSON.stringify(p)+'|'+tick;
-      if(!force&&signature===this._integratedSig&&svg.querySelector('#hpi-root'))return;
+      if(!force&&signature===this._integratedSig&&svg.querySelector('#hpi-root')){
+        this._syncNativeTemperatureLabels(svg,this._integratedNativeTemperatureLabels||[]);
+        return;
+      }
       const rendered=HPC_INTEGRATED.svg(model,this._hass);
       // Preserve the original hydraulic anchors and labels. Oil and ETA use
       // their own recognizable boiler artwork in exactly the same SVG.
@@ -150,6 +167,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       }
       svg.querySelector('#hpi-root')?.remove();
       svg.insertAdjacentHTML('beforeend','<g id="hpi-root"><defs>'+rendered.defs+'</defs>'+rendered.body+'</g>');
+      this._integratedNativeTemperatureLabels=rendered.nativeTemperatureLabels||[];
+      this._syncNativeTemperatureLabels(svg,this._integratedNativeTemperatureLabels);
       // First tank remains the upstream tank graphic. Only its fill gains the
       // additional measured stratification points configured for that tank.
       const firstBuffer=rendered.firstBuffer;

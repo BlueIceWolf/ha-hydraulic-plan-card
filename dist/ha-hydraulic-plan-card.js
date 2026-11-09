@@ -9518,6 +9518,86 @@ const HPC_INTEGRATED = (() => {
       return ['pump_out','mixer_out'].includes(key)?'R':'L';
     return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'R';
   }
+  function pipeSegments(path) {
+    const tokens=(path||'').match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
+    const segments=[];
+    let x,y;
+    for(let i=0;i<tokens.length;){
+      const command=tokens[i++];
+      if(command==='M'){x=Number(tokens[i++]);y=Number(tokens[i++]);}
+      else if(command==='H'){
+        const next=Number(tokens[i++]);
+        if(Number.isFinite(x)&&Number.isFinite(y)&&next!==x)
+          segments.push({x1:x,y1:y,x2:next,y2:y});
+        x=next;
+      }else if(command==='V'){
+        const next=Number(tokens[i++]);
+        if(Number.isFinite(x)&&Number.isFinite(y)&&next!==y)
+          segments.push({x1:x,y1:y,x2:x,y2:next});
+        y=next;
+      }
+    }
+    return segments;
+  }
+  function segmentIdentity(segment) {
+    const values=[segment.x1,segment.y1,segment.x2,segment.y2].map(value=>Number(value.toFixed(2)));
+    const forward=values.join(',');
+    const reverse=[values[2],values[3],values[0],values[1]].join(',');
+    return forward<reverse?forward:reverse;
+  }
+  function pipeLabelPosition(path,sourcePoint,role,text,obstacles,occupied,allPipeSegments) {
+    const width=Math.max(60,text.length*7.2+8);
+    const candidates=pipeSegments(path).map(segment=>{
+      const distance=Math.min(
+        Math.abs(segment.x1-sourcePoint.x)+Math.abs(segment.y1-sourcePoint.y),
+        Math.abs(segment.x2-sourcePoint.x)+Math.abs(segment.y2-sourcePoint.y));
+      return {segment,distance,length:Math.abs(segment.x2-segment.x1)+Math.abs(segment.y2-segment.y1)};
+    }).sort((a,b)=>a.distance-b.distance||b.length-a.length);
+    const overlaps=(a,b,padding=0)=>a.left<b.right+padding&&a.right>b.left-padding&&
+      a.top<b.bottom+padding&&a.bottom>b.top-padding;
+    const clear=(box,ownSegment)=>{
+      if(obstacles.some(obstacle=>overlaps(box,{
+        left:obstacle.x,right:obstacle.x+obstacle.w,
+        top:obstacle.y,bottom:obstacle.y+obstacle.h
+      },7)))return false;
+      if(occupied.some(other=>overlaps(box,other,7)))return false;
+      for(const segment of allPipeSegments){
+        if(segmentIdentity(segment)===segmentIdentity(ownSegment))continue;
+        const left=Math.min(segment.x1,segment.x2),right=Math.max(segment.x1,segment.x2);
+        const top=Math.min(segment.y1,segment.y2),bottom=Math.max(segment.y1,segment.y2);
+        if(segment.y1===segment.y2&&segment.y1>=box.top-2&&segment.y1<=box.bottom+2&&
+          left<box.right+2&&right>box.left-2)return false;
+        if(segment.x1===segment.x2&&segment.x1>=box.left-2&&segment.x1<=box.right+2&&
+          top<box.bottom+2&&bottom>box.top-2)return false;
+      }
+      return true;
+    };
+    for(const {segment} of candidates){
+      if(segment.y1===segment.y2&&Math.abs(segment.x2-segment.x1)>=width+18){
+        const x=(segment.x1+segment.x2)/2;
+        const offsets=role==='flow'?[-18,-34]:[29,45];
+        for(const offset of offsets){
+          const y=segment.y1+offset;
+          const box={left:x-width/2,right:x+width/2,top:y-12,bottom:y+4};
+          if(clear(box,segment)){
+            occupied.push(box);
+            return {x,y,anchor:'middle'};
+          }
+        }
+      }else if(segment.x1===segment.x2&&Math.abs(segment.y2-segment.y1)>=34){
+        const y=(segment.y1+segment.y2)/2;
+        for(const side of [1,-1]){
+          const x=segment.x1+side*14;
+          const box={left:side===1?x:x-width,right:side===1?x+width:x,top:y-9,bottom:y+7};
+          if(clear(box,segment)){
+            occupied.push(box);
+            return {x,y,anchor:side===1?'start':'end'};
+          }
+        }
+      }
+    }
+    return null;
+  }
   function localizeCircuitPath(path,offsetY) {
     if(!offsetY)return path;
     // The original SVG translates each circuit group; routed points are global.
@@ -9996,20 +10076,45 @@ const HPC_INTEGRATED = (() => {
       }
       return parts.join('');
     }).join('');
-    // Once a hydraulic reading is present on its pipe, never print it a
-    // second time inside the generator. One label per role and generator.
+    // Temperature readings belong to a real, routed pipe segment. The role
+    // and source ID—not the displayed value—define each label's identity.
+    const occupiedLabels=[];
+    const allPipeSegments=[];
+    const seenPipeSegments=new Set();
+    for(const paths of physicalPipes.values()){
+      for(const segment of pipeSegments(paths.pipe)){
+        const identity=segmentIdentity(segment);
+        if(seenPipeSegments.has(identity))continue;
+        seenPipeSegments.add(identity);
+        allPipeSegments.push(segment);
+      }
+    }
+    const nativeTemperatureLabels=new Set();
+    const firstSource=plan.components.find(isSource);
     const pipeLabels=plan.components.filter(isSource).map(node=>{
       const b=loc(node.id);if(!b)return '';
       const readings=[];
       for(const [key,name] of [['flow','VL'],['return','RL']]){
-        const connected=plan.connections.some(e=>
-          (e.from===node.id&&e.from_port===key)||
-          (e.to===node.id&&e.to_port===key));
-        const state=connected?HPC_FREE.state(hass,node.sensors[key]):null;
-        if(!state)continue;
-        const p=port(node,b,key);
-        readings.push('<text class="hpi-pipe-reading" x="'+(p.x+16)+'" y="'+(p.y+(key==='flow'?-12:22))+'">'+
+        const state=HPC_FREE.state(hass,node.sensors[key]);
+        if(state?.number===null||!Number.isFinite(state?.number))continue;
+        const connection=routeRecords.find(record=>
+          (record.edge.from===node.id&&record.edge.from_port===key)||
+          (record.edge.to===node.id&&record.edge.to_port===key));
+        if(!connection)continue;
+        const route=physicalPipes.get(connection.edge.id)?.pipe||connection.d;
+        const position=pipeLabelPosition(route,port(node,b,key),key,name+' '+HPC_FREE.format(state),
+          obstacles,occupiedLabels,allPipeSegments);
+        if(!position)continue;
+        readings.push('<text class="hpi-pipe-reading" data-source="'+HPC_FREE.esc(node.id)+
+          '" data-role="'+key+'" data-edge="'+HPC_FREE.esc(connection.edge.id)+
+          '" x="'+position.x+'" y="'+position.y+'" text-anchor="'+
+          position.anchor+'"><title>'+HPC_FREE.esc(node.name+' '+name)+'</title>'+
           name+' '+HPC_FREE.esc(HPC_FREE.format(state))+'</text>');
+        if(node.id===firstSource?.id){
+          nativeTemperatureLabels.add(node.type==='heat_pump'
+            ?(key==='flow'?'t-vl':'t-rl')
+            :key==='flow'?'t-boiler-flow':'');
+        }
       }
       return readings.join('');
     }).join('');
@@ -10033,7 +10138,6 @@ const HPC_INTEGRATED = (() => {
         +'<text class="hpi-rla-label" x="'+(valveX+20)+'" y="'+(returnY-10)+'">'+HPC_FREE.esc(label+percentage)+'</text>'
         +'</g>';
     }).join('');
-    const firstSource=plan.components.find(isSource);
     const sourceStatus=firstSource&&HPC_FREE.state(hass,firstSource.sensors.state);
     const primaryChip=firstSource?.type==='wood_chip_boiler'
       ?'<g class="tap hpi-chip-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
@@ -10053,7 +10157,8 @@ const HPC_INTEGRATED = (() => {
     const firstBuffer=HPC_NETWORK.orderedBuffers(plan)[0];
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank'&&anchored.has(c.id));
     return {defs,body:'<g id="hpc-integrated">'+links+nodes+accessories+pipeLabels+lift+primaryChip+primaryOil+primaryGas+'</g>',
-      nativePipes,firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
+      nativePipes,nativeTemperatureLabels:[...nativeTemperatureLabels].filter(Boolean),
+      firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
   return {layout,coreConfig,svg,tankPoints,flowStates,isSource,port,portSide};
 })();
@@ -10493,6 +10598,20 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       super.hass=hass;
       this._syncAdditional();
     }
+    _syncNativeTemperatureLabels(svg,labels) {
+      for(const id of labels){
+        const label=svg.querySelector('#'+id);
+        if(label)label.textContent='';
+        if(id==='t-boiler-flow'){
+          const boiler=svg.querySelector('#boiler');
+          if(!boiler)continue;
+          const values=String(boiler.dataset.a11y||'').split(', ');
+          values.pop();
+          if(values.length)boiler.dataset.a11y=values.join(', ');
+          else boiler.removeAttribute('data-a11y');
+        }
+      }
+    }
     _syncNativeCircuitFlow(svg,plan,nativePaths={}) {
       // Reuse the original component artwork, while all heating pipes and
       // mixer bypass geometry come from the central hydraulic router.
@@ -10574,7 +10693,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         return id+':'+(st?.state??'unavailable')+':'+(st?.attributes?.unit_of_measurement??'');
       }).join('|');
       const signature=JSON.stringify(p)+'|'+tick;
-      if(!force&&signature===this._integratedSig&&svg.querySelector('#hpi-root'))return;
+      if(!force&&signature===this._integratedSig&&svg.querySelector('#hpi-root')){
+        this._syncNativeTemperatureLabels(svg,this._integratedNativeTemperatureLabels||[]);
+        return;
+      }
       const rendered=HPC_INTEGRATED.svg(model,this._hass);
       // Preserve the original hydraulic anchors and labels. Oil and ETA use
       // their own recognizable boiler artwork in exactly the same SVG.
@@ -10599,6 +10721,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       }
       svg.querySelector('#hpi-root')?.remove();
       svg.insertAdjacentHTML('beforeend','<g id="hpi-root"><defs>'+rendered.defs+'</defs>'+rendered.body+'</g>');
+      this._integratedNativeTemperatureLabels=rendered.nativeTemperatureLabels||[];
+      this._syncNativeTemperatureLabels(svg,this._integratedNativeTemperatureLabels);
       // First tank remains the upstream tank graphic. Only its fill gains the
       // additional measured stratification points configured for that tank.
       const firstBuffer=rendered.firstBuffer;
