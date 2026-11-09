@@ -7643,6 +7643,10 @@ const HPC_FREE = (function makeFreeHelpers() {
           ?{eta_model:["ehack","hack","hack_vr"].includes(n.options?.eta_model)?n.options.eta_model:"ehack",
             particle_separator:n.options?.particle_separator===true,
             silo:n.options?.silo===true}
+        :n.type==="diverter"
+          ?{dhw_port:n.options?.dhw_port==="b"?"b":"a",
+            dhw_state:typeof n.options?.dhw_state==="string"?n.options.dhw_state.slice(0,60):"",
+            heating_state:typeof n.options?.heating_state==="string"?n.options.heating_state.slice(0,60):""}
         :n.type==="heating_circuit"
           ?{emitter:HFC_EMITTERS.includes(n.options?.emitter)?n.options.emitter:"radiator",
             mixed:typeof n.options?.mixed==="boolean"?n.options.mixed:
@@ -7767,6 +7771,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     if(control&&!newNode)return null;
     if(newNode){
       newNode.name=(kind==='pump'?'WW-Ladepumpe ':'WW-Umschaltventil ')+tank.name;
+      if(kind==='diverter')newNode.options={dhw_port:'a',dhw_state:'',heating_state:''};
       plan.components.push(newNode);
     }
     const supplyPort=source.type==='buffer'?'top_out':source.type==='oil_boiler'?'dhw':'flow';
