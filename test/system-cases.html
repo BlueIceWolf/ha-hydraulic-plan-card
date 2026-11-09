@@ -98,6 +98,25 @@ const scenarios=[
     e('wwp','b1','top_out','ladepumpe','in'),
     e('wwl','ladepumpe','out','ww','coil_in'),
     e('wwr','ww','coil_out','b1','bottom_in')
+  ]},
+  {name:'F Parallelpuffer mit getrennten Lasten',hc:2,components:[
+    n('waermepumpe_f','heat_pump'),n('parallel_1','buffer'),n('parallel_2','buffer'),
+    n('heizkreis_f','heating_circuit', {pump:'switch.hk_f'}),
+    n('mischkreis_f','heating_circuit', {pump:'switch.hkm_f'}, {mixed:true}),
+    n('warmwasser_f','dhw_tank'),
+    n('ladepumpe_f','pump',{state:'switch.ww_f'})
+  ],connections:[
+    e('f_wp_p1','waermepumpe_f','flow','parallel_1','top_in'),
+    e('f_wp_p2','waermepumpe_f','flow','parallel_2','top_in'),
+    e('f_p1_wp','parallel_1','bottom_out','waermepumpe_f','return'),
+    e('f_p2_wp','parallel_2','bottom_out','waermepumpe_f','return'),
+    e('f_p1_hk','parallel_1','top_out','heizkreis_f','flow_in'),
+    e('f_hk_p1','heizkreis_f','return_out','parallel_1','bottom_in'),
+    e('f_p2_hk','parallel_2','top_out','mischkreis_f','flow_in'),
+    e('f_hk_p2','mischkreis_f','return_out','parallel_2','bottom_in'),
+    e('f_p2_pump','parallel_2','top_out','ladepumpe_f','in'),
+    e('f_pump_ww','ladepumpe_f','out','warmwasser_f','coil_in'),
+    e('f_ww_p2','warmwasser_f','coil_out','parallel_2','bottom_in')
   ]}
 ];
 for(const scenario of scenarios){
