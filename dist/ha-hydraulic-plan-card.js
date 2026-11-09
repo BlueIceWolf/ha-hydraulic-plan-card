@@ -8285,6 +8285,29 @@ const HPC_NETWORK = (() => {
     return [...sorted, ...buffers.filter(n => !sorted.includes(n))];
   }
 
+
+  // The state of a three-way changeover valve is not a pump signal.
+  // 0%/100% is manufacturer-specific, so it is only interpreted when the
+  // installer explicitly configures its corresponding text/value.
+  function diverterActivePort(node, hass) {
+    if (node?.type !== 'diverter') return null;
+    const sensor=node.sensors?.position;
+    const reading=sensor?HPC_FREE.state(hass,sensor):null;
+    if (!reading) return null;
+    const value=reading.text.trim().toLowerCase();
+    const dhwPort=node.options?.dhw_port==='b'?'b':'a';
+    const other=dhwPort==='a'?'b':'a';
+    const dhwState=String(node.options?.dhw_state||'').trim().toLowerCase();
+    const heatingState=String(node.options?.heating_state||'').trim().toLowerCase();
+    if (dhwState && value===dhwState) return dhwPort;
+    if (heatingState && value===heatingState) return other;
+    if (['dhw','ww','warmwasser','hot water','domestic hot water'].includes(value))
+      return dhwPort;
+    if (['heat','heating','heizen','heizkreis','heizbetrieb'].includes(value))
+      return other;
+    return null;
+  }
+
   function flowStates(plan, hass) {
     const { nodes, incoming, outgoing, adjacent } = graph(plan);
     const flowing = new Set();
@@ -8296,6 +8319,15 @@ const HPC_NETWORK = (() => {
       return HPC_FREE.active(reading);
     };
     const mappedFlow = edge => edge.flow_entity ? measured(edge.flow_entity) : null;
+    const valvePortOpen = edge => {
+      for (const [id,port] of [[edge.from,edge.from_port],[edge.to,edge.to_port]]) {
+        const node=nodes.get(id);
+        if (node?.type !== 'diverter' || port === 'ab') continue;
+        if (port !== 'a' && port !== 'b') continue;
+        if (diverterActivePort(node,hass) !== port) return false;
+      }
+      return true;
+    };
     const pumpEntity = node => {
       if (node.type === 'pump') return node.sensors?.state || node.sensors?.pump;
       if (isSource(node) || node.type === 'heating_circuit') return node.sensors?.pump;
@@ -8327,10 +8359,11 @@ const HPC_NETWORK = (() => {
         if (blocked(n)) return true;
         if (isSource(n) || n.type === 'heating_circuit') return false;
         return (incoming.get(id) || []).some(e =>
-          mappedFlow(e) === false || stoppedSupply(e.from));
+          !valvePortOpen(e) || mappedFlow(e) === false || stoppedSupply(e.from));
       };
-      const stopped = feeders.some(e => mappedFlow(e) === false || stoppedSupply(e.from)) ||
-        returns.some(e => mappedFlow(e) === false);
+      const stopped = feeders.some(e => !valvePortOpen(e) ||
+        mappedFlow(e) === false || stoppedSupply(e.from)) ||
+        returns.some(e => !valvePortOpen(e) || mappedFlow(e) === false);
       if (!stopped) continue;
       stoppedCharge.add(tank.id);
       // Stop the coil's dedicated return only, not a shared heating collector.
@@ -8350,7 +8383,7 @@ const HPC_NETWORK = (() => {
       visit(tank.id);
     }
 
-    const allowed = edge => mappedFlow(edge) !== false &&
+    const allowed = edge => valvePortOpen(edge) && mappedFlow(edge) !== false &&
       !stoppedReturn.has(edge.id) &&
       !stoppedCharge.has(edge.from) && !stoppedCharge.has(edge.to);
 
@@ -8496,7 +8529,7 @@ const HPC_NETWORK = (() => {
     }));
   }
 
-  return { graph, orderedBuffers, flowStates, route, mergeRoutes };
+  return { graph, orderedBuffers, diverterActivePort, flowStates, route, mergeRoutes };
 })();
 
 const HPC_INTEGRATED = (() => {
