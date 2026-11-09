@@ -73,6 +73,12 @@ const heatingOnly=HPC_NETWORK.flowStates(independentlyPumped,
 check(!heatingOnly.has('e4')&&!heatingOnly.has('e5')&&
   heatingOnly.has('heatSupply')&&heatingOnly.has('heatReturn'),
   'Heating circuit still circulates when a separate WW loading pump is off');
+const heatingOff=HPC_NETWORK.flowStates(independentlyPumped,
+  hass({'switch.ladepumpe':'on','sensor.durchfluss':[240,'l/h'],
+    'switch.hk_pumpe':'off'}));
+check(['e3','e4','e5'].every(id=>heatingOff.has(id))&&
+  !heatingOff.has('heatSupply')&&!heatingOff.has('heatReturn'),
+  'Stopped heating return cannot suppress independent active WW charging loop');
 const metadata={components:[{id:'boiler',type:'oil_boiler',name:'Old boiler',
   sensors:{custom_future:'sensor.custom_extra'},options:{future_setting:'keep'},
   custom_details:{a:1}}],
