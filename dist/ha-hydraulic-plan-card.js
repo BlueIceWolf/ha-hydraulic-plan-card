@@ -10508,7 +10508,19 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           ${bufferList.length>=2?`<div class="hpc-ems">
             <strong>${t("Pufferspeicher verbinden","Connect buffer tanks")}</strong>
             <p>${t("Reihenschaltung: Vorlauf jeweils oben zum nächsten Puffer, Rücklauf unten zurück zum vorherigen. Bereits vorhandene Verbindungen bleiben erhalten; prüfe die tatsächliche Verrohrung.","Series layout: hot flow at the top to the next buffer, cooler return at the bottom to the previous. Existing connections are retained; check your actual pipework.")}</p>
-            <button type="button" data-action="buffer-series">${t("Puffer in Reihe verbinden","Connect buffers in series")}</button>
+            <div class="hpc-row">
+              <button type="button" data-action="buffer-series">${t("Puffer in Reihe verbinden","Connect buffers in series")}</button>
+              <label class="hpc-field">${t("Wärmeerzeuger für parallele Puffer","Heat source for parallel buffers")}
+                <select id="hpc-buffer-source">
+                  ${p.components.filter(c=>HPC_FREE.byType[c.type]?.group==='source')
+                    .map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}
+                </select>
+              </label>
+              <button type="button" data-action="buffer-parallel"
+                ${p.components.some(c=>HPC_FREE.byType[c.type]?.group==='source')?'':'disabled'}>
+                ${t("Puffer parallel verbinden","Connect buffers in parallel")}</button>
+            </div>
+            <p id="hpc-buffer-notice" role="alert" class="hpc-connection-warning"></p>
           </div>`:""}
           ${misplacedBufferEdges.length?`<p class="hpc-connection-warning">${t("Achtung: Eine Pufferleitung ist von unten nach oben verbunden. Bitte prüfen, ob das der tatsächlichen Verrohrung entspricht.","Warning: a buffer pipe links bottom to top. Verify this corresponds to the actual installation.")}</p>`:""}
           <details class="hpc-advanced-pipes">
@@ -10823,6 +10835,19 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         }
         if(action==="buffer-series"){
           const next=HPC_FREE.connectBufferSeries(p);
+          if(next.connections.length===p.connections.length)return;
+          return this._applyPlan(next);
+        }
+        if(action==="buffer-parallel"){
+          const source=root.querySelector('#hpc-buffer-source')?.value;
+          const next=HPC_FREE.connectBuffersParallel(p,source);
+          if(!next){
+            const notice=root.querySelector('#hpc-buffer-notice');
+            if(notice)notice.textContent=t(
+              'Bestehende Pufferverbindungen zuerst prüfen: eine Reihenschaltung wird nicht automatisch überschrieben.',
+              'Check existing buffer connections: confirmed series piping is never overwritten.');
+            return;
+          }
           if(next.connections.length===p.connections.length)return;
           return this._applyPlan(next);
         }
