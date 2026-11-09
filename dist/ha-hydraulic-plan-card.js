@@ -8779,9 +8779,13 @@ const HPC_INTEGRATED = (() => {
   }
   function port(node,shape,key) {
     if(shape.type==='source') {
-      if(key==='return')return{x:290,y:380};
-      if(key==='dhw')return{x:290,y:310};
-      return{x:290,y:250};
+      // Primary and additional heat sources share the original 240x235
+      // pictogram, but never the same absolute pipe ports. Otherwise all
+      // supplemental boilers accidentally connect at the first boiler.
+      const x=shape.x+shape.w;
+      if(key==='return')return{x,y:shape.y+190};
+      if(key==='dhw')return{x,y:shape.y+120};
+      return{x,y:shape.y+60};
     }
     if(shape.type==='buffer'){
       // Ports are defined by flow DIRECTION: every inlet is on the left,
