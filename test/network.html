@@ -183,6 +183,26 @@ const actualTee=HPC_NETWORK.mergeRoutes([
 check(!actualTee.get('t1')?.pipe.includes('H44')&&
   actualTee.get('t1')?.pipe.includes('H100'),
   'Shared supply T-junction does not acquire a false crossing gap');
+// Explicit parallel coupling must never be guessed from serial tank order.
+const parallelBase=HPC_FREE.normalize({
+  components:[{id:'oil_source',type:'oil_boiler',name:'Ölkessel',sensors:{}},
+    {id:'b1',type:'buffer',name:'Puffer 1',sensors:{}},
+    {id:'b2',type:'buffer',name:'Puffer 2',sensors:{}},
+    {id:'b3',type:'buffer',name:'Puffer 3',sensors:{}}],
+  connections:[]
+});
+const parallel=HPC_FREE.connectBuffersParallel(parallelBase,'oil_source');
+check(parallel?.connections.length===6&&
+  HPC_NETWORK.bufferTopology(parallel).mode==='parallel'&&
+  HPC_NETWORK.bufferTopology(parallel).sourceId==='oil_source',
+  'Parallel tank headers require explicit selected generator and real hot/return legs');
+const parallelAgain=HPC_FREE.connectBuffersParallel(parallel,'oil_source');
+check(parallelAgain?.connections.length===6,
+  'Parallel linking is idempotent and never duplicates common headers');
+const confirmedSerial=HPC_FREE.connectBufferSeries(parallelBase);
+check(HPC_FREE.connectBuffersParallel(confirmedSerial,'oil_source')===null&&
+  confirmedSerial.connections.length===4,
+  'User-defined serial topology cannot be silently replaced by a parallel guess');
 document.querySelector('#result').textContent=checks.every(line=>line.startsWith('OK'))?'PASS':'FAIL';
 document.querySelector('#log').textContent=checks.join('\n');
 </script></body></html>
