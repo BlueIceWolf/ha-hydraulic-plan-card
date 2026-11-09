@@ -9591,6 +9591,14 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       if(!this._hass||!p?.components.length)return;
       const svg=this._$('svg');if(!svg)return;
       const model=HPC_INTEGRATED.layout(p,this._hcCount||1);
+      // The original hot-water tank remains in use for direct generator
+      // charging. A coil loaded from the buffer is rendered in the consumer
+      // column using the exact same tank pictogram, not twice.
+      const nativeDhw=svg.querySelector('rect.tank[x="520"][y="40"]')?.closest('g.tap');
+      if(nativeDhw){
+        nativeDhw.style.display=p.components.some(n=>
+          n.type==='dhw_tank'&&model.anchored.has(n.id))?'':'none';
+      }
       const ids=new Set();
       for(const n of p.components){
         Object.values(n.sensors||{}).forEach(id=>{if(id)ids.add(id);});
