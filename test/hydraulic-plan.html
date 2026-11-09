@@ -1086,6 +1086,22 @@
 
 
 
+    const futureEditor=document.createElement('hydraulic-plan-card-editor');
+    futureEditor.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      hpc_schema_version:3,
+      plan:{components:[{id:'future_device',type:'future_valve',name:'Neuer Ventiltyp'}],
+        connections:[]}});
+    document.body.append(futureEditor);futureEditor.hass=hassOf();
+    let rejectedConfig;
+    futureEditor.addEventListener('config-changed',event=>rejectedConfig=event.detail.config);
+    const addFutureTest=futureEditor.querySelector('[data-action="add-component"]');
+    addFutureTest?.click();
+    check(!!addFutureTest&&!rejectedConfig&&
+      futureEditor._config.plan.components[0].type==='future_valve'&&
+      (futureEditor.textContent||'').includes('Nicht unterstützte Bauteile'),
+      'Editor never discards unknown future components when adding another item');
+    futureEditor.remove();
+
     wood.remove(); oil.remove(); hybrid.remove();
   } catch (err) {
     failures.push('Unexpected runtime exception: ' + (err?.stack || String(err)));
