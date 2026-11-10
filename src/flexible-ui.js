@@ -339,6 +339,14 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
   }
   class HydraulicPlanCardEditor extends HeatpumpFlowCardEditor {
     _editorState(config=this._config){
+      try{
+        return this._editorStateUnsafe(config);
+      }catch(error){
+        console.error('hydraulic-plan-card editor state:',error);
+        return Array.isArray(config?.plan?.components)&&config.plan.components.length?'existing':'new';
+      }
+    }
+    _editorStateUnsafe(config){
       const current=config||{};
       if(current.editor_mode==="classic")return "classic";
       const hasClassicConfig=Object.values(current.entities||{}).some(Boolean)||
@@ -357,7 +365,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       return hasClassicConfig?"classic":"new";
     }
     setConfig(config){
-      // Home Assistant can call setConfig repeatedly (including for our own config-changed
+      // A throwing editor setConfig makes Home Assistant disable the visual editor.
+      // Keep the incoming configuration untouched and show the error instead.
+      try{
+        this._setConfigUnsafe(config);
+      }catch(error){
+        this._config=config&&typeof config==='object'?config:{};
+        this._showRenderError(error);
+      }
+    }
+    _setConfigUnsafe(config){ setConfig repeatedly (including for our own config-changed
       // event). Redrawing on an equivalent config destroys focused text inputs and selects.
       const incoming=config||{};
       const emptyPlan=Array.isArray(incoming.plan?.components)&&
@@ -476,8 +493,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         <section class="hpc-connection-warning" role="alert">
           <strong>Der Konfigurationseditor konnte nicht vollständig geladen werden.</strong>
           <p>${HPC_FREE.esc(message)}</p>
-          <p>Die gespeicherte Konfiguration wurde nicht geändert. Bitte lade den Editor neu oder melde diesen Fehler.</p>
+          <p>Die gespeicherte Konfiguration wurde nicht geändert.</p>
+          <button type="button" data-action="retry-render">Erneut laden</button>
         </section></div>`;
+      target.querySelector('[data-action="retry-render"]')?.addEventListener('click',()=>this._renderFlex());
     }
     _renderFlexContent(){
       if(!this._config)return;
@@ -616,17 +635,19 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         ["load",t("Heizkreise","Heating circuits")],
         ["control",t("Pumpen, Mischer und Verteiler","Pumps, valves and manifolds")]
       ];
-      const setupGroups=categories.map(([group,label])=>`<fieldset class="hpc-setup-group">
-        <legend>${esc(label)}</legend>
-        ${HPC_FREE.types.filter(item=>item.group===group&&item.type!=='particle_separator')
-          .map(item=>`<label class="hpc-checkbox">
-            <input type="checkbox" value="${esc(item.type)}" data-setup-type="${esc(item.type)}"/>
-            <span>${esc(HPC_FREE.display(item.type,lang))}</span>
-            <input type="number" min="1" max="${item.type==='heating_circuit'?6:20}" value="1"
-              data-setup-count="${esc(item.type)}"
-              aria-label="${esc(t('Anzahl','Quantity'))} ${esc(HPC_FREE.display(item.type,lang))}" hidden/>
-          </label>`).join("")}
-        </fieldset>`).join("");
+      const sourceTypeOptions=HPC_FREE.types.filter(item=>item.group==='source')
+        .map(item=>`<option value="${esc(item.type)}">${esc(HPC_FREE.display(item.type,lang))}</option>`).join("");
+      const countSelect=(type,max)=>`<select data-setup-count="${esc(type)}">${
+        Array.from({length:max+1},(_,n)=>`<option value="${n}">${n}</option>`).join("")}</select>`;
+      const setupGroups=`<details class="hpc-category" open>
+        <summary><strong>${t("Anlagenaufbau","System layout")}</strong></summary>
+        <div class="hpc-category-body">
+          <div class="hpc-count-row"><label>${t("Anzahl Wärmeerzeuger","Number of heat sources")}</label>${countSelect('source',6)}</div>
+          <div data-setup-source-types></div>
+          <div class="hpc-count-row"><label>${t("Anzahl Pufferspeicher","Number of buffer tanks")}</label>${countSelect('buffer',6)}</div>
+          <div class="hpc-count-row"><label>${t("Anzahl Warmwasserspeicher","Number of hot-water tanks")}</label>${countSelect('dhw_tank',4)}</div>
+          <div class="hpc-count-row"><label>${t("Anzahl Heizkreise","Number of heating circuits")}</label>${countSelect('heating_circuit',6)}</div>
+        </div></details>`;
       const typeOptions=categories.map(([group,label])=>`<optgroup label="${esc(label)}">${HPC_FREE.types
         .filter(c=>c.group===group&&c.type!=='particle_separator')
         .map(c=>`<option value="${esc(c.type)}">${esc(HPC_FREE.display(c.type,lang))}</option>`).join("")}</optgroup>`).join("");
@@ -1473,24 +1494,27 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         this._allEntities=event.currentTarget.checked;
         this._renderFlex();
       });
+      const setupCount=type=>Math.max(0,Math.round(Number(
+        root.querySelector(`[data-setup-count="${CSS.escape(type)}"]`)?.value)||0));
       const setupSelectionChanged=()=>{
-        let selectedCount=0,bufferCount=0;
-        root.querySelectorAll('[data-setup-type]').forEach(input=>{
-          const countInput=root.querySelector(`[data-setup-count="${CSS.escape(input.value)}"]`);
-          if(countInput)countInput.hidden=!input.checked;
-          if(!input.checked)return;
-          const count=Math.max(1,Math.min(Number(countInput?.max)||20,
-            Math.round(Number(countInput?.value)||1)));
-          selectedCount+=count;
-          if(input.value==='buffer')bufferCount=count;
-        });
+        const sourceCount=setupCount('source');
+        const holder=root.querySelector('[data-setup-source-types]');
+        if(holder){
+          const previous=[...holder.querySelectorAll('select')].map(select=>select.value);
+          holder.innerHTML=Array.from({length:sourceCount},(_,index)=>
+            `<div class="hpc-count-row"><label>${t('Wärmeerzeuger','Heat source')} ${index+1}</label>
+              <select data-setup-source-type>${sourceTypeOptions}</select></div>`).join('');
+          holder.querySelectorAll('select').forEach((select,index)=>{
+            if(previous[index])select.value=previous[index];
+          });
+        }
+        const selectedCount=sourceCount+setupCount('buffer')+setupCount('dhw_tank')+
+          setupCount('heating_circuit');
         const create=root.querySelector('[data-action="setup-create"]');
         if(create)create.disabled=selectedCount===0;
         const bufferMode=root.querySelector('[data-setup-buffer-mode]');
-        if(bufferMode)bufferMode.hidden=bufferCount<2;
+        if(bufferMode)bufferMode.hidden=setupCount('buffer')<2;
       };
-      root.querySelectorAll('[data-setup-type]').forEach(input=>
-        input.addEventListener('change',setupSelectionChanged));
       root.querySelectorAll('[data-setup-count]').forEach(input=>
         input.addEventListener('change',setupSelectionChanged));
       setupSelectionChanged();
@@ -1749,20 +1773,18 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         }
         if(action==="start")return this._applyPlan({components:[],connections:[]});
         if(action==="setup-create"){
-          const selections=[...root.querySelectorAll('[data-setup-type]:checked')];
+          const selections=[
+            ...[...root.querySelectorAll('[data-setup-source-type]')].map(select=>select.value),
+            ...['buffer','dhw_tank','heating_circuit'].flatMap(type=>
+              Array.from({length:Math.min(setupCount(type),type==='dhw_tank'?4:6)},()=>type))
+          ];
           const next=HPC_FREE.normalize(this._config.plan);
           let last=null;
-          for(const input of selections){
-            const countInput=root.querySelector(`[data-setup-count="${CSS.escape(input.value)}"]`);
-            const max=Number(countInput?.max)||20;
-            const count=Math.max(1,Math.min(max,
-              Math.round(Number(countInput?.value)||1)));
-            for(let index=0;index<count;index++){
-              const node=HPC_FREE.newNode(input.value,next);
-              if(!node)continue;
-              next.components.push(node);
-              last=node;
-            }
+          for(const type of selections){
+            const node=HPC_FREE.newNode(type,next);
+            if(!node)continue;
+            next.components.push(node);
+            last=node;
           }
           if(!last)return;
           this._selectedId=last.id;
