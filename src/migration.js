@@ -12,6 +12,7 @@ const HPC_MIGRATION = (() => {
     exhaust:'boiler_exhaust',oxygen:'boiler_o2',fan:'boiler_fan',
     pump:'boiler_pump',power:'boiler_power',starts:'boiler_burner_starts'
   };
+  const isId=id=>typeof id==='string'&&/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(id);
   const validEntity=id=>typeof id==='string'&&
     /^(sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/.test(id);
   function check(plan) {
