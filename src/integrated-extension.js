@@ -16,9 +16,9 @@ const HPC_INTEGRATED = (() => {
     const firstSource=p.components.find(isSource);
     const firstBuffer=HPC_NETWORK.orderedBuffers(p)[0];
     const firstDhw=p.components.find(c=>c.type==='dhw_tank');
-    // A buffer-fed DHW coil is a consumer, not a second storage node in the
-    // central bank. Preserve the native tank placement for direct source
-    // charging; only relocated coils get the original tank pictogram in SVG.
+    const dhwTanks=p.components.filter(c=>c.type==='dhw_tank');
+    // Keep the first directly charged tank on the original SVG anchor.
+    // Buffer-fed and additional tanks use the same artwork in the storage row.
     const bufferFedTanks=new Set();
     for(const tank of p.components.filter(n=>n.type==='dhw_tank')){
       const feed=p.connections.find(e=>e.to===tank.id&&e.to_port==='coil_in');
@@ -81,19 +81,14 @@ const HPC_INTEGRATED = (() => {
         ?{x:520,y:bufferStartY+index*225,w:120,h:200,type:node.type}
         :{x:680+index*160,y:bufferStartY,w:120,h:200,type:node.type});
     });
-    // Buffer-fed WW coils belong to the consumer column, just like a heating
-    // circuit; all other tanks continue to use the original storage artwork.
-    let consumerTanks=0,otherTanks=0;
+    // Keep every DHW tank in the storage zone above the first buffer. The
+    // native tank remains in use for the first directly charged tank.
     const lastBufferRight=orderedBuffers.length
       ?Math.max(...orderedBuffers.map(n=>points.get(n.id).x+120))
       :firstBuffer?640:0;
-    const consumerX=Math.max(1040,lastBufferRight+80);
     extraDhw.forEach(node=>{
-      const chargingFromBuffer=bufferFedTanks.has(node.id);
-      const index=chargingFromBuffer?consumerTanks++:otherTanks++;
-      points.set(node.id,chargingFromBuffer
-        ?{x:consumerX,y:300+index*225,w:120,h:200,type:node.type}
-        :{x:680+index*160,y:40,w:120,h:200,type:node.type});
+      const index=dhwTanks.findIndex(tank=>tank.id===node.id);
+      points.set(node.id,{x:storageStart+index*160,y:40,w:120,h:200,type:node.type});
     });
     // WW charging devices sit next to their coil, not in a disconnected
     // column at the other end of the schematic. They are still real
@@ -110,29 +105,14 @@ const HPC_INTEGRATED = (() => {
         const tank=edge&&p.components.find(c=>c.id===edge.to&&c.type==='dhw_tank');
         const tankBox=tank&&(anchored.get(tank.id)||points.get(tank.id));
         if(tankBox){
-          // Put the pump on the *supply run* leaving the buffer to the
-          // right. Keep distance from the WW tank and its temperature label.
-          const feeder=p.connections.find(c=>c.to===node.id&&c.to_port==='in');
-          const source=feeder&&p.components.find(c=>c.id===feeder.from);
-          const sourceBox=source&&(anchored.get(source.id)||points.get(source.id));
-          // Pick a distinct piece of the actual charging supply for each
-          // tank. This also avoids placing two loading-pump icons on top of
-          // each other when a buffer has multiple DHW charging branches.
-          const laneX=Math.max(tankBox.x-70,
-            bufferFedTanks.has(tank.id)?lastBufferRight+32:0);
-          // Charge from the unobstructed shoulder just above each tank,
-          // instead of sending the loading pump through the original
-          // radiator/mixer column at y=330..470.
-          const preferredLaneY=bufferFedTanks.has(tank.id)
-            ?Math.max(50,tankBox.y-70):tankBox.y+20;
+          // Place the configured charging device immediately before the
+          // coil inlet, inside the storage zone rather than beyond consumers.
+          const laneX=tankBox.x-60;
+          const preferredLaneY=tankBox.y+20;
           const occupied=[...anchored,...points];
-          const returnLanes=extraDhw.filter(candidate=>
-            candidate.id!==tank.id&&bufferFedTanks.has(candidate.id))
-            .map(candidate=>points.get(candidate.id).y+175);
           const laneIsClear=laneY=>{
             const pump={x:laneX,y:laneY,w:40,h:40};
             const supplyY=laneY+20;
-            if(returnLanes.some(y=>laneY<=y+9&&laneY+40>=y-9))return false;
             const input={x:laneX,y:supplyY};
             return occupied.every(([,box])=>{
               const overlaps=pump.x<box.x+box.w&&pump.x+pump.w>box.x&&
@@ -159,10 +139,10 @@ const HPC_INTEGRATED = (() => {
       const [w,h]=HPC_FREE.dimension(node.type);
       points.set(node.id,{x:320,y:72+index*242,w,h,type:node.type});
     });
-    const directTankEnd=Math.max(0,...extraDhw.map(n=>
+    const extraTankEnd=Math.max(0,...extraDhw.map(n=>
       points.get(n.id).x+points.get(n.id).w));
     const controlStart=Math.max(1190,storageStart+530,
-      lastBufferRight+70,consumerTanks?consumerX+200:0,directTankEnd+60);
+      lastBufferRight+70,extraTankEnd+60);
     const controlEnd=placeColumn(
       byGroup.control.filter(n=>!chargeControls.includes(n)),
       controlStart,90,265,260);
@@ -898,9 +878,9 @@ const HPC_INTEGRATED = (() => {
           position.anchor+'"><title>'+HPC_FREE.esc(node.name+' '+name)+'</title>'+
           name+' '+HPC_FREE.esc(HPC_FREE.format(state))+'</text>');
         if(node.id===firstSource?.id){
-          nativeTemperatureLabels.add(node.type==='heat_pump'
-            ?(key==='flow'?'t-vl':'t-rl')
-            :key==='flow'?'t-boiler-flow':'');
+          nativeTemperatureLabels.add(key==='flow'?'t-vl':'t-rl');
+          if(key==='flow'&&node.type!=='heat_pump')
+            nativeTemperatureLabels.add('t-boiler-flow');
         }
       }
       return readings.join('');

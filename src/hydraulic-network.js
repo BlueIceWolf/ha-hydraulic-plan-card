@@ -695,10 +695,11 @@ const HPC_NETWORK = (() => {
       toNode.type === 'pump' && toShape.inline &&
       edge.from_port === 'top_out' && edge.to_port === 'in';
     if (bufferCoilReturn && !returnTee) {
-      const below = Math.max(toShape.y + toShape.h + 32, fromShape.y + fromShape.h + 34);
-      const returnLaneX=q.x+(toSide==='R'?35:-35);
-      d = 'M' + h(p.x, p.y) + ' H' + (p.x - 70) + ' V' + below +
-        ' H' + returnLaneX + ' V' + q.y + ' H' + q.x;
+      const leftOfTank=fromShape.x-36;
+      const belowTank=fromShape.y+fromShape.h+32;
+      const rightOfBuffer=toShape.x+toShape.w+36;
+      d = 'M' + h(p.x, p.y) + ' H' + leftOfTank + ' V' + belowTank +
+        ' H' + rightOfBuffer + ' V' + q.y + ' H' + q.x;
     } else if (bufferCoilSupply && !supplyTee) {
       const laneX = Math.min(q.x - 30, p.x + 35);
       d = 'M' + h(p.x, p.y) + ' H' + laneX + ' V' + q.y + ' H' + q.x;
