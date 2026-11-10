@@ -364,7 +364,14 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         incoming.plan.components.length===0&&!(incoming.plan.connections||[]).length;
       const classic=this._editorState(incoming)==='classic'&&
         (!Array.isArray(incoming.plan?.components)||emptyPlan);
-      const result=HPC_MIGRATION.upgrade(incoming,{classic});
+      let result;
+      try{
+        result=HPC_MIGRATION.upgrade(incoming,{classic});
+      }catch(error){
+        this._config=incoming;
+        this._showRenderError(error);
+        return;
+      }
       const newConfig=result.changed?result.config:incoming;
       this._migrationWarnings=result.warnings||[];
       const changed=JSON.stringify(this._config)!==JSON.stringify(newConfig);
@@ -380,10 +387,37 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     }
     set hass(hass){
       const first=!this._hass;
-      this._hass=hass;
+      this._hass=hass&&typeof hass==='object'?hass:{states:{},entities:{},devices:{}};
       // Live HA data changes frequently. Never replace the whole configuration form;
       // this would interrupt typing, select popovers and drag operations.
-      const candidateSignature=JSON.stringify({ems:HPC_EMS.detect(hass).map(x=>[x.id,x.type,x.count,Object.values(x.entities)]),emsCircuits:HPC_EMS.detectCircuits(hass).map(x=>[x.id,x.count,Object.values(x.entities)]),emsDhw:HPC_EMS.detectDhw(hass).map(x=>[x.id,x.count,Object.values(x.entities)]),eta:HPC_ETA.detect(hass).map(x=>[x.id,x.model,x.count,Object.values(x.entities)])});
+      const discoveryErrors=[];
+      const detect=(label,fn)=>{
+        try{
+          const candidates=fn(this._hass);
+          return Array.isArray(candidates)?candidates:[];
+        }
+        catch(error){
+          console.warn('hydraulic-plan-card editor discovery:',label,error);
+          discoveryErrors.push(label);
+          return [];
+        }
+      };
+      const signatureOf=candidates=>candidates.map(candidate=>[
+        candidate?.id,candidate?.type,candidate?.model,candidate?.count,
+        Object.values(candidate?.entities||{})
+      ]);
+      const candidateSignature=JSON.stringify({
+        ems:signatureOf(detect('EMS-ESP',HPC_EMS.detect)),
+        emsCircuits:signatureOf(detect('EMS-ESP circuits',HPC_EMS.detectCircuits)),
+        emsDhw:signatureOf(detect('EMS-ESP hot water',HPC_EMS.detectDhw)),
+        eta:signatureOf(detect('ETA',HPC_ETA.detect)),
+        etaParts:signatureOf(detect('ETA system components',HPC_ETA_SYSTEM.detect)),
+        discoveryErrors
+      });
+      this._discoveryWarnings=discoveryErrors.length
+        ?[...new Set(discoveryErrors)].map(label=>
+          'Automatische Erkennung für '+label+' ist derzeit nicht verfügbar.')
+        :[];
       if(first||!this._freeUi?.isConnected||candidateSignature!==this._emsSignature){
         this._emsSignature=candidateSignature;
         this._renderFlex();
@@ -424,6 +458,28 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       return HPC_MIGRATION.legacyPlan(this._config).plan;
     }
     _renderFlex(){
+      try{
+        this._renderFlexContent();
+      }catch(error){
+        this._showRenderError(error);
+      }
+    }
+    _showRenderError(error){
+      console.error('hydraulic-plan-card editor:',error);
+      const target=this._freeUi||document.createElement('div');
+      if(target.parentNode!==this){
+        this._freeUi=target;
+        this.append(target);
+      }
+      const message=error instanceof Error?error.message:String(error);
+      target.innerHTML=`<style>${HPC_FREE.css}</style><div class="hpc-editor">
+        <section class="hpc-connection-warning" role="alert">
+          <strong>Der Konfigurationseditor konnte nicht vollständig geladen werden.</strong>
+          <p>${HPC_FREE.esc(message)}</p>
+          <p>Die gespeicherte Konfiguration wurde nicht geändert. Bitte lade den Editor neu oder melde diesen Fehler.</p>
+        </section></div>`;
+    }
+    _renderFlexContent(){
       if(!this._config)return;
       if(this._form){this._form.remove();this._form=null;}
       this._assistant?.remove();this._assistant=null;
@@ -432,12 +488,25 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const lang=String(this._hass?.locale?.language||navigator.language||"de").startsWith("de")?"de":"en";
       const t=(de,en)=>lang==="de"?de:en,esc=HPC_FREE.esc;
       const p=HPC_FREE.normalize(this._config.plan);
+      const configured=this._editorState()!=="new";
+      const discoveryWarnings=[];
+      const detect=(label,fn)=>{
+        try{
+          const candidates=fn(this._hass);
+          return Array.isArray(candidates)?candidates:[];
+        }
+        catch(error){
+          console.warn('hydraulic-plan-card editor discovery:',label,error);
+          discoveryWarnings.push('Automatische Erkennung für '+label+' ist derzeit nicht verfügbar.');
+          return [];
+        }
+      };
+      const emsCandidates=detect('EMS-ESP',HPC_EMS.detect);
+      const emsCircuitCandidates=detect('EMS-ESP circuits',HPC_EMS.detectCircuits);
+      const emsDhwCandidates=detect('EMS-ESP hot water',HPC_EMS.detectDhw);
+      this._discoveryWarnings=[...new Set(discoveryWarnings)];
       const migrationNotes=[...(this._config.hpc_migration_notes||[]),
-        ...(this._migrationWarnings||[])];
-      const configured=true;
-      const emsCandidates=HPC_EMS.detect(this._hass);
-      const emsCircuitCandidates=HPC_EMS.detectCircuits(this._hass);
-      const emsDhwCandidates=HPC_EMS.detectDhw(this._hass);
+        ...(this._migrationWarnings||[]),...this._discoveryWarnings];
       const pendingEmsDhw=emsDhwCandidates.filter(candidate=>{
         const ids=new Set(Object.values(candidate.entities));
         const current=p.components.find(node=>node.type==='dhw_tank'&&(
@@ -461,8 +530,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const node=matchedEmsCircuit(c);
         return !node||Object.entries(c.entities).some(([key,id])=>id&&!node.sensors?.[key]);
       });
-      const etaCandidates=HPC_ETA.detect(this._hass);
-      const etaParts=HPC_ETA_SYSTEM.detect(this._hass);
+      const etaCandidates=detect('ETA',HPC_ETA.detect);
+      const etaParts=detect('ETA system components',HPC_ETA_SYSTEM.detect);
       const chosenEtaPart=etaParts.find(c=>!p.components.some(n=>
         n.discovery?.provider==='eta-system'&&n.discovery.id===c.id ||
         Object.values(n.sensors||{}).some(id=>Object.values(c.entities).includes(id))));
@@ -547,6 +616,17 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         ["load",t("Heizkreise","Heating circuits")],
         ["control",t("Pumpen, Mischer und Verteiler","Pumps, valves and manifolds")]
       ];
+      const setupGroups=categories.map(([group,label])=>`<fieldset class="hpc-setup-group">
+        <legend>${esc(label)}</legend>
+        ${HPC_FREE.types.filter(item=>item.group===group&&item.type!=='particle_separator')
+          .map(item=>`<label class="hpc-checkbox">
+            <input type="checkbox" value="${esc(item.type)}" data-setup-type="${esc(item.type)}"/>
+            <span>${esc(HPC_FREE.display(item.type,lang))}</span>
+            <input type="number" min="1" max="${item.type==='heating_circuit'?6:20}" value="1"
+              data-setup-count="${esc(item.type)}"
+              aria-label="${esc(t('Anzahl','Quantity'))} ${esc(HPC_FREE.display(item.type,lang))}" hidden/>
+          </label>`).join("")}
+        </fieldset>`).join("");
       const typeOptions=categories.map(([group,label])=>`<optgroup label="${esc(label)}">${HPC_FREE.types
         .filter(c=>c.group===group&&c.type!=='particle_separator')
         .map(c=>`<option value="${esc(c.type)}">${esc(HPC_FREE.display(c.type,lang))}</option>`).join("")}</optgroup>`).join("");
@@ -1153,6 +1233,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <input type="checkbox" data-all-entities ${this._allEntities===true?'checked':''}/>
           <span>${t("Alle Entitäten in der Auswahl zeigen","Show all entities in selectors")}</span>
         </label>
+        ${this._discoveryWarnings?.map(warning=>
+          `<p class="hpc-connection-warning" role="status">${esc(warning)}</p>`).join('')||''}
         ${!configured?`<h3>${t("Allgemein · Komponentenanzahl","General · component counts")}</h3>
           <p>${t("Lege die Anzahl fest. Typ und Sensoren ordnest du danach jedem Bauteil einzeln zu.","Choose the counts first. Then set the type and sensors for each component individually.")}</p>
           ${emsInfo}
@@ -1161,7 +1243,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           ${etaInfo}
           ${etaPartInfo}
           ${chosenEta||chosenEtaPart?`<div class="hpc-actions"><button type="button" class="hpc-primary" data-action="eta-scan-all">${t("ETA-Anlage automatisch erkennen","Detect ETA system automatically")}</button></div>`:""}
-          <div class="hpc-setup-group">${setupCounts}</div>
+          <div class="hpc-setup-group">${setupGroups}</div>
           <div class="hpc-row" data-setup-buffer-mode hidden><label>${t("Mehrere Pufferspeicher verbinden","Connect multiple buffer tanks")}
             <select data-setup-buffer-topology>
               <option value="series">${t("In Reihe","In series")}</option>
@@ -1391,6 +1473,27 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         this._allEntities=event.currentTarget.checked;
         this._renderFlex();
       });
+      const setupSelectionChanged=()=>{
+        let selectedCount=0,bufferCount=0;
+        root.querySelectorAll('[data-setup-type]').forEach(input=>{
+          const countInput=root.querySelector(`[data-setup-count="${CSS.escape(input.value)}"]`);
+          if(countInput)countInput.hidden=!input.checked;
+          if(!input.checked)return;
+          const count=Math.max(1,Math.min(Number(countInput?.max)||20,
+            Math.round(Number(countInput?.value)||1)));
+          selectedCount+=count;
+          if(input.value==='buffer')bufferCount=count;
+        });
+        const create=root.querySelector('[data-action="setup-create"]');
+        if(create)create.disabled=selectedCount===0;
+        const bufferMode=root.querySelector('[data-setup-buffer-mode]');
+        if(bufferMode)bufferMode.hidden=bufferCount<2;
+      };
+      root.querySelectorAll('[data-setup-type]').forEach(input=>
+        input.addEventListener('change',setupSelectionChanged));
+      root.querySelectorAll('[data-setup-count]').forEach(input=>
+        input.addEventListener('change',setupSelectionChanged));
+      setupSelectionChanged();
       root.querySelectorAll('ha-entity-picker[data-sensor]').forEach(picker=>{
         const node=p.components.find(item=>item.id===picker.dataset.sensor);
         picker.hass=this._hass;
@@ -1645,6 +1748,52 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           return this._applyPlan(copy,{hpc_legacy_imported:true});
         }
         if(action==="start")return this._applyPlan({components:[],connections:[]});
+        if(action==="setup-create"){
+          const selections=[...root.querySelectorAll('[data-setup-type]:checked')];
+          const next=HPC_FREE.normalize(this._config.plan);
+          let last=null;
+          for(const input of selections){
+            const countInput=root.querySelector(`[data-setup-count="${CSS.escape(input.value)}"]`);
+            const max=Number(countInput?.max)||20;
+            const count=Math.max(1,Math.min(max,
+              Math.round(Number(countInput?.value)||1)));
+            for(let index=0;index<count;index++){
+              const node=HPC_FREE.newNode(input.value,next);
+              if(!node)continue;
+              next.components.push(node);
+              last=node;
+            }
+          }
+          if(!last)return;
+          this._selectedId=last.id;
+          const sources=next.components.filter(node=>
+            HPC_FREE.byType[node.type]?.group==='source');
+          const buffers=next.components.filter(node=>node.type==='buffer');
+          if(sources.length===1&&buffers.length===1)
+            Object.assign(next,HPC_FREE.connectPair(next,sources[0].id,buffers[0].id));
+          if(buffers.length>1){
+            const topology=root.querySelector('[data-setup-buffer-topology]')?.value;
+            if(topology==='series'){
+              if(sources.length===1)
+                Object.assign(next,HPC_FREE.connectPair(next,sources[0].id,buffers[0].id));
+              Object.assign(next,HPC_FREE.connectBufferSeries(next));
+            }else if(topology==='parallel'&&sources.length===1){
+              const parallel=HPC_FREE.connectBuffersParallel(next,sources[0].id);
+              if(parallel)Object.assign(next,parallel);
+            }
+          }
+          const buffer=HPC_FREE.preferredHeatingBuffer(next);
+          if(buffer){
+            for(const circuit of next.components.filter(node=>node.type==='heating_circuit'))
+              Object.assign(next,HPC_FREE.connectHeatingCircuit(next,circuit.id,buffer)||next);
+          }
+          if(!buffers.length&&sources.length===1){
+            const tanks=next.components.filter(node=>node.type==='dhw_tank');
+            if(tanks.length===1)
+              Object.assign(next,HPC_FREE.connectPair(next,sources[0].id,tanks[0].id));
+          }
+          return this._applyPlan(next);
+        }
         if(action==="example"){
           if(p.components.length&&!window.confirm(
             t("Beispielanlage laden? Die aktuelle Konfiguration wird ersetzt.","Load example? This replaces the current configuration.")))return;
