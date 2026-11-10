@@ -29,11 +29,11 @@ Jede Verbindung identifiziert ein Quellbauteil mit **ausgehendem Port** und ein 
 
 - Primäre Wärmeerzeuger bleiben auf dem ursprünglichen linken Anschlussbereich. Weitere Erzeuger werden in dessen Erweiterungsbereich ergänzt.
 - Der erste Pufferspeicher bleibt im originalen SVG. Zusätzliche Pufferspeicher werden automatisch geordnet und auf separaten Anschlusspositionen ergänzt.
-- Eine Warmwasser-Heizwendel, die von einer Pufferspeicherleitung über eine Ladepumpe gespeist wird, wird als **Verbraucher rechts** dargestellt. Direkt vom Wärmeerzeuger geladene Speicher behalten die Originalposition.
-- Das Pumpenpiktogramm liegt in der Ladeleitung und ist kein separater großer Bedienkasten.
+- Warmwasserspeicher bleiben oberhalb des Puffers in der Speicherzone, auch wenn ihre Heizwendel aus einem Puffer geladen wird. Direkt geladene erste Speicher behalten die originale SVG-Position; weitere Speicher werden kompakt daneben angeordnet.
+- Eine konfigurierte Ladepumpe oder ein Umschaltventil steht direkt vor dem Coil-Eingang in der Speicherzone und ist kein separater großer Bedienkasten.
 - Heizkreise behalten die originalen Heizflächen und Mischerpiktogramme.
 
-Die Anordnung orientiert sich an echten Verbindungen; vorhandene alte `x`/`y`-Felder werden für die Darstellung ignoriert, aber bei der Normalisierung nicht gelöscht.
+Die Anordnung orientiert sich an echten Verbindungen; vorhandene alte `x`/`y`-Felder werden für die Darstellung ignoriert, aber bei der Normalisierung nicht gelöscht. Der Heizwendel-Rücklauf folgt den tatsächlichen Coil- und Pufferports um Tank und Pufferspeicher zum Verbraucheranschluss des Puffers, statt um die Heizkreiszone herum.
 
 ## Rohrsegment-Routing
 
@@ -47,7 +47,7 @@ Die Darstellung nutzt weiterhin die Rohr- und Fluss-CSS-Klassen des Originals. F
 
 Für Wärmeerzeuger werden Vorlauf- und Rücklaufwerte nur dann zentral an einem Rohr beschriftet, wenn der jeweilige Sensor einen numerischen Messwert liefert und der entsprechende Komponentenport tatsächlich geroutet ist. Die Position wird aus einem Segment des zusammengeführten physischen Rohrwegs berechnet; Komponenten, andere Rohrsegmente und bereits belegte Labelbereiche werden dabei gemieden. Labelidentität ist **Komponenten-ID plus Messwertrolle** (`flow` oder `return`), niemals der formatierte Zahlenwert.
 
-Die zentrale Rohrbeschriftung ist die einzige Anzeige desselben Messpunkts. Das Original-SVG behält seine bestehenden Texte als Fallback: `t-vl`, `t-rl` und `t-boiler-flow` werden im Renderpfad nur geleert, wenn ein entsprechendes zentrales Label tatsächlich erzeugt wurde. Fehlende Sensorwerte, ungültige Werte oder nicht angeschlossene Ports behalten dadurch die bisherige Originalanzeige. Die Unterdrückung wird bei wiederholten Hass-Updates erneut angewendet, ohne die Sensorzuordnung oder andere Kesselanzeigen zu verändern.
+Die zentrale Rohrbeschriftung ist die einzige Anzeige desselben Messpunkts. Das Original-SVG behält seine bestehenden Texte als Fallback: `t-vl` und `t-rl` werden für alle Wärmeerzeuger, `t-boiler-flow` zusätzlich für Kessel nur geleert, wenn das zugehörige zentrale Label tatsächlich erzeugt wurde. So werden auch die vom Original-Kesselrenderer parallel gesetzten VL-/RL-Texte unterdrückt. Fehlende Sensorwerte, ungültige Werte oder nicht angeschlossene Ports behalten dadurch die bisherige Originalanzeige. Die Unterdrückung wird bei wiederholten Hass-Updates erneut angewendet, ohne die Sensorzuordnung oder andere Kesselanzeigen zu verändern.
 
 ## Durchfluss
 
