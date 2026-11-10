@@ -10938,7 +10938,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         this._showRenderError(error);
       }
     }
-    _setConfigUnsafe(config){ setConfig repeatedly (including for our own config-changed
+    _setConfigUnsafe(config){
+      // Home Assistant can call setConfig repeatedly (including for our own config-changed
       // event). Redrawing on an equivalent config destroys focused text inputs and selects.
       const incoming=config||{};
       const emptyPlan=Array.isArray(incoming.plan?.components)&&
