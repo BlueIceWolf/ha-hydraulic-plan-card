@@ -11826,7 +11826,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const oldY=this._freeUi.scrollTop;
       const openPanels=new Map([...this._freeUi.querySelectorAll('details[data-panel]')]
         .map(panel=>[panel.dataset.panel,panel.open]));
-      const activeElement=this._renderRoot()?.activeElement||document.activeElement;
+      const activeElement=this.shadowRoot?.activeElement||this.ownerDocument.activeElement;
       const active=this._freeUi.contains(activeElement)?activeElement:null;
       const focusKey=active?.dataset?.focusKey||'';
       const selection=active&&typeof active.selectionStart==='number'
