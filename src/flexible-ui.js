@@ -1254,7 +1254,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           ${emsInfo}${emsCircuitInfo}${emsDhwInfo}${etaInfo}${etaPartInfo}
           ${chosenEta||chosenEtaPart?`<button type="button" class="hpc-primary" data-action="eta-scan-all">
             ${t("ETA-Anlage automatisch erkennen","Detect ETA system automatically")}</button>`:''}
-          <p>${t("Die Leitungen werden nur bei bestätigtem Pumpen- oder Flusssignal animiert. Die Vorschau bleibt Teil des ursprünglichen Hydraulikplans.","Pipes animate only with confirmed pump or flow signals. The preview remains part of the original hydraulic schematic.")}</p>`}
+          <p>${t("Die Leitungen werden nur bei bestätigtem Pumpen- oder Flusssignal animiert. Die Vorschau bleibt Teil des ursprünglichen Hydraulikplans.","Pipes animate only with confirmed pump or flow signals. The preview remains part of the original hydraulic schematic.")}</p>
           <p>${t("Die Vorschau verwendet weiterhin den originalen Hydraulikplan und dessen Heizkreisgrafiken.","The preview continues to use the original hydraulic schematic and its heating-circuit artwork.")}</p>`}
         ${dataList}
       </div>`;
