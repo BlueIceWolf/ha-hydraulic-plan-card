@@ -97,7 +97,15 @@ const HPC_FREE = (function makeFreeHelpers() {
         level_sensors.sort((a,b)=>a.position-b.position);
       }
       const options=n.type==="dhw_tank"
-        ?{connection_style:n.options?.connection_style==='branch'?'branch':'separate'}
+        ?{connection_style:n.options?.connection_style==='branch'?'branch':'separate',
+          ...(n.options?.dhw_charge&&isId(n.options.dhw_charge.source)&&
+            ['pump','diverter','direct'].includes(n.options.dhw_charge.kind)&&
+            Array.isArray(n.options.dhw_charge.edges)
+            ?{dhw_charge:{source:n.options.dhw_charge.source,
+              kind:n.options.dhw_charge.kind,
+              control:isId(n.options.dhw_charge.control)?n.options.dhw_charge.control:'',
+              edges:n.options.dhw_charge.edges.filter(isId).slice(0,3)}}
+            :{})}
         :n.type==="wood_gasifier"
         ?{return_lift:n.options?.return_lift===true}
         :n.type==="wood_chip_boiler"
@@ -321,7 +329,7 @@ const HPC_FREE = (function makeFreeHelpers() {
   // Build a complete DHW charging branch with one simple choice.
   // No valve position or pipework is inferred from temperature readings.
   // The existing coil path is never replaced or connected twice.
-  function connectDhwCharge(input,sourceId,tankId,kind,style="branch") {
+  function connectDhwCharge(input,sourceId,tankId,kind,style="branch",controlId="") {
     const plan=normalize(input);
     const source=plan.components.find(c=>c.id===sourceId);
     const tank=plan.components.find(c=>c.id===tankId&&c.type==='dhw_tank');
@@ -334,8 +342,13 @@ const HPC_FREE = (function makeFreeHelpers() {
       (e.from===tank.id&&e.from_port==='coil_out')))return null;
     tank.options={...tank.options,connection_style:style==='separate'?'separate':'branch'};
     const control=kind==='pump'?'pump':kind==='diverter'?'diverter':null;
-    const newNode=control?HPC_FREE_NEWNODE(control,plan):null;
-    if(control&&!newNode)return null;
+    const existingControl=controlId&&control
+      ?plan.components.find(node=>node.id===controlId&&node.type===control):null;
+    if(controlId&&(!existingControl||
+       plan.connections.some(edge=>edge.from===controlId||edge.to===controlId)))return null;
+    const newNode=control&&!existingControl?HPC_FREE_NEWNODE(control,plan):null;
+    if(control&&!existingControl&&!newNode)return null;
+    const chargeControl=existingControl||newNode;
     if(newNode){
       newNode.name=(kind==='pump'?'WW-Ladepumpe ':'WW-Umschaltventil ')+tank.name;
       if(kind==='diverter')newNode.options={dhw_port:'a',dhw_state:'',heating_state:''};
@@ -343,20 +356,24 @@ const HPC_FREE = (function makeFreeHelpers() {
     }
     const supplyPort=source.type==='buffer'?'top_out':source.type==='oil_boiler'?'dhw':'flow';
     const returnPort=source.type==='buffer'?'bottom_in':'return';
-    const specs=newNode
-      ?[[source.id,supplyPort,newNode.id,kind==='pump'?'in':'ab'],
-        [newNode.id,kind==='pump'?'out':'a',tank.id,'coil_in'],
+    const specs=chargeControl
+      ?[[source.id,supplyPort,chargeControl.id,kind==='pump'?'in':'ab'],
+        [chargeControl.id,kind==='pump'?'out':'a',tank.id,'coil_in'],
         [tank.id,'coil_out',source.id,returnPort]]
       :[[source.id,supplyPort,tank.id,'coil_in'],
         [tank.id,'coil_out',source.id,returnPort]];
-    const ids=new Set(plan.connections.map(e=>e.id));
+    const ids=new Set(plan.connections.map(e=>e.id)),created=[];
     for(const [from,fromPort,to,toPort] of specs){
       if(!validConnection(plan,from,fromPort,to,toPort))return null;
       const id=nextId('leitung',ids);
       ids.add(id);
+      created.push(id);
       plan.connections.push({id,from,from_port:fromPort,to,to_port:toPort,
         flow_entity:'',temperature_entity:''});
     }
+    tank.options={...tank.options,dhw_charge:{
+      source:source.id,kind,control:chargeControl?.id||'',edges:created
+    }};
     return normalize(plan);
   }
   // Avoid a lexical conflict with the public function name used by the editor.

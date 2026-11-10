@@ -56,7 +56,7 @@ const HPC_MIGRATION = (() => {
       if(n.name&&String(n.name).length>75)
         warnings.push('Bauteilname an '+n.id+' ist länger als unterstützt.');
       if(n.options&&typeof n.options==='object'){
-        const supported={dhw_tank:['connection_style'],
+        const supported={dhw_tank:['connection_style','dhw_charge'],
           wood_gasifier:['return_lift'],wood_chip_boiler:['eta_model','particle_separator','silo'],
           diverter:['dhw_port','dhw_state','heating_state'],
           mixer:['a_closed_state','b_closed_state','a_closed_at','b_closed_at','closed_ports'],
@@ -65,6 +65,17 @@ const HPC_MIGRATION = (() => {
           heat_pump:['unit_style','unit_size','source_type']}[n.type]||[];
         if(Object.keys(n.options).some(key=>!supported.includes(key)))
           warnings.push('Unbekannte Einstellungen an '+n.id+'; keine automatische Änderung.');
+        if(n.type==='dhw_tank'&&n.options.dhw_charge!==undefined){
+          const charge=n.options.dhw_charge;
+          const source=components.find(node=>node?.id===charge?.source);
+          const control=charge?.control
+            ?components.find(node=>node?.id===charge.control):null;
+          if(!source||!(source.type==='buffer'||HPC_FREE.byType[source.type]?.group==='source')||
+            !['pump','diverter','direct'].includes(charge?.kind)||
+            (charge.control&&(!control||control.type!==(charge.kind==='diverter'?'diverter':'pump')))||
+            !Array.isArray(charge.edges)||charge.edges.some(id=>!isId(id)))
+            warnings.push('Warmwasser-Ladeeinstellungen an '+n.id+' müssen geprüft werden.');
+        }
       }
     }
     for(const e of connections){
