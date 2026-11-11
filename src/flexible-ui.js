@@ -858,7 +858,12 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <select data-eta-model="${esc(selected.id)}">
             ${[["ehack","ETA eHACK"],["hack","ETA HACK"],["hack_vr","ETA HACK VR"]]
               .map(([id,name])=>`<option value="${id}" ${(selected.options?.eta_model||"ehack")===id?"selected":""}>${name}</option>`).join("")}
-          </select></label>`:""}
+          </select></label>
+          ${(selected.options?.eta_model||"ehack")==="ehack"?`<label class="hpc-field">${t("Kesselansicht","Boiler artwork")}
+            <select data-eta-view="${esc(selected.id)}">
+              <option value="closed" ${(selected.options?.eta_view||"closed")==="closed"?"selected":""}>${t("Original geschlossen","Original closed")}</option>
+              <option value="cutaway" ${selected.options?.eta_view==="cutaway"?"selected":""}>${t("Schnittbild mit Feuer","Cutaway with flames")}</option>
+            </select></label>`:""}`:""}
         ${selected.type==="dhw_tank"?`<label class="hpc-field">${t("Heizwendel-Anbindung","Heat-exchanger connection")}
           <select data-dhw-style="${esc(selected.id)}">
             <option value="branch" ${selected.options?.connection_style==='branch'?'selected':''}>${t("Abzweig vom gemeinsamen Vorlauf und Rücklauf (wie Heizkreis)","Branch from shared supply and return (like a heating circuit)")}</option>
@@ -1009,7 +1014,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           specialized+=`<label>${t('ETA Kesselmodell','ETA boiler model')}<select data-eta-model="${esc(node.id)}">
             ${[['ehack','ETA eHACK'],['hack','ETA HACK'],['hack_vr','ETA HACK VR']].map(([id,label])=>
               `<option value="${id}" ${(node.options?.eta_model||'ehack')===id?'selected':''}>${label}</option>`).join('')}
-          </select></label><label class="hpc-checkbox"><input type="checkbox" data-eta-particle="${esc(node.id)}"
+          </select></label>
+          ${(node.options?.eta_model||'ehack')==='ehack'?`<label>${t('Kesselansicht','Boiler artwork')}
+            <select data-eta-view="${esc(node.id)}">
+              ${[['closed',t('Original geschlossen','Original closed')],['cutaway',t('Schnittbild mit Feuer','Cutaway with flames')]].map(([value,label])=>
+                `<option value="${value}" ${(node.options?.eta_view||'closed')===value?'selected':''}>${label}</option>`).join('')}
+            </select></label>`:''}
+          <label class="hpc-checkbox"><input type="checkbox" data-eta-particle="${esc(node.id)}"
             ${node.options?.particle_separator?'checked':''}/><span>${t('Partikelabscheider','Particle separator')}</span></label>`;
         }
         if(['wood_chip_boiler','pellet_boiler'].includes(node.type)){
@@ -2102,7 +2113,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             :['oil_boiler','gas_boiler','pellet_boiler'].includes(type)
               ?{boiler_kind:node.options?.boiler_kind||'standard'}
               :type==='wood_chip_boiler'
-                ?Object.fromEntries(['eta_model','silo','particle_separator']
+                ?Object.fromEntries(['eta_model','eta_view','silo','particle_separator']
                   .filter(key=>node.options?.[key]!==undefined).map(key=>[key,node.options[key]]))
                 :defaults?.options||{};
           node.options={...(defaults?.options||{}),...preservedOptions};
@@ -2221,6 +2232,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const node=plan.components.find(c=>c.id===el.dataset.dhwStyle);
         if(node?.type==='dhw_tank')
           node.options={...node.options,connection_style:el.value==='branch'?'branch':'separate'};
+      });
+      fieldUpdate('[data-eta-view]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.etaView);
+        if(node?.type==='wood_chip_boiler')node.options={...node.options,
+          eta_view:el.value==='cutaway'?'cutaway':'closed'};
       });
       fieldUpdate('[data-eta-model]',(plan,el)=>{
         const node=plan.components.find(c=>c.id===el.dataset.etaModel);
