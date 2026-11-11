@@ -12,7 +12,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       this._integratedSig=null;
       // The original schematic is the primary and only display. Extra components
       // are merged into its original SVG, never a separate dashboard/card.
-      super.setConfig(HPC_INTEGRATED.coreConfig({...config,plan:this._integratedPlan}));
+      const derived=HPC_INTEGRATED.coreConfig({...config,plan:this._integratedPlan});
+      // The upstream Heatpump Flow Card rejects unknown unit_style values.
+      // Validate against its supported Bosch style, but retain our own
+      // WPLS selection in the normalized plan and render it separately.
+      this._wplsSelected=derived.unit_style==='buderus_wpls_13_2';
+      if(this._wplsSelected)derived.unit_style='bosch';
+      super.setConfig(derived);
     }
     _startState() {
       if(this._integratedPlan?.components.length)return false;
@@ -29,7 +35,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       return super._hasMixer(n);
     }
     _unitKey() {
-      if (this._sourceType === 'air' && this._config?.unit_style === 'buderus_wpls_13_2') return 'buderus_wpls_13_2';
+      if (this._sourceType === 'air' && this._wplsSelected) return 'buderus_wpls_13_2';
       return super._unitKey();
     }
     _unitArt() {
