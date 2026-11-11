@@ -169,7 +169,9 @@ const HPC_INTEGRATED = (() => {
     const set=(target,source,key)=>{if(source?.sensors?.[key])entities[target]=source.sensors[key];};
     if(src){
       if(src.type==='heat_pump'){
-        [['flow','flow'],['return','return'],['power','power'],['state','mode']].forEach(([from,to])=>set(to,src,from));
+        [['flow','flow'],['return','return'],['power','power'],['state','mode'],
+         ['compressor','compressor'],['compressor_speed','compressor_speed'],
+         ['fan_speed','fan_speed'],['defrost','defrost'],['fault','error']].forEach(([from,to])=>set(to,src,from));
       }else {
         [['state','boiler_state'],['flow','boiler_flow'],['return','boiler_return'],['power','boiler_power'],
         ['exhaust','boiler_exhaust'],['oxygen','boiler_o2'],['fan','boiler_fan'],['pump','boiler_pump'],
