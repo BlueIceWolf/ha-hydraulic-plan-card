@@ -5,7 +5,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     {type:"pellet_boiler",de:"Pelletkessel",en:"Pellet boiler",group:"source",fields:["state","flow","return","exhaust","pump","fuel_level","volume"],ports:["flow:R:.25","return:L:.75"]},
     {type:"wood_chip_boiler",de:"ETA Hackschnitzelkessel",en:"ETA Wood-chip boiler",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","fuel_feed","ash_removal","fuel_level","particle_state","particle_voltage","particle_current","volume"],ports:["flow:R:.25","return:L:.75"]},
     {type:"gas_boiler",de:"Gaskessel",en:"Gas boiler",group:"source",fields:["state","flow","return","power","pump","volume"],ports:["flow:R:.25","return:L:.75"]},
-    {type:"heat_pump",de:"Wärmepumpe",en:"Heat pump",group:"source",fields:["state","flow","return","power","pump","volume"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"heat_pump",de:"Wärmepumpe",en:"Heat pump",group:"source",fields:["state","compressor","compressor_speed","fan_speed","defrost","fault","flow","return","power","pump","volume"],ports:["flow:R:.25","return:L:.75"]},
     {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:R:.8","return_in:L:.8","bottom_out:L:.8"]},
     {type:"dhw_tank",de:"Warmwasserspeicher",en:"Hot-water tank",group:"storage",fields:["top","middle","bottom"],ports:["coil_in:L:.28","coil_out:L:.74","hot_out:R:.24","cold_in:R:.78"]},
     {type:"heating_circuit",de:"Heizkreis (gemischt/ungemischt)",en:"Heating circuit",group:"load",fields:["flow","return","target","pump","volume","mixer","mixer_opening","mixer_closing"],ports:["flow_in:L:.25","return_out:L:.75"]},
@@ -21,6 +21,9 @@ const HPC_FREE = (function makeFreeHelpers() {
     state:["Betrieb","State"],flow:["Vorlauf","Flow"],return:["Rücklauf","Return"],
     exhaust:["Abgas","Flue gas"],oxygen:["Restsauerstoff","Residual oxygen"],
     fan:["Gebläse","Fan"],power:["Leistung","Power"],pump:["Pumpe","Pump"],starts:["Starts","Starts"],
+    compressor:["Verdichter aktiv","Compressor active"],compressor_speed:["Verdichterfrequenz / Modulation","Compressor speed / modulation"],
+    fan_speed:["Außengerät-Lüfter","Outdoor fan"],defrost:["Abtauung aktiv","Defrost active"],
+    fault:["Störung","Fault"],
     top:["Oben","Top"],middle:["Mitte","Middle"],bottom:["Unten","Bottom"],heater:["Heizstab","Immersion heater"],
     target:["Sollwert","Setpoint"],mixer:["Mischerstellung (%)","Mixing valve position (%)"],mixer_opening:["Mischer öffnet","Mixer opening"],mixer_closing:["Mischer schließt","Mixer closing"],position:["Stellung","Position"],volume:["Volumenstrom","Flow rate"],
     fuel_feed:["Austragung / Förderschnecke","Fuel feed / auger"],ash_removal:["Entaschung","Ash removal"],fuel_level:["Brennstoffvorrat","Fuel stock"],
@@ -30,7 +33,9 @@ const HPC_FREE = (function makeFreeHelpers() {
     particle_current:["Partikelabscheider Strom","Particle separator current"],
   };
   const byType = Object.fromEntries(types.map(t=>[t.type,t]));
-  const entityRx = /^(?:sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/;
+  // Entity IDs are validated syntactically; all measurements remain optional.
+  // A meaningful entity may come from an integration, helper or template domain.
+  const entityRx = /^[a-z][a-z0-9_]*\.[a-z0-9_]+$/;
   const isId = id => typeof id==="string" && /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(id);
   const esc = v => String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const text = (de,en,lang) => lang==="en"?en:de;
