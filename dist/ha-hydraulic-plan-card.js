@@ -7544,7 +7544,7 @@ const HPC_FREE = (function makeFreeHelpers() {
     {type:"pellet_boiler",de:"Pelletkessel",en:"Pellet boiler",group:"source",fields:["state","flow","return","exhaust","pump","fuel_level","volume"],ports:["flow:R:.25","return:L:.75"]},
     {type:"wood_chip_boiler",de:"ETA Hackschnitzelkessel",en:"ETA Wood-chip boiler",group:"source",fields:["state","flow","return","exhaust","oxygen","fan","power","pump","fuel_feed","ash_removal","fuel_level","particle_state","particle_voltage","particle_current","volume"],ports:["flow:R:.25","return:L:.75"]},
     {type:"gas_boiler",de:"Gaskessel",en:"Gas boiler",group:"source",fields:["state","flow","return","power","pump","volume"],ports:["flow:R:.25","return:L:.75"]},
-    {type:"heat_pump",de:"Wärmepumpe",en:"Heat pump",group:"source",fields:["state","flow","return","power","pump","volume"],ports:["flow:R:.25","return:L:.75"]},
+    {type:"heat_pump",de:"Wärmepumpe",en:"Heat pump",group:"source",fields:["state","compressor","compressor_speed","fan_speed","defrost","fault","flow","return","power","pump","volume"],ports:["flow:R:.25","return:L:.75"]},
     {type:"buffer",de:"Pufferspeicher",en:"Buffer tank",group:"storage",fields:["top","middle","bottom","heater"],ports:["top_in:L:.2","top_out:R:.2","mid_in:L:.5","mid_out:R:.5","bottom_in:R:.8","return_in:L:.8","bottom_out:L:.8"]},
     {type:"dhw_tank",de:"Warmwasserspeicher",en:"Hot-water tank",group:"storage",fields:["top","middle","bottom"],ports:["coil_in:L:.28","coil_out:L:.74","hot_out:R:.24","cold_in:R:.78"]},
     {type:"heating_circuit",de:"Heizkreis (gemischt/ungemischt)",en:"Heating circuit",group:"load",fields:["flow","return","target","pump","volume","mixer","mixer_opening","mixer_closing"],ports:["flow_in:L:.25","return_out:L:.75"]},
@@ -7560,6 +7560,9 @@ const HPC_FREE = (function makeFreeHelpers() {
     state:["Betrieb","State"],flow:["Vorlauf","Flow"],return:["Rücklauf","Return"],
     exhaust:["Abgas","Flue gas"],oxygen:["Restsauerstoff","Residual oxygen"],
     fan:["Gebläse","Fan"],power:["Leistung","Power"],pump:["Pumpe","Pump"],starts:["Starts","Starts"],
+    compressor:["Verdichter aktiv","Compressor active"],compressor_speed:["Verdichterfrequenz / Modulation","Compressor speed / modulation"],
+    fan_speed:["Außengerät-Lüfter","Outdoor fan"],defrost:["Abtauung aktiv","Defrost active"],
+    fault:["Störung","Fault"],
     top:["Oben","Top"],middle:["Mitte","Middle"],bottom:["Unten","Bottom"],heater:["Heizstab","Immersion heater"],
     target:["Sollwert","Setpoint"],mixer:["Mischerstellung (%)","Mixing valve position (%)"],mixer_opening:["Mischer öffnet","Mixer opening"],mixer_closing:["Mischer schließt","Mixer closing"],position:["Stellung","Position"],volume:["Volumenstrom","Flow rate"],
     fuel_feed:["Austragung / Förderschnecke","Fuel feed / auger"],ash_removal:["Entaschung","Ash removal"],fuel_level:["Brennstoffvorrat","Fuel stock"],
@@ -7569,7 +7572,9 @@ const HPC_FREE = (function makeFreeHelpers() {
     particle_current:["Partikelabscheider Strom","Particle separator current"],
   };
   const byType = Object.fromEntries(types.map(t=>[t.type,t]));
-  const entityRx = /^(?:sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/;
+  // Entity IDs are validated syntactically; all measurements remain optional.
+  // A meaningful entity may come from an integration, helper or template domain.
+  const entityRx = /^[a-z][a-z0-9_]*\.[a-z0-9_]+$/;
   const isId = id => typeof id==="string" && /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(id);
   const esc = v => String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const text = (de,en,lang) => lang==="en"?en:de;
@@ -9250,6 +9255,9 @@ const HPC_NETWORK = (() => {
 // Additional heating components share the original Heat Pump Hydraulic Card SVG.
 // The first heat source, first buffer, first DHW tank and up to six heating circuits
 // reuse their original renderer. All other components are ADDED to that same SVG.
+// Additional heating components share the original Heat Pump Hydraulic Card SVG.
+// The first heat source, first buffer, first DHW tank and up to six heating circuits
+// reuse their original renderer. All other components are ADDED to that same SVG.
 const HPC_INTEGRATED = (() => {
   const sources = new Set(['wood_gasifier','oil_boiler','pellet_boiler','wood_chip_boiler','gas_boiler','heat_pump']);
   const isSource = (node) => sources.has(node.type);
@@ -9418,7 +9426,9 @@ const HPC_INTEGRATED = (() => {
     const set=(target,source,key)=>{if(source?.sensors?.[key])entities[target]=source.sensors[key];};
     if(src){
       if(src.type==='heat_pump'){
-        [['flow','flow'],['return','return'],['power','power'],['state','mode']].forEach(([from,to])=>set(to,src,from));
+        [['flow','flow'],['return','return'],['power','power'],['state','mode'],
+         ['compressor','compressor'],['compressor_speed','compressor_speed'],
+         ['fan_speed','fan_speed'],['defrost','defrost'],['fault','error']].forEach(([from,to])=>set(to,src,from));
       }else {
         [['state','boiler_state'],['flow','boiler_flow'],['return','boiler_return'],['power','boiler_power'],
         ['exhaust','boiler_exhaust'],['oxygen','boiler_o2'],['fan','boiler_fan'],['pump','boiler_pump'],
@@ -11243,14 +11253,14 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         key==='mixer'&&selected.type==='wood_gasifier'&&selected.options?.return_lift)):[];
       const mainFields={wood_gasifier:['state','flow','return','pump'],oil_boiler:['state','flow','return','pump'],
         pellet_boiler:['state','flow','return','pump'],gas_boiler:['state','flow','return','pump'],
-        heat_pump:['state','flow','return','power'],buffer:['top','middle','bottom'],
+        heat_pump:['state','compressor','flow','return','power'],buffer:['top','middle','bottom'],
         dhw_tank:['top','middle','bottom'],heating_circuit:['flow','return','pump','mixer'],
         pump:['state','volume'],mixer:['position','state'],diverter:['position','state'],
         electric_heater:['state','power'],wood_chip_boiler:['state','flow','return','pump','particle_state'],
         particle_separator:['state','voltage','current'],manifold:[]};
       const coreFields=activeFields.filter(key=>(mainFields[selected.type]||[]).includes(key));
       const moreFields=activeFields.filter(key=>!coreFields.includes(key));
-      const sensors=Object.keys(this._hass?.states||{}).filter(id=>/^(sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/.test(id));
+      const sensors=Object.keys(this._hass?.states||{}).filter(id=>/^[a-z][a-z0-9_]*\.[a-z0-9_]+$/.test(id));
       const dataList=`<datalist id="hpc-free-entities">${sensors.slice(0,8000).map(id=>`<option value="${esc(id)}"></option>`).join("")}</datalist>`;
       const categories=[
         ["source",t("Wärmeerzeuger und Kessel","Heat sources and boilers")],
@@ -11483,6 +11493,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         </label>
         <p>${t("Teil der Abgasführung, ohne eigene Vor- oder Rücklaufleitung. Betriebsstatus, Hochspannung und Strom können unter Messwerte zugeordnet werden. Die Abgastemperatur steht am Abgasrohr.","Part of the flue-gas path, with no hydraulic connections. Assign operating state, voltage and current under measured values. Flue temperature is shown on the exhaust duct.")}</p>`:""}
         ${heatPumpChoices}
+        <p class="hpc-field-hint">${t("Alle Datenpunkte sind optional. Wähle eine Entität aus oder lasse das Feld leer. Auch Status-Sensoren anderer Integrationen sind zulässig.","All data points are optional. Assign an entity or leave the field empty. Status sensors from other integrations are supported.")}</p>
         ${useNativeForm?'<div class="hpc-native-form"><ha-form id="hpc-native-sensors"></ha-form></div>':activeFields.map(key=>sensorField(selected.id,key,selected.sensors[key])).join("")}
         ${isTank?`<h3>${t("Zusätzliche Temperaturfühler","Additional temperature sensors")}</h3>
           <p>${t("Ordne jeden Fühler seiner tatsächlichen Einbauhöhe zu. 0 % = oben, 100 % = unten.","Set each sensor to its real installation height. 0% = top, 100% = bottom.")}</p>
@@ -11495,16 +11506,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             data-field="${esc(key)}" data-focus-key="sensor:${esc(node.id)}:${esc(key)}"
             value="${esc(node.sensors?.[key]||'')}"/></label>`;
       const sensorKind=key=>({
-        state:'onoff',pump:'onoff',heater:'onoff',mixer:'percent',mixer_opening:'onoff',
+        state:'onoff',compressor:'onoff',fan_speed:'speed',defrost:'onoff',fault:'onoff',
+        compressor_speed:'speed',pump:'onoff',heater:'onoff',mixer:'percent',mixer_opening:'onoff',
         mixer_closing:'onoff',position:'percent',flow:'temperature',return:'temperature',
         top:'temperature',middle:'temperature',bottom:'temperature',target:'temperature',
         exhaust:'temperature',oxygen:'percent',power:'power',volume:'flowrate',
         fuel_level:'percent',starts:'counter',fan:'speed',fuel_feed:'onoff',
         ash_removal:'onoff',particle_state:'onoff'
       })[key]||'';
-      const sensorFits=kind=>kind&&typeof HeatpumpFlowCard._fit==='function'
-        ?Object.entries(this._hass?.states||{}).filter(([id,state])=>
-          HeatpumpFlowCard._fit(kind,id,state).verdict==='ok').map(([id])=>id):[];
+      // Legacy form retains its own recommendations. Component pickers show
+      // the complete Home Assistant entity list, not just guessed matches.
       const routeFrom=(startId,startPort,targetId,targetPort)=>{
         const queue=[{nodeId:startId,edgeIds:[]}],seen=new Set();
         while(queue.length){
@@ -11550,7 +11561,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const core={
           wood_gasifier:['state','flow','return','pump'],oil_boiler:['state','flow','return','pump'],
           pellet_boiler:['state','flow','return','pump'],gas_boiler:['state','flow','return','pump'],
-          heat_pump:['state','flow','return','power'],wood_chip_boiler:['state','flow','return','pump','particle_state'],
+          heat_pump:['state','compressor','flow','return','power'],wood_chip_boiler:['state','flow','return','pump','particle_state'],
           buffer:['top','middle','bottom'],dhw_tank:['top','middle','bottom'],
           heating_circuit:['flow','return','target','pump','mixer'],pump:['state','volume'],
           mixer:['position','state'],diverter:['position','state'],electric_heater:['state','power'],
@@ -12092,7 +12103,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const chosenForm=root.querySelector('#hpc-native-sensors');
       this._nativeSensorForm=chosenForm||null;
       if(chosenForm&&selected){
-        const entityField=key=>({name:key,selector:{entity:{}}});
+        // No domain or device-class restriction: every data point is optional.
+        const entityField=key=>({name:key,required:false,selector:{entity:{}}});
         chosenForm.hass=this._hass;
         chosenForm.schema=[{type:'expandable',name:'sensors',title:t('Sensoren und Messwerte','Sensors and measurements'),
           expanded:true,
@@ -12159,9 +12171,9 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         picker.label=picker.dataset.label;
         picker.value=node?.sensors?.[picker.dataset.field]||'';
         picker.allowCustomEntity=true;
-        const fit=sensorFits(picker.dataset.kind);
-        if(!this._allEntities&&fit.length)
-          picker.includeEntities=[...new Set([...fit,picker.value].filter(Boolean))];
+        // Do not hide valid entities based on heuristic state/device-class matching.
+        // Different integrations report the same role through different domains.
+        // Native picker stays searchable and accepts any existing entity.
         picker.addEventListener('value-changed',event=>{
           event.stopPropagation();
           const value=event.detail?.value||'';
@@ -12179,9 +12191,9 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         picker.label=picker.dataset.label;
         picker.value=node?.level_sensors?.[Number(picker.dataset.levelIndex)]?.entity||'';
         picker.allowCustomEntity=true;
-        const fit=sensorFits(picker.dataset.kind);
-        if(!this._allEntities&&fit.length)
-          picker.includeEntities=[...new Set([...fit,picker.value].filter(Boolean))];
+        // Do not hide valid entities based on heuristic state/device-class matching.
+        // Different integrations report the same role through different domains.
+        // Native picker stays searchable and accepts any existing entity.
         picker.addEventListener('value-changed',event=>{
           event.stopPropagation();
           const value=event.detail?.value||'';
