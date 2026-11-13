@@ -171,9 +171,24 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // Preserve the original hydraulic anchors and labels. Oil and ETA use
       // their own recognizable boiler artwork in exactly the same SVG.
       const originalBoilerArt=svg.querySelector('#primary-boiler-art');
-      const primaryType=p.components.find(HPC_INTEGRATED.isSource)?.type;
+      const primarySource=p.components.find(HPC_INTEGRATED.isSource);
+      const primaryType=primarySource?.type;
       if(originalBoilerArt)originalBoilerArt.style.display=
-        ['wood_chip_boiler','oil_boiler','gas_boiler'].includes(primaryType)?'none':'';
+        ['wood_chip_boiler','oil_boiler','gas_boiler'].includes(primaryType)||
+        (primaryType==='wood_gasifier'&&primarySource.options?.froeling_view!=='classic')
+          ?'none':'';
+      // Remove only the duplicate generator tile and values. The central
+      // hydraulic graph still connects to the real ports of its pictogram.
+      if(primarySource){
+        const sourceBox=svg.querySelector('#hp-box');
+        if(sourceBox)sourceBox.style.display='none';
+        const sourceGroup=sourceBox?.closest('g.tap');
+        sourceGroup?.querySelector('text.unit-title')?.setAttribute('display','none');
+        for(const label of ['#t-hp-status','#t-hp-power','#t-hp-cop','#t-hp-heat'])
+          sourceGroup?.querySelector(label)?.setAttribute('display','none');
+        const oldMiniBoiler=svg.querySelector('#boiler');
+        if(oldMiniBoiler)oldMiniBoiler.style.display='none';
+      }
       // A storage-only plan is valid. Without a selected heat source the
       // original engine would otherwise paint a fictitious heat pump/boiler.
       if(!p.components.some(c=>HPC_INTEGRATED.isSource?.(c)||
@@ -259,7 +274,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const style=document.createElement('style');
         style.id='hpi-styles';
         style.textContent=
-          '.hpi-expanded .stage{overflow-x:auto;overscroll-behavior-x:contain;overscroll-behavior-y:auto;scrollbar-width:thin;}'
+          '.hpi-expanded{--hfc-hot:#eb2637;--hfc-heat:#b956bd;--hfc-cold:#258fdf;--hfc-flow-cold:#b956bd;--hfc-flow-hot:#eb2637;--hfc-return-cold:#258fdf;--hfc-return-hot:#8d53d6;--hfc-tank-warm:#8d53d6;--hfc-tank-hot:#eb2637;}'
+          +'.hpi-expanded .stage{overflow-x:auto;overscroll-behavior-x:contain;overscroll-behavior-y:auto;scrollbar-width:thin;}'
           +'.hpi-expanded.fullscreen{overflow-y:auto;overflow-x:hidden;overscroll-behavior-y:contain;touch-action:pan-y;-webkit-overflow-scrolling:touch;}'
           +'.hpi-expanded .stage #svg{display:block;max-width:none;height:auto;}'
           +'.hpi-expanded .stage:focus-visible{outline:2px solid var(--primary-color,#03a9f4);outline-offset:-2px;}'
@@ -363,7 +379,15 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-oil.on .hpi-oil-status{fill:var(--hfc-good,#36bd77);}'
           +'.hpi-oil-kind{font-size:11px;font-weight:600;fill:var(--secondary-text-color,#919ba6);}'
           +'.hpi-oil-reading{fill:var(--hfc-muted,var(--secondary-text-color));}'
-          +'.hpi-rla-bypass{fill:none;stroke:var(--hfc-heat,#d4783b);stroke-width:5;stroke-linecap:round;stroke-linejoin:round;}'
+          +'.hpi-source-unit .unit-title,.hpi-primary-source-title{font-size:17px;font-weight:700;paint-order:stroke;stroke:var(--card-background-color,#202124);stroke-width:3;}'
+          +'.hpi-mix-illustration{pointer-events:none;}'
+          +'.hpi-mix-illustration path{fill:none;stroke-width:3.5;stroke-linecap:round;stroke-dasharray:3 7;animation:hpc-rla-motion 1.2s linear infinite;}'
+          +'.hpi-mix-illustration .hot{stroke:#ef3f63;}'
+          +'.hpi-mix-illustration .cold{stroke:#258fdf;}'
+          +'.hpi-mix-illustration:not(.on) path{animation-play-state:paused;}'
+          +'.hpi-mix-bypass-flow{opacity:.7;}'
+          +'@media(prefers-reduced-motion:reduce){.hpi-mix-illustration path,.hpi-mix-bypass-flow{animation:none!important;}}'
+          +'.hpi-rla-bypass{fill:none;stroke:var(--pc,#8d53d6);stroke-width:5;stroke-linecap:round;stroke-linejoin:round;}'
           +'.hpi-rla-flow{fill:none;stroke:#fff;stroke-width:2;stroke-dasharray:4 10;animation:hpc-rla-motion 1.4s linear infinite;pointer-events:none;}'
           +'@keyframes hpc-rla-motion{to{stroke-dashoffset:-28}}'
           +'@media (prefers-reduced-motion:reduce){.hpi-rla-flow{animation:none;}}'
