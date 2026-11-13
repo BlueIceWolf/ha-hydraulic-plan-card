@@ -1197,8 +1197,10 @@ const HPC_INTEGRATED = (() => {
       const node=all[edge.from],b=loc(edge.from);
       if(!node||!b)return '';
       const outlet=port(node,b,'flow'),returnPort=port(node,b,'return');
-      const valveX=Math.max(outlet.x,returnPort.x)+42;
+      const valveX=Math.max(outlet.x,returnPort.x)+95;
       const returnY=returnPort.y;
+      const pumpX=returnPort.x+43;
+      const pumpRunning=HPC_FREE.active(HPC_FREE.state(hass,node.sensors.pump));
       const position=HPC_FREE.state(hass,node.sensors.mixer);
       const percentage=position?.number!==null&&Number.isFinite(position?.number)
         ?' '+Math.round(node.options?.mixer_inverted?100-position.number:position.number)+' %':'';
@@ -1208,6 +1210,8 @@ const HPC_INTEGRATED = (() => {
       // other physical hydraulic segments.
       return '<g class="hpi-rla-marker" data-hpi-rla-marker="'+HPC_FREE.esc(node.id)+'">'
         +'<title>'+HPC_FREE.esc('Rücklaufanhebung / Return-temperature lift – '+node.name)+'</title>'
+        +'<circle class="hpi-rla-pump" cx="'+pumpX+'" cy="'+returnY+'" r="11"/>'
+        +'<path class="hpi-rla-pump-symbol'+(pumpRunning?' on':'')+'" d="M'+pumpX+' '+(returnY-7)+' L'+(pumpX+7)+' '+returnY+' L'+pumpX+' '+(returnY+7)+' L'+(pumpX-7)+' '+returnY+' Z"/>'
         +'<circle class="hpi-rla-valve" cx="'+valveX+'" cy="'+returnY+'" r="14"/>'
         +'<path class="hpi-rla-symbol" d="M'+(valveX-8)+' '+(returnY-7)+' L'+valveX+' '+returnY+' L'+(valveX+8)+' '+(returnY-7)+' M'+valveX+' '+returnY+' v10"/>'
         +'<text class="hpi-rla-label" x="'+(valveX+20)+'" y="'+(returnY-10)+'">'+HPC_FREE.esc(label+percentage)+'</text>'
