@@ -581,6 +581,7 @@ const HPC_INTEGRATED = (() => {
       // The routed graph takes over there, with no floating duplicate pipes.
       +'<path d="M349 162 H540" fill="none" stroke="'+hotColor+'" stroke-width="9" stroke-linecap="round"/>'
       +'<path d="M349 300 H540" fill="none" stroke="'+coldColor+'" stroke-width="9" stroke-linecap="round"/>'
+      +(pump?'<path class="hpi-fr-waterflow" d="M349 162 H540" /><path class="hpi-fr-waterflow" d="M540 300 H349" />':'')
       +'<text x="468" y="151" font-size="16" fill="#e3c5e8">VL</text><text x="468" y="328" font-size="16" fill="#9dd7f6">RL</text>'
       +((node.sensors?.pump||rla)?'<g transform="translate(406 300)"><circle r="18" fill="#253641" stroke="#8ec9df" stroke-width="4"/><g class="hpi-fr-pumpwheel" fill="#a8dbe9"><path d="M0 -13 L9 0 L0 13 L-9 0Z"/></g></g>':'')
       +(value(boiler)?'<text x="42" y="24" font-size="18" font-weight="bold" fill="#fff0e4">Kessel '+value(boiler)+'</text>':'')
