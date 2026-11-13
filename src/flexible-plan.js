@@ -603,18 +603,22 @@ const HPC_FREE = (function makeFreeHelpers() {
   function color(s) {
     if(!s||s.number===null||!["°c","c","°f","k"].includes(s.unit.toLowerCase()))return "#718096";
     const t=s.unit==="°F"?(s.number-32)*5/9:s.unit==="K"?s.number-273.15:s.number;
-    // One shared water/brine palette. Cold and normal returns remain blue;
-    // violet appears gradually at higher temperatures, red from 90 °C.
-    // RGB interpolation avoids brown, amber and warm-looking cold pipes.
+    // Shared palette for ALL water circuits, storage and heat sources.
+    // The 30–50 °C range is deliberately resolved more finely so a
+    // typical heat-pump 40/35 °C circuit has a visible supply/return gradient.
+    // Equal temperatures still use exactly the same colour everywhere.
     const ranges=[
       [-10,[21,61,158]],
       [0,[20,107,208]],
       [20,[34,140,226]],
-      [35,[49,156,240]],
-      [45,[103,118,223]],
-      [55,[175,102,201]],
-      [65,[223,88,160]],
-      [75,[237,64,120]],
+      [30,[39,151,234]],
+      [35,[54,134,224]],
+      [40,[127,110,218]],
+      [45,[171,94,202]],
+      [50,[205,80,173]],
+      [55,[226,72,141]],
+      [65,[235,63,99]],
+      [75,[238,51,77]],
       [90,[237,40,56]],
     ];
     if(t<=ranges[0][0])return "rgb("+ranges[0][1].join(",")+")";
