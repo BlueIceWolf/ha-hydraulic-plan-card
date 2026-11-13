@@ -255,6 +255,14 @@ const HPC_INTEGRATED = (() => {
         return {x:svgX+350*scaleX,
           y:svgY+(key==='return'?300:162)*scaleY};
       }
+      // Oil burners are drawn as freestanding cabinets. Their water pipes
+      // must meet the cabinet edge, not an invisible 240px-wide source tile.
+      if(node?.type==='oil_boiler'){
+        const primary=shape.type==='source';
+        const x=shape.x+(primary?190:195);
+        return {x,y:shape.y+(primary?
+          (key==='return'?124:81):(key==='return'?115:76))};
+      }
       const x=shape.x+shape.w;
       if(key==='return')return{x,y:shape.y+190};
       if(key==='dhw')return{x,y:shape.y+120};
@@ -793,6 +801,11 @@ const HPC_INTEGRATED = (() => {
       if(n?.type==='wood_gasifier'&&n.options?.froeling_view!=='classic'){
         return {id,x:b.x+2,y:b.y+45,w:(b.w-2)*350/540,h:156};
       }
+      if(n?.type==='oil_boiler'){
+        const primary=b.type==='source';
+        return {id,x:b.x+(primary?58:50),y:b.y+(primary?48:48),
+          w:primary?132:145,h:primary?91:85};
+      }
       return {id,...b};
     };
     const obstacles=[...anchored,...points].map(([id,b])=>hydraulicObstacle(id,b));
@@ -833,7 +846,9 @@ const HPC_INTEGRATED = (() => {
       // Routing uses the real cabinet bounds rather than the larger
       // invisible artwork canvas. The endpoint itself is never moved.
       const routingShape=(id,shape)=>{
-        if(all[id]?.type==='wood_gasifier'&&all[id].options?.froeling_view!=='classic'){
+        if((all[id]?.type==='wood_gasifier'&&
+            all[id].options?.froeling_view!=='classic')||
+            all[id]?.type==='oil_boiler'){
           const body=hydraulicObstacle(id,shape);
           return {x:body.x,y:body.y,w:body.w,h:body.h,type:shape.type};
         }
