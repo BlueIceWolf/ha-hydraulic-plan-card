@@ -10006,6 +10006,22 @@ const HPC_INTEGRATED = (() => {
     return '';
   }
 
+  // Fallback for the schematic only. A return sensor always wins; when
+  // unavailable, infer typical delta-T from measured flow (or target).
+  // Estimates are never exposed as measured states or used to control heat.
+  function heatingReturnTemperature(circuit,hass) {
+    const read=key=>{
+      const state=HPC_FREE.state(hass,circuit?.sensors?.[key]);
+      return state&&Number.isFinite(state.number)&&
+        ['°c','c'].includes(String(state.unit||'').toLowerCase())?state:null;
+    };
+    const measured=read('return');
+    if(measured)return measured;
+    const supply=read('flow')||read('target');
+    if(!supply)return null;
+    const delta=circuit.options?.emitter==='underfloor'?5:7;
+    return {number:supply.number-delta,unit:'°C',illustrative:true};
+  }
   // Each pipe has its own optional temperature measurement. With no
   // override, inherit a temperature only from its actual hydraulic upstream:
   // source flow -> feed, or through an unambiguous pump/valve/manifold.
@@ -10033,7 +10049,7 @@ const HPC_INTEGRATED = (() => {
         return key?read(sensors[key]):null;
       }
       if(node.type==='heating_circuit'){
-        if(port==='return_out')return read(sensors.return);
+        if(port==='return_out')return heatingReturnTemperature(node,hass);
         if(port==='flow_in')return read(sensors.flow);
       }
       return null;
@@ -10215,7 +10231,7 @@ const HPC_INTEGRATED = (() => {
       // DHW tank never represents its heat-exchanger coil water.
       let reading=pipeTemperature(plan,hass,edge,all);
       if(['heating_circuit_internal_return','heating_circuit_mixer_bypass'].includes(edge.kind))
-        reading=HPC_FREE.state(hass,all[edge.from]?.sensors?.return);
+        reading=heatingReturnTemperature(all[edge.from],hass);
       // The hot buffer supply keeps its source temperature THROUGH the
       // heating-circuit pump, until it actually reaches the mixer.
       if(edge.kind==='heating_circuit_internal'&&all[edge.from]?.type==='heating_circuit'){
@@ -10239,7 +10255,7 @@ const HPC_INTEGRATED = (() => {
             const feed=plan.connections.find(row=>row.to===circuit.id&&
               row.to_port==='flow_in');
             const hot=feed?pipeTemperature(plan,hass,feed,all):null;
-            const cold=HPC_FREE.state(hass,circuit.sensors?.return);
+            const cold=heatingReturnTemperature(circuit,hass);
             const position=HPC_FREE.state(hass,circuit.sensors?.mixer);
             if(temperature(hot)&&temperature(cold)&&position&&
                 Number.isFinite(position.number)&&position.number>=0&&
@@ -10313,7 +10329,7 @@ const HPC_INTEGRATED = (() => {
       // In the SVG the individual circuit group is already translated.
       leg.pipe=elbow+(leg.pipe?' '+leg.pipe:'');
       if(circuitFlowing.get(id))leg.flow=elbow+(leg.flow?' '+leg.flow:'');
-      const returnTemp=HPC_FREE.state(hass,circuit?.sensors?.return);
+      const returnTemp=heatingReturnTemperature(circuit,hass);
       leg.colored=[{pipe:elbow,
         color:returnTemp&&Number.isFinite(returnTemp.number)?
           HPC_FREE.color(returnTemp):'#718096',
@@ -10594,7 +10610,17 @@ const HPC_INTEGRATED = (() => {
             record.edge.to===node.id&&record.edge.to_port==='return'));
         if(!connection)continue;
         const route=physicalPipes.get(connection.edge.id)?.pipe||connection.d;
-        const position=pipeLabelPosition(route,port(node,b,key),key,name+' '+HPC_FREE.format(state),
+        // Fröling RLA: the actual boiler return measurement belongs to
+        // the short MIXED segment between the RLA valve and the boiler.
+        // Do not label the cool buffer return on the other side of the mixer.
+        const mixedReturn=node.type==='wood_gasifier'&&
+          node.options?.return_lift===true&&key==='return';
+        const socket=mixedReturn?port(node,b,'return'):null;
+        const valveX=socket?.x+(node.options?.froeling_view!=='classic'?95:42);
+        const position=mixedReturn?{
+          x:(socket.x+valveX)/2,
+          y:socket.y+(b.type==='source'?35:-27),anchor:'middle'
+        }:pipeLabelPosition(route,port(node,b,key),key,name+' '+HPC_FREE.format(state),
           obstacles,occupiedLabels,allPipeSegments);
         if(!position)continue;
         readings.push('<text class="hpi-pipe-reading" data-source="'+HPC_FREE.esc(node.id)+
@@ -10609,6 +10635,20 @@ const HPC_INTEGRATED = (() => {
         }
       }
       return readings.join('');
+    }).join('');
+    // Native circuit schematic: show a clear *estimated* return only when
+    // no live return sensor is readable. Put the label below the radiator
+    // return elbow instead of falsely presenting a measurement.
+    const circuitReturnLabels=plan.components.filter(node=>
+      node.type==='heating_circuit').map((node,index)=>{
+      const estimated=heatingReturnTemperature(node,hass);
+      if(!estimated?.illustrative)return '';
+      const b=loc(node.id);
+      if(!b)return '';
+      const text='RL ca. '+HPC_FREE.format(estimated);
+      return '<text class="hpi-pipe-reading hpi-estimated-rl" data-circuit="'+
+        HPC_FREE.esc(node.id)+'" x="'+(b.x+35)+'" y="'+(b.y+193)+
+        '" text-anchor="middle" opacity=".8">'+HPC_FREE.esc(text)+'</text>';
     }).join('');
     const lift=HPC_NETWORK.auxiliaryEdges(plan,hass).map(edge=>{
       const node=all[edge.from],b=loc(edge.from);
@@ -10660,7 +10700,7 @@ const HPC_INTEGRATED = (() => {
       :'';
     const firstBuffer=HPC_NETWORK.orderedBuffers(plan)[0];
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank'&&anchored.has(c.id));
-    return {defs,body:'<g id="hpc-integrated">'+links+nodes+accessories+pipeLabels+lift+primaryChip+primaryOil+primaryFroeling+primaryGas+primaryTitle+'</g>',
+    return {defs,body:'<g id="hpc-integrated">'+links+nodes+accessories+pipeLabels+circuitReturnLabels+lift+primaryChip+primaryOil+primaryFroeling+primaryGas+primaryTitle+'</g>',
       nativePipes,nativeTemperatureLabels:[...nativeTemperatureLabels].filter(Boolean),
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
