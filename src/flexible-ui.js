@@ -411,8 +411,31 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       };
       patch(current,incoming);
     }
+    _effectiveHydraulicPlan(){
+      // Keep the saved configuration unchanged: the original card already
+      // resolves each heat pump preset (including the EMS-ESP prefix and
+      // manual overrides) to live Home Assistant entity IDs in this._e.
+      // Only fill missing heat-pump fields for hydraulic pipe colouring.
+      const p=HPC_FREE.normalize(this._integratedPlan);
+      const hp=p.components.find(node=>node.type==='heat_pump');
+      if(!hp||!this._e)return p;
+      const original=this._e;
+      const roles={
+        state:'mode',compressor:'compressor',
+        compressor_speed:'compressor_speed',fan_speed:'fan_speed',
+        defrost:'defrost',fault:'error',
+        flow:'flow',return:'return',power:'power',
+        pump:'primary_pump',volume:'volume'
+      };
+      for(const [field,role] of Object.entries(roles)){
+        const id=original[role];
+        if(!hp.sensors[field]&&typeof id==='string'&&
+          this._hass?.states?.[id])hp.sensors[field]=id;
+      }
+      return p;
+    }
     _syncAdditional(force=false) {
-      const p=this._integratedPlan;
+      const p=this._effectiveHydraulicPlan();
       if(!this._hass||!p?.components.length)return;
       const svg=this._$('svg');if(!svg)return;
       const model=HPC_INTEGRATED.layout(p,this._hcCount||1,
