@@ -244,8 +244,8 @@ const HPC_INTEGRATED = (() => {
       // The S3 artwork exposes its water ports at the actual cutaway edge.
       // Both graph edges and the illustrated pipe share these exact coordinates.
       if(node?.type==='wood_gasifier'&&node.options?.froeling_view!=='classic'){
-        if(key==='return')return{x,y:shape.y+182};
-        return{x,y:shape.y+101};
+        if(key==='return')return{x,y:shape.y+177};
+        return{x,y:shape.y+116};
       }
       if(key==='return')return{x,y:shape.y+190};
       if(key==='dhw')return{x,y:shape.y+120};
@@ -553,7 +553,7 @@ const HPC_INTEGRATED = (() => {
     const coldColor=coldReading&&Number.isFinite(coldReading.number)?HPC_FREE.color(coldReading):'#259ae5';
     // The fan wheel and its protective ring are separate so only the wheel
     // rotates. The flame points downward through the nozzle.
-    return '<svg x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" viewBox="0 0 540 355" preserveAspectRatio="none" class="hpi-froeling'+(fire?' burning':'')+(fan?' fan-on':'')+(pump?' pump-on':'')+'" aria-label="Fröling S3 Turbo Schnittbild">'
+    return '<svg x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" viewBox="0 0 540 355" preserveAspectRatio="xMidYMid meet" class="hpi-froeling'+(fire?' burning':'')+(fan?' fan-on':'')+(pump?' pump-on':'')+'" aria-label="Fröling S3 Turbo Schnittbild">'
       +'<defs><linearGradient id="'+uid+'-case" x2="1" y2="0"><stop stop-color="#831820"/><stop offset=".5" stop-color="#d42d3d"/><stop offset="1" stop-color="#8a1923"/></linearGradient>'
       +'<linearGradient id="'+uid+'-fire" x2="0" y2="1"><stop stop-color="#fff4b0"/><stop offset=".5" stop-color="#ffa622"/><stop offset="1" stop-color="#ef4b1e"/></linearGradient></defs>'
       +'<rect x="10" y="18" width="340" height="317" rx="12" fill="#2a343c" stroke="#657783" stroke-width="5"/>'
@@ -594,7 +594,7 @@ const HPC_INTEGRATED = (() => {
     const x=box.x+35, y=box.y+43;
     if(type==='wood_chip_boiler')return chipArt(x,y,170,89,node,on,hass);
     if(type==='wood_gasifier'&&node.options?.froeling_view!=='classic')
-      return froelingArt(box.x+8,box.y+6,box.w-8,208,node,hass);
+      return froelingArt(box.x+2,box.y+45,box.w-2,156,node,hass);
     const casing='<rect class="hpi-source-case" x="'+x+'" y="'+y+'" width="170" height="89" rx="12"/>';
     const panel='<rect class="hpi-source-panel" x="'+(x+126)+'" y="'+(y+12)+'" width="33" height="59" rx="5"/>'
       +'<rect class="hpi-source-display" x="'+(x+132)+'" y="'+(y+19)+'" width="21" height="13" rx="3"/>'
@@ -965,7 +965,7 @@ const HPC_INTEGRATED = (() => {
           :additionalSourceArt(type,b,on,node,hass);
         return '<g class="tap hpi-component hpi-source-unit" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.state||node.sensors.flow||'')+'">'
           +'<title>'+title+'</title>'
-          +'<text class="unit-title" x="'+cx+'" y="'+(b.y-12)+'" text-anchor="middle">'+title+'</text>'
+          +'<text class="unit-title" x="'+cx+'" y="'+(b.y+26)+'" text-anchor="middle">'+title+'</text>'
           +artwork+'</g>';
       }
       if(type==='oil_boiler'){
@@ -1141,13 +1141,13 @@ const HPC_INTEGRATED = (() => {
       :'';
     const primaryFroeling=firstSource?.type==='wood_gasifier'&&firstSource.options?.froeling_view!=='classic'
       ?'<g class="tap hpi-froeling-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||'')+'">'
-        +froelingArt(58,196,232,208,firstSource,hass)+'</g>':'';
+        +froelingArt(52,235,238,156,firstSource,hass)+'</g>':'';
     const primaryGas=firstSource?.type==='gas_boiler'
       ?'<g class="tap hpi-gas-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
         +additionalSourceArt('gas_boiler',{x:50,y:195},!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource)+'</g>'
       :'';
     const primaryTitle=firstSource&&firstSource.type!=='heat_pump'
-      ?'<text class="unit-title hpi-primary-source-title" x="170" y="178" text-anchor="middle">'+HPC_FREE.esc(firstSource.name)+'</text>'
+      ?'<text class="unit-title hpi-primary-source-title" x="170" y="220" text-anchor="middle">'+HPC_FREE.esc(firstSource.name)+'</text>'
       :'';
     const firstBuffer=HPC_NETWORK.orderedBuffers(plan)[0];
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank'&&anchored.has(c.id));
