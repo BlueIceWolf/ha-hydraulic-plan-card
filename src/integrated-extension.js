@@ -1291,8 +1291,14 @@ const HPC_INTEGRATED = (() => {
       const b=loc(node.id);
       if(!b)return '';
       const text='RL ca. '+HPC_FREE.format(estimated);
+      // Keep the estimated return reading to the LEFT of the emitter.
+      // The native radiator status ("läuft") sits on its right: placing
+      // both at b.x+35 produced unreadable overlapping labels.
+      // Every circuit has its own 250px row, so this slot is stable.
+      const labelX=700;
+      const labelY=b.y+212;
       return '<text class="hpi-pipe-reading hpi-estimated-rl" data-circuit="'+
-        HPC_FREE.esc(node.id)+'" x="'+(b.x+35)+'" y="'+(b.y+193)+
+        HPC_FREE.esc(node.id)+'" x="'+labelX+'" y="'+labelY+
         '" text-anchor="middle" opacity=".8">'+HPC_FREE.esc(text)+'</text>';
     }).join('');
     const lift=HPC_NETWORK.auxiliaryEdges(plan,hass).map(edge=>{
