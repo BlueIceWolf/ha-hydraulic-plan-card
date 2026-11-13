@@ -585,8 +585,11 @@ const HPC_INTEGRATED = (() => {
       // The exhaust terminates vertically above the fan. It never touches
       // the heating supply or any of the hydraulic graph's water ports.
       +'<path class="hpi-fr-flue" d="M445 85 H470 V12" fill="none" stroke="#8d9ca7" stroke-width="12" stroke-linecap="round"/>'
-      +(value(exhaust)?'<text x="480" y="22" font-size="18" fill="#d6e1e8">Abgas '+value(exhaust)+'</text>':'')
-      +(value(speed)?'<text x="457" y="145" font-size="17" fill="#a6dceb">Saugzug '+value(speed)+'</text>':'')
+      // Align both readings inside the nested SVG, with a safe gap to
+      // the exhaust duct (x=470), fan housing and hot-water supply (y=162).
+      // Right-aligned text cannot be clipped at the old x=480/457 anchors.
+      +(value(exhaust)?'<text class="hpi-fr-exhaust-reading" x="453" y="31" text-anchor="end" font-size="17" fill="#d6e1e8">Abgas '+value(exhaust)+'</text>':'')
+      +(value(speed)?'<text class="hpi-fr-fan-reading" x="453" y="145" text-anchor="end" font-size="17" fill="#a6dceb">Saugzug '+value(speed)+'</text>':'')
       // Only short internal sockets belong to the appliance SVG.
       // Supply/return pipes, colour, flow and pump markers outside the
       // jacket are rendered ONCE by HPC_NETWORK at x=350 / y=162,300.
