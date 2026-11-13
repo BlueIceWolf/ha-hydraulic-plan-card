@@ -1206,6 +1206,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           const status=dhwRouteFor(node);
           const sources=p.components.filter(item=>item.type==='buffer'||
             HPC_FREE.byType[item.type]?.group==='source');
+          const availableBuffers=p.components.filter(item=>item.type==='buffer');
           const chargingSource= status.source?.id||
             sources.find(item=>item.id===p.connections.find(edge=>edge.to===node.id&&edge.to_port==='coil_in')?.from)?.id||'';
           const hasCoilConnection=p.connections.some(edge=>
@@ -1250,6 +1251,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               ${[['pump',t('Über Ladepumpe','Via charging pump')],['diverter',t('Über Umschaltventil','Via diverter valve')],['direct',t('Direkt angeschlossen','Direct')]]
                 .map(([value,label])=>`<option value="${value}" ${kind===value?'selected':''}>${label}</option>`).join('')}
             </select></label></div>
+            ${availableBuffers.length?`<label data-dhw-buffer-wrap ${kind==='diverter'?'':'hidden'}>${t('Heizung / Puffer laden','Heat / charge buffer')}
+              <select data-dhw-buffer="${esc(node.id)}">
+                <option value="">${t('Ohne Pufferumschaltung','Without buffer switching')}</option>
+                ${availableBuffers.map(buffer=>`<option value="${esc(buffer.id)}">${esc(buffer.name)}</option>`).join('')}
+              </select></label>`:''}
             <label>${t('Leitungsführung','Pipe routing')}<select data-dhw-style="${esc(node.id)}">
               <option value="branch" ${node.options?.connection_style==='branch'?'selected':''}>${t('Gemeinsamer Vorlauf und Rücklauf','Shared supply and return')}</option>
               <option value="separate" ${node.options?.connection_style!=='branch'?'selected':''}>${t('Eigener Ladekreis','Separate charging circuit')}</option>
@@ -2149,7 +2155,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           const kind=root.querySelector(`[data-dhw-kind="${CSS.escape(tank)}"]`)?.value;
           const style=root.querySelector(`[data-dhw-style="${CSS.escape(tank)}"]`)?.value||'branch';
           const control=root.querySelector(`[data-dhw-control="${CSS.escape(tank)}"]`)?.value||'';
-          const next=HPC_FREE.connectDhwCharge(p,source,tank,kind,style,control);
+          const buffer=root.querySelector(`[data-dhw-buffer="${CSS.escape(tank)}"]`)?.value||'';
+          const next=kind==='diverter'&&buffer
+            ?HPC_FREE.connectDhwBufferDiverter(p,source,tank,buffer,control)
+            :HPC_FREE.connectDhwCharge(p,source,tank,kind,style,control);
           if(!next)return;
           return this._applyPlan(next);
         }
@@ -2305,6 +2314,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         select.addEventListener('change',()=>{
           const wrap=select.closest('details')?.querySelector('[data-dhw-control-wrap]');
           if(wrap)wrap.hidden=select.value==='direct';
+          const buffer=select.closest('details')?.querySelector('[data-dhw-buffer-wrap]');
+          if(buffer)buffer.hidden=select.value!=='diverter';
         }));
       fromSelect?.addEventListener("change",()=>{
         toSelect.innerHTML='<option value="">–</option>'+portOptions("to",fromSelect.value);

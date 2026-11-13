@@ -976,11 +976,20 @@ const HPC_INTEGRATED = (() => {
       if(node.type==='diverter'&&b.inline){
         const cx=b.x+b.w/2,cy=b.y+b.h/2;
         const outlet=HPC_NETWORK.diverterActivePort(node,hass);
-        const label=outlet?outlet.toUpperCase():'?';
+        const dhwPort=node.options?.dhw_port==='b'?'b':'a';
+        const mode=outlet===dhwPort?'ww':outlet?'heat':'unknown';
+        // Match the classic round changeover valve: WW upwards, buffer
+        // branch towards heating. No direction is implied while unknown.
+        const arrow=mode==='ww'
+          ?'M'+cx+' '+(cy+11)+' V'+(cy-10)+' M'+(cx-9)+' '+(cy-1)+' L'+cx+' '+(cy-11)+' L'+(cx+9)+' '+(cy-1)
+          :mode==='heat'
+          ?'M'+(cx-11)+' '+cy+' H'+(cx+11)+' M'+(cx+2)+' '+(cy-9)+' L'+(cx+12)+' '+cy+' L'+(cx+2)+' '+(cy+9)
+          :'M'+(cx-8)+' '+cy+' H'+(cx+8);
+        const label=mode==='ww'?'WW':mode==='heat'?'Heizung':'–';
         return '<g class="tap hpi-inline-diverter" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.position||'')+'">'
           +'<title>'+title+'</title>'
           +'<circle class="valve" cx="'+cx+'" cy="'+cy+'" r="20"/>'
-          +'<path class="valve-arrow" d="M'+(cx-12)+' '+cy+' H'+cx+' L'+(cx+10)+' '+(cy-10)+' M'+cx+' '+cy+' L'+(cx+10)+' '+(cy+10)+'"/>'
+          +'<path class="valve-arrow" d="'+arrow+'"/>'
           +'<text class="hpi-valve-port" x="'+(cx+23)+'" y="'+(cy-23)+'">'+label+'</text>'
           +'</g>';
       }
