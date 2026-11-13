@@ -262,6 +262,18 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(mixer){
           if(mixer.getAttribute('d')!==(paths.mixer?.pipe||''))
             mixer.setAttribute('d',paths.mixer?.pipe||'');
+          // The return-to-mixer branch is not mixed supply water. It must
+          // have exactly the same rendered colour as the return elbow at
+          // the tee (including the 5 K / 7 K estimated return fallback).
+          // Read the hydraulic router's colour instead of letting the
+          // legacy mixer renderer paint the bypass with a different scale.
+          const returnColour=paths.return?.colored?.find(segment=>
+            segment.kind==='heating_circuit_internal_return')?.color||
+            paths.mixer?.colored?.find(segment=>
+              segment.kind==='heating_circuit_mixer_bypass')?.color||
+            '#718096';
+          if(mixer.style.getPropertyValue('--pc')!==returnColour)
+            mixer.style.setProperty('--pc',returnColour);
           mixer.classList.toggle('on',active);
         }
       }
@@ -647,6 +659,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-link .pipe.on{stroke:var(--pc,var(--hfc-muted));}'
           +'.hpi-native-temperature{stroke:var(--pc,var(--hfc-muted))!important;}'
           +'.hpi-native-temperature{transition:none!important;}'
+          +'.mix-bypass{stroke:var(--pc,var(--hfc-muted))!important;transition:none!important;}'
           +'.waves.on .wave{stroke:#e66e5d;}'
           +'.hpi-buffer-hot{stroke:var(--hfc-hot,#f37b4e);}'
           +'.hpi-buffer-cold{stroke:var(--hfc-cold,#448cdd);}'
