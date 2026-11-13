@@ -11302,7 +11302,15 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         // mixed flow ends (x=826). Use the *same* post-mixer temperature
         // instead of falling back to the original generator's hot colour.
         const emitter=svg.querySelector('#p-hc-body'+suffix);
-        const feedColour=paths.flow?.colored?.at(-1)?.color;
+        const flowReading=HPC_FREE.state(this._hass,circuit.sensors?.flow);
+        const targetReading=HPC_FREE.state(this._hass,circuit.sensors?.target);
+        const knownTemp=value=>value&&Number.isFinite(value.number)&&
+          ['°c','c','°f','k'].includes(String(value.unit||'').toLowerCase());
+        const feedColour=knownTemp(flowReading)?HPC_FREE.color(flowReading):
+          knownTemp(targetReading)?HPC_FREE.color(targetReading):
+          paths.flow?.colored?.findLast(segment=>
+            segment.kind==='heating_circuit_internal')?.color||
+          paths.flow?.colored?.at(-1)?.color;
         if(emitter&&feedColour){
           emitter.style.setProperty('--pc',feedColour);
           // Preserve the radiator's supply-to-return gradient where used.
@@ -11366,7 +11374,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           backdrop.setAttribute('r','19');
           group.insertBefore(backdrop,group.firstChild);
         }
-        group.parentElement?.appendChild(group);
+        // Keep the native SVG nodes mounted: reparenting resets CSS animation.
         // Properly separated colour regions: the valve EXIT at x=760
         // is the precise mixing boundary. A dedicated final segment keeps
         // the colour correct even when the upstream routed path overlaps.
@@ -11391,19 +11399,12 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           outlet.style.setProperty('--pc',mixedColour);
           // This layer must be above routed pipe artwork but below the
           // actual valve and the animated flow dashes.
-          group.parentElement?.appendChild(outlet);
+          // The outlet is already in the correct paint layer.
         }
-        let outletFlow=group.parentElement?.querySelector('.hpi-mix-outlet-flow');
-        if(!outletFlow&&flow){
-          outletFlow=document.createElementNS('http://www.w3.org/2000/svg','path');
-          outletFlow.setAttribute('class','flow hpi-mix-outlet-flow');
-          group.parentElement?.appendChild(outletFlow);
-        }
-        if(outletFlow){
-          outletFlow.setAttribute('d','M760 360 H826');
-          outletFlow.classList.toggle('on',flow.classList.contains('on'));
-          group.parentElement?.appendChild(outletFlow);
-        }
+        // The existing native circuit dash path already owns the motion.
+        // A second animated path with an independent phase caused the
+        // apparent forward/backward jitter over the same physical pipe.
+        group.parentElement?.querySelector('.hpi-mix-outlet-flow')?.remove();
         // New compact round 3-way mixer; hot on the left, return below,
         // mixed output to the right. Only the central vane rotates.
         let visual=group.querySelector('.hpi-mix-illustration');
@@ -11427,11 +11428,12 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(rotor){
           rotor.style.transformOrigin='760px 360px';
           rotor.style.transition='transform 500ms ease';
-          rotor.style.transform=measured
-            ?'rotate('+(-45+90*hot)+'deg)':'rotate(0deg)';
+          const angle=measured?'rotate('+(-45+90*hot)+'deg)':'rotate(0deg)';
+          if(rotor.style.transform!==angle)rotor.style.transform=angle;
         }
         visual.style.opacity=measured?'1':'0.8';
-        group.parentElement?.appendChild(group);
+        if(group.parentElement?.lastElementChild!==group)
+          group.parentElement?.appendChild(group);
         const flows=plan.connections.filter(edge=>edge.to===circuit.id&&edge.to_port==='flow_in');
         const returns=plan.connections.filter(edge=>edge.from===circuit.id&&edge.from_port==='return_out');
         const active=flows.some(edge=>evidence.get(edge.id)?.active)&&
@@ -11450,6 +11452,42 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         indicator.classList.toggle('on',!!measured&&active&&hot<1);
         indicator.style.opacity=measured?String(1-hot):'0';
       }
+    }
+    // Preserve SVG node identities when only HA sensor readings change.
+    // Animated dashes otherwise restart on EVERY unrelated state update,
+    // even with an unchanged valve position and fixed animation speed.
+    _patchIntegratedSvg(current,incoming) {
+      const patch=(oldNode,newNode)=>{
+        if(oldNode.nodeType!==newNode.nodeType||
+          oldNode.nodeType===1&&oldNode.tagName!==newNode.tagName){
+          oldNode.replaceWith(newNode.cloneNode(true));
+          return;
+        }
+        if(oldNode.nodeType===3){
+          if(oldNode.nodeValue!==newNode.nodeValue)
+            oldNode.nodeValue=newNode.nodeValue;
+          return;
+        }
+        if(oldNode.nodeType!==1)return;
+        for(const attr of [...oldNode.attributes]){
+          if(!newNode.hasAttribute(attr.name))
+            oldNode.removeAttribute(attr.name);
+        }
+        for(const attr of [...newNode.attributes]){
+          if(oldNode.getAttribute(attr.name)!==attr.value)
+            oldNode.setAttribute(attr.name,attr.value);
+        }
+        const currentChildren=[...oldNode.childNodes];
+        const incomingChildren=[...newNode.childNodes];
+        const common=Math.min(currentChildren.length,incomingChildren.length);
+        for(let index=0;index<common;index++)
+          patch(currentChildren[index],incomingChildren[index]);
+        for(let index=common;index<incomingChildren.length;index++)
+          oldNode.appendChild(incomingChildren[index].cloneNode(true));
+        for(let index=currentChildren.length-1;index>=incomingChildren.length;index--)
+          currentChildren[index].remove();
+      };
+      patch(current,incoming);
     }
     _syncAdditional(force=false) {
       const p=this._integratedPlan;
@@ -11538,8 +11576,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         legacy.style.display=/^[pf]-hc(?:-?vl|-?rl|-?body|-?trunk|-?up|-?down|-?mix)/.test(id)
           ?'':'none';
       }
-      svg.querySelector('#hpi-root')?.remove();
-      svg.insertAdjacentHTML('beforeend','<g id="hpi-root"><defs>'+rendered.defs+'</defs>'+rendered.body+'</g>');
+      const integratedMarkup='<g id="hpi-root"><defs>'+rendered.defs+'</defs>'+rendered.body+'</g>';
+      const currentRoot=svg.querySelector('#hpi-root');
+      if(currentRoot){
+        const incoming=document.createElementNS('http://www.w3.org/2000/svg','g');
+        incoming.innerHTML='<defs>'+rendered.defs+'</defs>'+rendered.body;
+        incoming.id='hpi-root';
+        this._patchIntegratedSvg(currentRoot,incoming);
+      }else{
+        svg.insertAdjacentHTML('beforeend',integratedMarkup);
+      }
       this._integratedNativeTemperatureLabels=rendered.nativeTemperatureLabels||[];
       this._syncNativeTemperatureLabels(svg,this._integratedNativeTemperatureLabels);
       // First tank remains the upstream tank graphic. Only its fill gains the
@@ -11684,6 +11730,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-link .pipe{stroke:var(--pc,var(--hfc-muted));}'
           +'.hpi-link .pipe.on{stroke:var(--pc,var(--hfc-muted));}'
           +'.hpi-native-temperature{stroke:var(--pc,var(--hfc-muted))!important;}'
+          +'.hpi-mix-outlet-pipe{stroke:var(--pc,var(--hfc-muted))!important;transition:none;}'
           +'.hpi-buffer-hot{stroke:var(--hfc-hot,#f37b4e);}'
           +'.hpi-buffer-cold{stroke:var(--hfc-cold,#448cdd);}'
           +'.hpi-riser-bridge{pointer-events:none;}'
