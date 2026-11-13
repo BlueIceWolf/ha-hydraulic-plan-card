@@ -2,7 +2,7 @@
   "name": "ha-hydraulic-plan-card",
   "version": "0.2.0-alpha.15",
   "private": true,
-  "description": "One Home Assistant heating schematic based on the original Heat Pump Hydraulic Card, extended with boilers, buffers, mixers and pumps",
+  "description": "A flexible heating system diagram for Home Assistant",
   "type": "module",
   "scripts": {
     "dev": "node scripts/serve.mjs",
