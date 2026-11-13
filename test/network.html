@@ -510,6 +510,88 @@ const actualResult=HPC_INTEGRATED.svg(HPC_INTEGRATED.layout(actualPlan),actualHa
 check(actualResult.at(-1).color===HPC_FREE.color({number:44,unit:'°C'}),
   'Actual measured heating flow takes precedence over the setpoint after mixer');
 
+
+// Multi-generator regression: boiler water ports, shared collectors,
+// oil burner contacts, position of labels and mixed RLA return colour.
+const dualSource=HPC_FREE.normalize({components:[
+  {id:'primary_oil',type:'oil_boiler',name:'Buderus',sensors:{
+    flow:'sensor.dual_oil_vl'}},
+  {id:'secondary_wood',type:'wood_gasifier',name:'Fröling S3',sensors:{
+    flow:'sensor.dual_wood_vl',return:'sensor.dual_wood_rl',
+    pump:'switch.dual_wood_pump'},
+    options:{froeling_view:'s3_turbo',return_lift:true}},
+  {id:'dual_buffer',type:'buffer',name:'Puffer',sensors:{
+    top:'sensor.dual_buffer_top',bottom:'sensor.dual_buffer_bottom'}},
+  {id:'dual_eg',type:'heating_circuit',name:'EG',sensors:{
+    flow:'sensor.dual_eg_actual',pump:'switch.dual_eg',
+    return:'sensor.dual_eg_return'},options:{mixed:true}},
+  {id:'dual_og',type:'heating_circuit',name:'OG',sensors:{
+    target:'sensor.dual_og_target',pump:'switch.dual_og',
+    return:'sensor.dual_og_return'},options:{mixed:true}}
+],connections:[
+  {id:'dual_oil_vl',from:'primary_oil',from_port:'flow',
+    to:'dual_buffer',to_port:'top_in'},
+  {id:'dual_oil_rl',from:'dual_buffer',from_port:'bottom_out',
+    to:'primary_oil',to_port:'return'},
+  {id:'dual_wood_vl',from:'secondary_wood',from_port:'flow',
+    to:'dual_buffer',to_port:'top_in'},
+  {id:'dual_wood_rl',from:'dual_buffer',from_port:'bottom_out',
+    to:'secondary_wood',to_port:'return'},
+  {id:'dual_eg_vl',from:'dual_buffer',from_port:'top_out',
+    to:'dual_eg',to_port:'flow_in'},
+  {id:'dual_eg_rl',from:'dual_eg',from_port:'return_out',
+    to:'dual_buffer',to_port:'bottom_in'},
+  {id:'dual_og_vl',from:'dual_buffer',from_port:'top_out',
+    to:'dual_og',to_port:'flow_in'},
+  {id:'dual_og_rl',from:'dual_og',from_port:'return_out',
+    to:'dual_buffer',to_port:'bottom_in'}
+]});
+const dualHass=hass({
+  'sensor.dual_oil_vl':[71,'°C'],
+  'sensor.dual_wood_vl':[77,'°C'],'sensor.dual_wood_rl':[52,'°C'],
+  'sensor.dual_buffer_top':[75,'°C'],'sensor.dual_buffer_bottom':[43,'°C'],
+  'sensor.dual_eg_actual':[41.7,'°C'],'sensor.dual_eg_return':[33,'°C'],
+  'sensor.dual_og_target':[55,'°C'],'sensor.dual_og_return':[45,'°C'],
+  'switch.dual_wood_pump':'on','switch.dual_eg':'on','switch.dual_og':'on'
+});
+const dualLayout=HPC_INTEGRATED.layout(dualSource,2);
+const secondary=dualSource.components.find(node=>node.id==='secondary_wood');
+const secondShape=dualLayout.points.get(secondary.id);
+const secondFlow=HPC_INTEGRATED.port(secondary,secondShape,'flow');
+const secondReturn=HPC_INTEGRATED.port(secondary,secondShape,'return');
+check(Math.abs(secondFlow.x-(52+238*350/540))<.01&&
+  Math.abs(secondReturn.x-secondFlow.x)<.01&&
+  secondReturn.y>secondFlow.y,
+  'Secondary Fröling ports dock at the real boiler jacket, never its picture frame');
+const oil=dualSource.components.find(node=>node.id==='primary_oil');
+const oilShape=dualLayout.anchored.get(oil.id);
+check(HPC_INTEGRATED.port(oil,oilShape,'flow').x===240&&
+  HPC_INTEGRATED.port(oil,oilShape,'return').x===240,
+  'Buderus supply and return reach the oil boiler cabinet');
+const dualRender=HPC_INTEGRATED.svg(dualLayout,dualHass);
+const dualSvg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+dualSvg.innerHTML=dualRender.body;
+const caption=dualSvg.querySelector('[data-hpi-node="secondary_wood"] .hpi-generator-title');
+const woodenSource=dualSvg.querySelector('[data-hpi-edge="dual_wood_rl"]');
+const liquidPaths=[...woodenSource.querySelectorAll('path.pipe')];
+check(caption&&Number(caption.getAttribute('y'))>secondReturn.y+20,
+  'Secondary boiler title lies BELOW its water returns and cannot be crossed');
+check(liquidPaths.length>=2&&liquidPaths.at(-1).style.getPropertyValue('--pc')===
+  HPC_FREE.color({number:52,unit:'°C'}),
+  'Mixed Fröling return uses the measured boiler-return colour ONLY after the RLA');
+const dualOilReturn=dualSvg.querySelector('[data-hpi-edge="dual_oil_rl"] .pipe')?.getAttribute('d')||'';
+const dualWoodReturn=liquidPaths.map(p=>p.getAttribute('d')).join(' ');
+check(dualOilReturn.includes('H440')&&dualWoodReturn.includes('M440 495'),
+  'Both generator returns share a common return-collector rail');
+check(dualSvg.querySelectorAll('.hpi-pipe-reading[data-source="secondary_wood"]').length>=1&&
+  !dualSvg.querySelector('.hpi-froeling text[x="356"]'),
+  'Boiler labels are placed on physical lines, with no duplicate inner VL/RL captions');
+const egColor=dualRender.nativePipes.dual_eg.flow.colored;
+check(egColor.length>=3&&egColor[0].color===
+  HPC_FREE.color({number:75,unit:'°C'})&&
+  egColor.at(-1).color===HPC_FREE.color({number:41.7,unit:'°C'}),
+  'EG line uses hot buffer colour until mixer, actual temperature afterward');
+
 document.querySelector('#result').textContent=checks.every(line=>line.startsWith('OK'))?'PASS':'FAIL';
 document.querySelector('#log').textContent=checks.join('\n');
 </script></body></html>
