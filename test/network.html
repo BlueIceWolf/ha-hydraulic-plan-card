@@ -7,7 +7,9 @@ const HFC_UNIT_STYLES=['auto'];
 const HFC_UNIT_SIZES=['standard'];
 </script>
 <script src="../src/flexible-plan.js"></script>
+<script src="../src/migration.js"></script>
 <script src="../src/hydraulic-network.js"></script>
+<script src="../src/integrated-extension.js"></script>
 <script>
 const checks=[];
 function check(condition,label){
@@ -399,6 +401,114 @@ check(bypassRoutes.get('lift').pipe.includes('V380') &&
   !bypassRoutes.get('lift').pipe.includes('M332 380 H290') &&
   bypassRoutes.get('hot').pipe.includes('M290 250 H332'),
   'Return lift draws only the missing bypass leg, sharing hot supply and cold return');
+
+// The chimney is decoration, never an endpoint for water.
+const s3=HPC_FREE.normalize({components:[
+  {id:'s3',type:'wood_gasifier',name:'Fröling S3',sensors:{
+    pump:'switch.s3',flow:'sensor.s3_vl',return:'sensor.s3_rl'
+  },options:{froeling_view:'s3_turbo',return_lift:true,mixer_inverted:false}},
+  {id:'s3_buffer',type:'buffer',name:'Puffer',sensors:{}},
+  {id:'s3_hk',type:'heating_circuit',name:'Heizkreis',sensors:{},
+    options:{mixed:true,mixer_inverted:true}}
+],connections:[
+  {id:'s3_vl',from:'s3',from_port:'flow',to:'s3_buffer',to_port:'top_in'},
+  {id:'s3_rl',from:'s3_buffer',from_port:'bottom_out',to:'s3',to_port:'return'},
+  {id:'s3_hk_vl',from:'s3_buffer',from_port:'top_out',to:'s3_hk',to_port:'flow_in'},
+  {id:'s3_hk_rl',from:'s3_hk',from_port:'return_out',to:'s3_buffer',to_port:'bottom_in'}
+]});
+check(HPC_MIGRATION.check(s3).length===0,
+  'Known S3 cutaway and mixer inversion settings survive migration without warnings');
+const s3Model=HPC_INTEGRATED.layout(s3);
+const s3Node=s3.components.find(node=>node.id==='s3');
+const s3Box=s3Model.anchored.get('s3');
+const s3Flow=HPC_INTEGRATED.port(s3Node,s3Box,'flow');
+const s3Return=HPC_INTEGRATED.port(s3Node,s3Box,'return');
+const s3SocketX=52+238*350/540;
+check(Math.abs(s3Flow.x-s3SocketX)<.01&&Math.abs(s3Return.x-s3SocketX)<.01&&
+  Math.abs(s3Flow.y-(235+156*162/355))<.01&&
+  Math.abs(s3Return.y-(235+156*300/355))<.01,
+  'Both real hydraulic ports meet the boiler water jacket, not the exhaust');
+const s3Render=HPC_INTEGRATED.svg(s3Model,hass({
+  'switch.s3':'on','sensor.s3_vl':[72,'°C'],'sensor.s3_rl':[48,'°C']
+}));
+const s3Svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+s3Svg.innerHTML=s3Render.body;
+const s3Art=s3Svg.querySelector('.hpi-froeling-primary .hpi-froeling');
+const s3Sockets=s3Art?.querySelectorAll('.hpi-fr-water-ports path');
+check(s3Sockets?.length===2&&[...s3Sockets].every(path=>
+  /H350$/.test(path.getAttribute('d')||'')),
+  'Only two short local pipe sockets, no independent external VL/RL stubs');
+check(s3Art?.querySelector('.hpi-fr-flue')?.getAttribute('d')==='M445 85 H470 V12',
+  'The flue points upward and is geometrically separate from water connections');
+const s3ReturnPipe=s3Svg.querySelector('[data-hpi-edge="s3_rl"] .pipe')?.getAttribute('d')||'';
+check(s3ReturnPipe.endsWith('H'+s3Return.x)&&
+  !/V288(?:\\s|$)/.test(s3ReturnPipe),
+  'The return approaches the water port directly without a chimney detour');
+
+// The puffer feed stays hot until the mixer; the mixed flow and return
+// get their own temperature colours. Neither the SVG nor the source
+// invents measured l/min values.
+const colourPlan=structuredClone(s3);
+colourPlan.components.find(node=>node.id==='s3_buffer').sensors={
+  top:'sensor.s3_buffer_top',bottom:'sensor.s3_buffer_bottom'};
+colourPlan.components.find(node=>node.id==='s3_hk').sensors={
+  pump:'switch.s3_hk',mixer:'sensor.s3_mixer',return:'sensor.s3_hk_return'};
+const colourHass=hass({
+  'switch.s3':'on','switch.s3_hk':'on',
+  'sensor.s3_buffer_top':[68,'°C'],'sensor.s3_buffer_bottom':[30,'°C'],
+  'sensor.s3_mixer':[50,'%'],'sensor.s3_hk_return':[32,'°C']
+});
+const coloured=HPC_INTEGRATED.svg(HPC_INTEGRATED.layout(colourPlan),colourHass);
+const colourSegments=coloured.nativePipes.s3_hk?.flow?.colored||[];
+const hotColor=HPC_FREE.color(HPC_FREE.state(colourHass,'sensor.s3_buffer_top'));
+const mixedColor=HPC_FREE.color({number:50,unit:'°C'});
+const returnColor=HPC_FREE.color(HPC_FREE.state(colourHass,'sensor.s3_hk_return'));
+check(colourSegments.length>=3&&colourSegments[0].color===hotColor&&
+  colourSegments[1].color===hotColor&&
+  colourSegments.at(-1).color===mixedColor,
+  '68 °C hot-buffer water reaches the mixer; 50 °C mixture is coloured separately');
+check(coloured.nativePipes.s3_hk?.return?.colored?.[0]?.color===returnColor&&
+  coloured.nativePipes.s3_hk?.mixer?.colored?.[0]?.color===returnColor,
+  'Measured return temperature controls both return elbow and mixer bypass');
+// 32 °C return water must read as blue, not purple; 43 °C stays
+// blue-leaning, while 75 °C is a hot pink/red and >=90 °C full red.
+const coldColor=HPC_FREE.color({number:32,unit:'°C'});
+const nearCold=HPC_FREE.color({number:43,unit:'°C'});
+const hotBand=HPC_FREE.color({number:75,unit:'°C'});
+const rgb=text=>(text.match(/\d+/g)||[]).map(Number);
+const coldRgb=rgb(coldColor),nearRgb=rgb(nearCold),hotRgb=rgb(hotBand);
+check(coldRgb[2]>coldRgb[0]*2.5&&coldRgb[2]>coldRgb[1],
+  'Cold/32 °C remains visibly blue and not purple');
+check(nearRgb[2]>nearRgb[0]*1.8,
+  '43 °C return still has a blue-dominant hue');
+check(hotRgb[0]>hotRgb[2]*1.8,
+  '75 °C hot buffer water is red/pink, not a cold hue');
+const expectedTarget=HPC_FREE.color({number:40,unit:'°C'});
+const targetPlan=structuredClone(colourPlan);
+targetPlan.components.find(node=>node.id==='s3_hk').sensors.target='sensor.s3_hk_target';
+const targetHass=hass({
+  'switch.s3':'on','switch.s3_hk':'on',
+  'sensor.s3_buffer_top':[75,'°C'],'sensor.s3_buffer_bottom':[35,'°C'],
+  'sensor.s3_hk_target':[40,'°C'],'sensor.s3_hk_return':[32,'°C']
+});
+const targetResult=HPC_INTEGRATED.svg(HPC_INTEGRATED.layout(targetPlan),targetHass)
+  .nativePipes.s3_hk.flow.colored;
+check(targetResult[0].color===HPC_FREE.color({number:75,unit:'°C'})&&
+  targetResult[1].color===HPC_FREE.color({number:75,unit:'°C'})&&
+  targetResult.at(-1).color===expectedTarget,
+  'Hot puffer VL reaches mixer; afterwards use configured target without actual');
+const actualPlan=structuredClone(targetPlan);
+actualPlan.components.find(node=>node.id==='s3_hk').sensors.flow='sensor.s3_hk_actual';
+const actualHass=hass({
+  'switch.s3':'on','switch.s3_hk':'on',
+  'sensor.s3_buffer_top':[75,'°C'],
+  'sensor.s3_hk_target':[40,'°C'],'sensor.s3_hk_actual':[44,'°C'],
+  'sensor.s3_hk_return':[32,'°C']
+});
+const actualResult=HPC_INTEGRATED.svg(HPC_INTEGRATED.layout(actualPlan),actualHass)
+  .nativePipes.s3_hk.flow.colored;
+check(actualResult.at(-1).color===HPC_FREE.color({number:44,unit:'°C'}),
+  'Actual measured heating flow takes precedence over the setpoint after mixer');
 
 document.querySelector('#result').textContent=checks.every(line=>line.startsWith('OK'))?'PASS':'FAIL';
 document.querySelector('#log').textContent=checks.join('\n');

@@ -102,7 +102,28 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         for(const [leg,part] of [['flow','vl'],['return','rl']]){
           const pipe=svg.querySelector('#p-hc-'+part+suffix);
           const flowPath=svg.querySelector('#f-hc-'+part+suffix);
-          if(pipe)pipe.setAttribute('d',paths[leg]?.pipe||'');
+          if(pipe){
+            // Each native SVG path may contain two physically different
+            // temperature regions (hot feed versus mixed downstream).
+            // Paint the routed hydraulic segments separately and exactly
+            // once; never color the entire circuit with a single fallback.
+            const id='hpi-temp-'+circuit.id+'-'+leg;
+            pipe.parentElement?.querySelector('[data-hpi-temp-group="'+id+'"]')?.remove();
+            const colors=paths[leg]?.colored||[];
+            if(colors.length){
+              pipe.setAttribute('d','');
+              const group=document.createElementNS('http://www.w3.org/2000/svg','g');
+              group.dataset.hpiTempGroup=id;
+              for(const segment of colors){
+                const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+                path.setAttribute('class','pipe hpi-native-temperature');
+                path.setAttribute('d',segment.pipe);
+                path.style.setProperty('--pc',segment.color);
+                group.appendChild(path);
+              }
+              pipe.parentElement?.insertBefore(group,pipe.nextSibling);
+            }else pipe.setAttribute('d',paths[leg]?.pipe||'');
+          }
           if(flowPath)flowPath.setAttribute('d',paths[leg]?.flow||'');
           if(flowPath)flowPath.classList.toggle('on',active&&!!paths[leg]?.flow);
         }
@@ -395,8 +416,9 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-buffer-port{fill:var(--card-background-color,#222);stroke-width:3;pointer-events:none;}'
           // Show the hydraulic temperature colour even if flow is not
           // confirmed. Only the animated white dash denotes circulation.
-          +'.hpi-link .pipe{stroke:color-mix(in srgb,var(--pc,var(--hfc-muted)) 65%,var(--card-background-color,#202124));}'
+          +'.hpi-link .pipe{stroke:var(--pc,var(--hfc-muted));}'
           +'.hpi-link .pipe.on{stroke:var(--pc,var(--hfc-muted));}'
+          +'.hpi-native-temperature{stroke:var(--pc,var(--hfc-muted))!important;}'
           +'.hpi-buffer-hot{stroke:var(--hfc-hot,#f37b4e);}'
           +'.hpi-buffer-cold{stroke:var(--hfc-cold,#448cdd);}'
           +'.hpi-riser-bridge{pointer-events:none;}'

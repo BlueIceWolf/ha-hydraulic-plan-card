@@ -540,16 +540,19 @@ const HPC_FREE = (function makeFreeHelpers() {
   function color(s) {
     if(!s||s.number===null||!["°c","c","°f","k"].includes(s.unit.toLowerCase()))return "#718096";
     const t=s.unit==="°F"?(s.number-32)*5/9:s.unit==="K"?s.number-273.15:s.number;
-    // Hydraulic water/brine: -10 °C deep blue, violet midrange, red at 90 °C.
-    // RGB channel interpolation never passes through amber or brown.
+    // One shared water/brine palette. Cold and normal returns remain blue;
+    // violet appears gradually at higher temperatures, red from 90 °C.
+    // RGB interpolation avoids brown, amber and warm-looking cold pipes.
     const ranges=[
-      [-10,[20,58,151]],
-      [0,[31,103,211]],
-      [20,[53,167,242]],
-      [40,[129,83,216]],
-      [60,[203,69,172]],
-      [75,[235,56,107]],
-      [90,[235,38,55]],
+      [-10,[21,61,158]],
+      [0,[20,107,208]],
+      [20,[34,140,226]],
+      [35,[49,156,240]],
+      [45,[103,118,223]],
+      [55,[175,102,201]],
+      [65,[223,88,160]],
+      [75,[237,64,120]],
+      [90,[237,40,56]],
     ];
     if(t<=ranges[0][0])return "rgb("+ranges[0][1].join(",")+")";
     for(let i=1;i<ranges.length;i++){
