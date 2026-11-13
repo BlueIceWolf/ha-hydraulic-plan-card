@@ -445,6 +445,31 @@ check(s3ReturnPipe.endsWith('H'+s3Return.x)&&
   !/V288(?:\\s|$)/.test(s3ReturnPipe),
   'The return approaches the water port directly without a chimney detour');
 
+// The puffer feed stays hot until the mixer; the mixed flow and return
+// get their own temperature colours. Neither the SVG nor the source
+// invents measured l/min values.
+const colourPlan=structuredClone(s3);
+colourPlan.components.find(node=>node.id==='s3_buffer').sensors={
+  top:'sensor.s3_buffer_top',bottom:'sensor.s3_buffer_bottom'};
+colourPlan.components.find(node=>node.id==='s3_hk').sensors={
+  pump:'switch.s3_hk',mixer:'sensor.s3_mixer',return:'sensor.s3_hk_return'};
+const colourHass=hass({
+  'switch.s3':'on','switch.s3_hk':'on',
+  'sensor.s3_buffer_top':[68,'°C'],'sensor.s3_buffer_bottom':[30,'°C'],
+  'sensor.s3_mixer':[50,'%'],'sensor.s3_hk_return':[32,'°C']
+});
+const coloured=HPC_INTEGRATED.svg(HPC_INTEGRATED.layout(colourPlan),colourHass);
+const colourSegments=coloured.nativePipes.s3_hk?.flow?.colored||[];
+const hotColor=HPC_FREE.color(HPC_FREE.state(colourHass,'sensor.s3_buffer_top'));
+const mixedColor=HPC_FREE.color({number:50,unit:'°C'});
+const returnColor=HPC_FREE.color(HPC_FREE.state(colourHass,'sensor.s3_hk_return'));
+check(colourSegments.length>=3&&colourSegments[0].color===hotColor&&
+  colourSegments[1].color===hotColor&&
+  colourSegments.at(-1).color===mixedColor,
+  '68 °C hot-buffer water reaches the mixer; 50 °C mixture is coloured separately');
+check(coloured.nativePipes.s3_hk?.return?.colored?.[0]?.color===returnColor&&
+  coloured.nativePipes.s3_hk?.mixer?.colored?.[0]?.color===returnColor,
+  'Measured return temperature controls both return elbow and mixer bypass');
 document.querySelector('#result').textContent=checks.every(line=>line.startsWith('OK'))?'PASS':'FAIL';
 document.querySelector('#log').textContent=checks.join('\n');
 </script></body></html>
