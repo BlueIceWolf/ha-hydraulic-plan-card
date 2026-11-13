@@ -8,7 +8,7 @@
  *
  * https://github.com/Sturmi77/heatpump-hydraulic-card · MIT License
  */
-const HFC_VERSION = '0.2.0-alpha.15';
+const HFC_VERSION = '0.2.0-alpha.16';
 // Derivative of Heat Pump Hydraulic Card (MIT, Sturmi77). Keep its engine reusable.
 const HPC_GENERATORS = ['heat_pump', 'wood_gasifier', 'oil', 'pellet', 'gas', 'electric'];
 const HPC_BOILERS = HPC_GENERATORS.slice(1);
@@ -9464,8 +9464,23 @@ const HPC_INTEGRATED = (() => {
         const tank=edge&&p.components.find(c=>c.id===edge.to&&c.type==='dhw_tank');
         const tankBox=tank&&(anchored.get(tank.id)||points.get(tank.id));
         if(tankBox){
-          // Place the configured charging device immediately before the
-          // coil inlet, inside the storage zone rather than beyond consumers.
+          // The original heat-pump drawing puts the WW/heating changeover
+          // at (420,250), in the main supply line between generator, DHW
+          // and buffer. A valve next to the tank's coil looks like a loading
+          // pump and creates long crossing lines around the storage.
+          const upstream=p.connections.find(e=>e.to===node.id&&e.to_port==='ab');
+          const generator=p.components.find(c=>c.id===upstream?.from);
+          const suppliesBuffer=p.connections.some(e=>e.from===node.id&&
+            e.from_port!=='ab'&&p.components.some(c=>
+              c.id===e.to&&c.type==='buffer'));
+          if(node.type==='diverter'&&generator?.type==='heat_pump'&&
+            suppliesBuffer&&anchored.has(tank.id)){
+            points.set(node.id,{x:400,y:230,w:40,h:40,
+              type:node.type,inline:true});
+            return;
+          }
+          // For charging pumps and other circuits, keep the control
+          // immediately upstream of the heat exchanger.
           const laneX=tankBox.x-60;
           const preferredLaneY=tankBox.y+20;
           const occupied=[...anchored,...points];
@@ -9570,7 +9585,14 @@ const HPC_INTEGRATED = (() => {
       // tanks, hot-water branches or a different heat source.
       const clean={...(config.entities||{})};
       for(const key of Object.keys(clean)){
-        if(/^(boiler_|buffer_|dhw_|hc(?:[1-6])?_|mode$|flow$|return$|power$|compressor$)/.test(key))delete clean[key];
+        // Explicit graph mappings win, but the old heat-pump card's manual
+        // overrides and unmapped roles must survive. Otherwise migration
+        // silently discards gateway flow/return, air and refrigerant data.
+        if(src?.type==='heat_pump'){
+          if(/^(boiler_|buffer_|dhw_)/.test(key)&&entities[key])
+            delete clean[key];
+        }else if(/^(boiler_|buffer_|dhw_|hc(?:[1-6])?_|mode$|flow$|return$|power$|compressor$)/.test(key))
+          delete clean[key];
       }
       derived.entities={...clean,...entities};
       derived.buffer=!!buffer;
@@ -9589,7 +9611,12 @@ const HPC_INTEGRATED = (() => {
         // column radiators; existing choices remain unchanged if not set.
         derived[key]=c.options?.emitter||config[key]||'radiator';
       });
-      derived.preset='none';
+      // Keep the original heat-pump integration preset active. Its resolver
+      // supplies source temperatures, air readings, heat output, COP, energy
+      // and compressor states even when the flexible component plan is used.
+      // Non-heat-pump sources must not inherit an unrelated heat-pump preset.
+      derived.preset=src?.type==='heat_pump'
+        ?(config.preset||'none'):'none';
     }else derived.entities={...entities,...(config.entities||{})};
     derived.power_sources=derived.power_sources||'manual';
     return derived;
@@ -11519,8 +11546,50 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       };
       patch(current,incoming);
     }
+    _effectiveHydraulicPlan(){
+      // Keep the saved configuration unchanged: the original card already
+      // resolves each heat pump preset (including the EMS-ESP prefix and
+      // manual overrides) to live Home Assistant entity IDs in this._e.
+      // Only fill missing heat-pump fields for hydraulic pipe colouring.
+      const p=HPC_FREE.normalize(this._integratedPlan);
+      const hp=p.components.find(node=>node.type==='heat_pump');
+      if(!hp||!this._e)return p;
+      const original=this._e;
+      const roles={
+        state:'mode',compressor:'compressor',
+        compressor_speed:'compressor_speed',fan_speed:'fan_speed',
+        defrost:'defrost',fault:'error',
+        flow:'flow',return:'return',power:'power',
+        pump:'primary_pump',volume:'volume'
+      };
+      for(const [field,role] of Object.entries(roles)){
+        const id=original[role];
+        if(!hp.sensors[field]&&typeof id==='string'&&
+          this._hass?.states?.[id])hp.sensors[field]=id;
+      }
+      // EMS-ESP's "hp3way" / DHW valve flag is the same switch already
+      // used by the classic card: ON = DHW, OFF = heating. Only borrow
+      // that documented EMS mapping for the matching WW/buffer valve and
+      // only when the installer hasn't provided an explicit valve entity.
+      if(this._config?.preset==='emsesp'&&typeof original.valve==='string'&&
+        this._hass?.states?.[original.valve]){
+        const dhw=p.components.find(n=>n.type==='dhw_tank');
+        for(const valve of p.components.filter(n=>n.type==='diverter')){
+          const feedsDhw=p.connections.some(e=>e.from===valve.id&&
+            e.to===dhw?.id&&e.to_port==='coil_in');
+          const feedsBuffer=p.connections.some(e=>e.from===valve.id&&
+            p.components.some(n=>n.id===e.to&&n.type==='buffer'));
+          if(!feedsDhw||!feedsBuffer||valve.sensors?.position)continue;
+          valve.sensors.position=original.valve;
+          valve.options={...valve.options,
+            dhw_state:valve.options?.dhw_state||'on',
+            heating_state:valve.options?.heating_state||'off'};
+        }
+      }
+      return p;
+    }
     _syncAdditional(force=false) {
-      const p=this._integratedPlan;
+      const p=this._effectiveHydraulicPlan();
       if(!this._hass||!p?.components.length)return;
       const svg=this._$('svg');if(!svg)return;
       const model=HPC_INTEGRATED.layout(p,this._hcCount||1,
