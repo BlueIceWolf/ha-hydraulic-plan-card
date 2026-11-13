@@ -136,11 +136,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const feedColour=paths.flow?.colored?.at(-1)?.color;
         if(emitter&&feedColour){
           emitter.style.setProperty('--pc',feedColour);
-          emitter.style.stroke=feedColour;
-          // The standard radiator gradient, when present, must start at
-          // the real mixed supply temperature, not the hot buffer trunk.
+          // Preserve the radiator's supply-to-return gradient where used.
+          // Only the upper stop gets the mixed-temperature colour.
           const head=svg.querySelector('#g-hcb'+suffix+'-a');
-          if(head)head.setAttribute('stop-color',feedColour);
+          if(head){
+            head.setAttribute('stop-color',feedColour);
+            emitter.style.stroke='url(#g-hcb'+suffix+')';
+          }else emitter.style.stroke=feedColour;
           const ribs=svg.querySelector('#g-rad'+suffix+'-a');
           if(ribs)ribs.setAttribute('stop-color',feedColour);
         }
