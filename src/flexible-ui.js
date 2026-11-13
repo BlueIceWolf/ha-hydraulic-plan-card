@@ -124,6 +124,50 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         path.classList.remove('on');
       }
     }
+    _syncMixerIllustrations(svg,plan) {
+      // A mixer position is a *visual* hot-water opening, not a measured flow rate.
+      // Only verified pump/pipe flow permits moving dashes.
+      const evidence=HPC_NETWORK.flowEvidence(plan,this._hass);
+      const circuits=plan.components.filter(node=>node.type==='heating_circuit').slice(0,6);
+      for(const [index,circuit] of circuits.entries()){
+        const suffix=index?String(index+1):'';
+        const group=svg.querySelector('#mixer'+suffix);
+        if(!group)continue;
+        const reading=HPC_FREE.state(this._hass,circuit.sensors?.mixer);
+        const measured=reading&&Number.isFinite(reading.number)&&reading.number>=0&&reading.number<=100;
+        const hot=measured?
+          (circuit.options?.mixer_inverted?100-reading.number:reading.number)/100:null;
+        const label=group.querySelector('#t-hc-mix'+suffix);
+        if(label&&measured)label.textContent=Math.round(hot*100)+' %';
+        if(!group.querySelector('.hpi-mix-illustration')){
+          group.insertAdjacentHTML('beforeend',
+            '<g class="hpi-mix-illustration" aria-hidden="true">'+
+            '<path class="hot" d="M745 360 H757"/>'+
+            '<path class="cold" d="M760 374 V363"/></g>');
+        }
+        const flows=plan.connections.filter(edge=>edge.to===circuit.id&&edge.to_port==='flow_in');
+        const returns=plan.connections.filter(edge=>edge.from===circuit.id&&edge.from_port==='return_out');
+        const active=flows.some(edge=>evidence.get(edge.id)?.active)&&
+          returns.some(edge=>evidence.get(edge.id)?.active);
+        const illustration=group.querySelector('.hpi-mix-illustration');
+        illustration.classList.toggle('on',!!measured&&active);
+        illustration.querySelector('.hot').style.opacity=measured?String(hot):'0';
+        illustration.querySelector('.cold').style.opacity=measured?String(1-hot):'0';
+        // This path is routed by the network: never draw a second physical
+        // pipe, just the flow particles within its existing return bypass.
+        const bypass=svg.querySelector('#p-hc-mix'+suffix);
+        if(!bypass)continue;
+        let indicator=svg.querySelector('#hpi-mix-bypass-flow'+suffix);
+        if(!indicator){
+          bypass.insertAdjacentHTML('afterend',
+            '<path id="hpi-mix-bypass-flow'+suffix+'" class="flow hpi-mix-bypass-flow" aria-hidden="true"/>');
+          indicator=svg.querySelector('#hpi-mix-bypass-flow'+suffix);
+        }
+        indicator.setAttribute('d',measured&&active&&hot<1?bypass.getAttribute('d')||'':'');
+        indicator.classList.toggle('on',!!measured&&active&&hot<1);
+        indicator.style.opacity=measured?String(1-hot):'0';
+      }
+    }
     _syncAdditional(force=false) {
       const p=this._integratedPlan;
       if(!this._hass||!p?.components.length)return;
@@ -165,6 +209,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const signature=JSON.stringify(p)+'|'+tick;
       if(!force&&signature===this._integratedSig&&svg.querySelector('#hpi-root')){
         this._syncNativeTemperatureLabels(svg,this._integratedNativeTemperatureLabels||[]);
+        this._syncMixerIllustrations(svg,p);
         return;
       }
       const rendered=HPC_INTEGRATED.svg(model,this._hass);
@@ -224,6 +269,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(title)title.textContent=p.components.find(c=>c.id===firstBuffer)?.name||title.textContent;
       }
       this._syncNativeCircuitFlow(svg,p,rendered.nativePipes);
+      this._syncMixerIllustrations(svg,p);
       if(firstDhw){
         svg.querySelector('rect.tank[x="520"][y="40"]')?.setAttribute('fill','url(#hpi-'+firstDhw+')');
         const title=svg.querySelector('text.tank-title[x="580"][y="30"]');
