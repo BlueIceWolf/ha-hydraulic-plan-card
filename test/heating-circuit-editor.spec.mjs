@@ -124,3 +124,57 @@ test('new heating circuits connect safely to an unambiguous source', async ({ pa
   ]);
   expect(result.incompleteNotice).toBe(true);
 });
+
+test('original three-way mixer stays visible and emitter uses mixed flow colour', async ({ page }) => {
+  await page.goto('/test/hydraulic-plan.html', { waitUntil: 'domcontentloaded' });
+  const result=await page.evaluate(() => {
+    const plan={components:[
+      {id:'boiler',type:'oil_boiler',name:'Ölkessel',sensors:{flow:'sensor.boiler'}},
+      {id:'buffer',type:'buffer',name:'Puffer',sensors:{top:'sensor.buffer'}},
+      {id:'hc',type:'heating_circuit',name:'Heizkreis',
+        options:{mixed:true,emitter:'radiator'},
+        sensors:{flow:'sensor.hc_actual',target:'sensor.hc_set',
+          mixer:'sensor.hc_mixer',pump:'switch.hc_pump'}}
+    ],connections:[
+      {id:'bf',from:'boiler',from_port:'flow',to:'buffer',to_port:'top_in'},
+      {id:'br',from:'buffer',from_port:'bottom_out',to:'boiler',to_port:'return'},
+      {id:'hf',from:'buffer',from_port:'top_out',to:'hc',to_port:'flow_in'},
+      {id:'hr',from:'hc',from_port:'return_out',to:'buffer',to_port:'bottom_in'}
+    ]};
+    const card=document.createElement('hydraulic-plan-card');
+    document.body.replaceChildren(card);
+    card.setConfig({type:'custom:hydraulic-plan-card',preset:'none',
+      power_sources:'manual',plan});
+    const states=Object.fromEntries(Object.entries({
+      'sensor.boiler':[76,'°C'],'sensor.buffer':[70,'°C'],
+      'sensor.hc_actual':[41.2,'°C'],'sensor.hc_set':[40,'°C'],
+      'sensor.hc_mixer':[15,'%'],'switch.hc_pump':['on','']
+    }).map(([id,[value,unit]])=>[id,{
+      entity_id:id,state:String(value),
+      attributes:unit?{unit_of_measurement:unit}:{}
+    }]));
+    card.hass={states,entities:{},devices:{},locale:{language:'de'},
+      language:'de',config:{version:'2026.10.4'},
+      callService:()=>Promise.resolve(),callWS:()=>Promise.reject(new Error('offline'))};
+    const svg=card.shadowRoot.querySelector('svg');
+    const valve=svg.querySelector('#mixer');
+    const backing=valve?.querySelector('.hpi-mix-backplate');
+    const contour=valve?.querySelector('path.mix-body');
+    const inlet=svg.querySelector('#p-hc-body');
+    const gradient=svg.querySelector('#g-hcb-a');
+    const segments=[...svg.querySelectorAll('[data-hpi-temp-group="hpi-temp-hc-flow"] path')];
+    return {hasMixer:!!valve,backing:!!backing,shape:contour?.getAttribute('d'),
+      label:valve?.querySelector('.mix-label')?.textContent,
+      bodyStroke:inlet?.style.stroke,headColour:gradient?.getAttribute('stop-color'),
+      segmentColors:segments.map(path=>path.style.getPropertyValue('--pc')),
+      order:valve?.parentElement?.lastElementChild===valve};
+  });
+  expect(result.hasMixer).toBe(true);
+  expect(result.backing).toBe(true);
+  expect(result.shape).toContain('M752 374');
+  expect(result.label).toContain('15');
+  expect(result.order).toBe(true);
+  expect(result.segmentColors.length).toBeGreaterThan(1);
+  expect(result.segmentColors.at(-1)).toBe(result.headColour);
+  expect(result.bodyStroke).toContain('g-hcb');
+});
