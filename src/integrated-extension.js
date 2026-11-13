@@ -1263,7 +1263,8 @@ const HPC_INTEGRATED = (() => {
         const socket=mixedReturn?port(node,b,'return'):null;
         const valveX=socket?.x+(node.options?.froeling_view!=='classic'?95:42);
         const position=mixedReturn?{
-          x:(socket.x+valveX)/2,y:socket.y+35,anchor:'middle'
+          x:(socket.x+valveX)/2,
+          y:socket.y+(b.type==='source'?35:-27),anchor:'middle'
         }:pipeLabelPosition(route,port(node,b,key),key,name+' '+HPC_FREE.format(state),
           obstacles,occupiedLabels,allPipeSegments);
         if(!position)continue;
