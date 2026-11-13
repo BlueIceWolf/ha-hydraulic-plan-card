@@ -8,7 +8,7 @@
  *
  * https://github.com/Sturmi77/heatpump-hydraulic-card · MIT License
  */
-const HFC_VERSION = '0.2.0-alpha.12';
+const HFC_VERSION = '0.2.0-alpha.13';
 // Derivative of Heat Pump Hydraulic Card (MIT, Sturmi77). Keep its engine reusable.
 const HPC_GENERATORS = ['heat_pump', 'wood_gasifier', 'oil', 'pellet', 'gas', 'electric'];
 const HPC_BOILERS = HPC_GENERATORS.slice(1);
@@ -8142,18 +8142,22 @@ const HPC_FREE = (function makeFreeHelpers() {
   function color(s) {
     if(!s||s.number===null||!["°c","c","°f","k"].includes(s.unit.toLowerCase()))return "#718096";
     const t=s.unit==="°F"?(s.number-32)*5/9:s.unit==="K"?s.number-273.15:s.number;
-    // One shared water/brine palette. Cold and normal returns remain blue;
-    // violet appears gradually at higher temperatures, red from 90 °C.
-    // RGB interpolation avoids brown, amber and warm-looking cold pipes.
+    // Shared palette for ALL water circuits, storage and heat sources.
+    // The 30–50 °C range is deliberately resolved more finely so a
+    // typical heat-pump 40/35 °C circuit has a visible supply/return gradient.
+    // Equal temperatures still use exactly the same colour everywhere.
     const ranges=[
       [-10,[21,61,158]],
       [0,[20,107,208]],
       [20,[34,140,226]],
-      [35,[49,156,240]],
-      [45,[103,118,223]],
-      [55,[175,102,201]],
-      [65,[223,88,160]],
-      [75,[237,64,120]],
+      [30,[39,151,234]],
+      [35,[54,134,224]],
+      [40,[127,110,218]],
+      [45,[171,94,202]],
+      [50,[205,80,173]],
+      [55,[226,72,141]],
+      [65,[235,63,99]],
+      [75,[238,51,77]],
       [90,[237,40,56]],
     ];
     if(t<=ranges[0][0])return "rgb("+ranges[0][1].join(",")+")";
@@ -11339,10 +11343,18 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             const returnColour=routedReturn||
               (knownTemp(returnReading)?HPC_FREE.color(returnReading):
                 estimatedReturn?HPC_FREE.color(estimatedReturn):feedColour);
-            // Spread the gradient along the entire serpentine. The last
-            // bend and the first section of the return now have one colour.
-            if(middle&&middle.getAttribute('stop-color')!==feedColour)
-              middle.setAttribute('stop-color',feedColour);
+            // In the upstream card the middle stop was set equal to the
+            // supply. That held the first half of the floor loop at one
+            // colour. Use the halfway water temperature instead, keeping
+            // the actual supply at the inlet and routed return at the outlet.
+            const supplyValue=knownTemp(flowReading)?flowReading:
+              knownTemp(targetReading)?targetReading:null;
+            const returnValue=knownTemp(returnReading)?returnReading:estimatedReturn;
+            const middleColour=supplyValue&&returnValue
+              ?HPC_FREE.color({number:(supplyValue.number+returnValue.number)/2,unit:'°C'})
+              :'color-mix(in srgb, '+feedColour+' 50%, '+returnColour+')';
+            if(middle&&middle.getAttribute('stop-color')!==middleColour)
+              middle.setAttribute('stop-color',middleColour);
             if(bottom&&bottom.getAttribute('stop-color')!==returnColour)
               bottom.setAttribute('stop-color',returnColour);
             const gradient='url(#g-hcb'+suffix+')';
