@@ -807,6 +807,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         emsDhw:signatureOf(detect('EMS-ESP hot water',HPC_EMS.detectDhw)),
         eta:signatureOf(detect('ETA',HPC_ETA.detect)),
         etaParts:signatureOf(detect('ETA system components',HPC_ETA_SYSTEM.detect)),
+        heatPumps:this._originalHeatPumpCandidates().map(c=>[c.id,c.count,
+          Object.entries(c.entities).sort(([a],[b])=>a.localeCompare(b))]),
         discoveryErrors
       });
       this._discoveryWarnings=discoveryErrors.length
