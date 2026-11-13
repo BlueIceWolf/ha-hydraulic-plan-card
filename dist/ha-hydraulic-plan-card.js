@@ -8431,6 +8431,8 @@ const HPC_MIGRATION = (() => {
 
 // Shared hydraulic topology, pipe routing and flow-state evaluation.
 // The original card still owns its artwork. This module owns hydraulic decisions.
+// Shared hydraulic topology, pipe routing and flow-state evaluation.
+// The original card still owns its artwork. This module owns hydraulic decisions.
 const HPC_NETWORK = (() => {
   const isSource = node => HPC_FREE.byType[node?.type]?.group === 'source';
   const hasCircuitMixer = node=>node.options?.mixed===true||
@@ -9078,20 +9080,14 @@ const HPC_NETWORK = (() => {
       const d='M'+h(p.x,p.y)+' V'+q.y;
       return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
     }
-    // Keep the ORIGINAL mixer and radiator connectors exactly in the hot
-    // and return routes. Their artwork is retained, not an independent pipe.
+    // The native heating circuit already draws the radiator-to-return
+    // elbow up to its left port. Continue from that exact port without
+    // doubling back into the circuit or producing a rectangular loop.
     if(fromNode.type==='heating_circuit'&&
        fromShape.type==='heating_circuit'&&edge.from_port==='return_out'){
-      const bendX=fromShape.x-10;
-      const joinX=fromShape.x-55;
-      const joinY=fromShape.y+165;
-      let d='M'+h(p.x,p.y)+' H'+bendX+' V'+(p.y+20)+
-        ' H'+(bendX-20)+' V'+joinY+' H'+joinX;
-      if(Math.abs(q.y-joinY)<.01)d+=' H'+q.x;
-      else {
-        const laneX=Math.max(joinX+20,q.x+35);
-        d+=' H'+laneX+' V'+q.y+' H'+q.x;
-      }
+      if(Math.abs(p.x-q.x)<1)return compactPath('M'+h(p.x,p.y)+' V'+q.y);
+      const railX=Math.min(p.x-36,q.x+36);
+      const d='M'+h(p.x,p.y)+' H'+railX+' V'+q.y+' H'+q.x;
       return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
     }
     let d;
@@ -9249,18 +9245,6 @@ const HPC_NETWORK = (() => {
     flowStates, flowEvidence, auxiliaryEdges, heatingCircuitEdges, route, mergeRoutes };
 })();
 
-// Additional heating components share the original Heat Pump Hydraulic Card SVG.
-// The first heat source, first buffer, first DHW tank and up to six heating circuits
-// reuse their original renderer. All other components are ADDED to that same SVG.
-// Additional heating components share the original Heat Pump Hydraulic Card SVG.
-// The first heat source, first buffer, first DHW tank and up to six heating circuits
-// reuse their original renderer. All other components are ADDED to that same SVG.
-// Additional heating components share the original Heat Pump Hydraulic Card SVG.
-// The first heat source, first buffer, first DHW tank and up to six heating circuits
-// reuse their original renderer. All other components are ADDED to that same SVG.
-// Additional heating components share the original Heat Pump Hydraulic Card SVG.
-// The first heat source, first buffer, first DHW tank and up to six heating circuits
-// reuse their original renderer. All other components are ADDED to that same SVG.
 // Additional heating components share the original Heat Pump Hydraulic Card SVG.
 // The first heat source, first buffer, first DHW tank and up to six heating circuits
 // reuse their original renderer. All other components are ADDED to that same SVG.
@@ -9835,6 +9819,50 @@ const HPC_INTEGRATED = (() => {
     return '';
   }
 
+  // Each pipe has its own optional temperature measurement. With no
+  // override, inherit a temperature only from its actual hydraulic upstream:
+  // source flow -> feed, or through an unambiguous pump/valve/manifold.
+  // The DHW tank sensor measures domestic water and must not colour the coil.
+  function pipeTemperature(plan,hass,edge,nodes) {
+    const read=id=>{
+      const value=HPC_FREE.state(hass,id);
+      return value&&Number.isFinite(value.number)?value:null;
+    };
+    if(edge.temperature_entity) return read(edge.temperature_entity);
+    const portSensor=(node,port)=>{
+      if(!node)return null;
+      if(['flow','dhw'].includes(port)&&HPC_FREE.byType[node.type]?.group==='source')
+        return read(node.sensors?.flow);
+      if(port==='return'&&HPC_FREE.byType[node.type]?.group==='source')
+        return read(node.sensors?.return);
+      if(node.type==='buffer'){
+        const field=port.startsWith('top')?'top':port.startsWith('mid')?'middle':
+          port.startsWith('bottom')?'bottom':null;
+        return field?read(node.sensors?.[field]):null;
+      }
+      if(node.type==='heating_circuit'){
+        if(port==='return_out')return read(node.sensors?.return);
+        if(port==='flow_in')return read(node.sensors?.flow);
+      }
+      return null;
+    };
+    const origin=nodes[edge.from],target=nodes[edge.to];
+    const direct=portSensor(origin,edge.from_port);
+    if(direct)return direct;
+    // An explicitly configured return pipe can use the consumer's return
+    // thermometer. Never substitute the DHW tank's stored-water temperature.
+    if(edge.from_port==='coil_out'&&target?.type==='buffer')return null;
+    const incoming=plan.connections.filter(item=>item.to===edge.from&&
+      item.id!==edge.id);
+    if(['pump','mixer','diverter','manifold','electric_heater'].includes(origin?.type)&&
+      incoming.length===1){
+      const inlet=incoming[0];
+      return read(inlet.temperature_entity)||
+        portSensor(nodes[inlet.from],inlet.from_port);
+    }
+    return null;
+  }
+
   function svg(model,hass) {
     const {plan,anchored,points,extras}=model;
     const all=Object.fromEntries(plan.components.map(c=>[c.id,c]));
@@ -9935,15 +9963,10 @@ const HPC_INTEGRATED = (() => {
         fromShape,toShape,p,q,fromSide,toSide,supplyTee,returnTee,obstacles,routedPaths
       });
       routedPaths.push({edge,d});
-      const from=all[edge.from],field=edge.from_port;
-      const inferred=field==='flow'?from.sensors.flow:
-        field==='top_out'?from.sensors.top:
-        field==='mid_out'?from.sensors.middle:
-        field==='bottom_out'?from.sensors.bottom:'';
-      // Pipe temperature is optional. When no thermometer is configured,
-      // keep the hydraulic supply/return colour instead of rendering an
-      // almost invisible grey line (notably the oil boiler -> DHW coil).
-      const reading=HPC_FREE.state(hass,edge.temperature_entity||inferred);
+      // Explicit pipe sensor wins, followed by the temperature of the
+      // actual supplying component. The storage-temperature sensor of the
+      // DHW tank never represents its heat-exchanger coil water.
+      const reading=pipeTemperature(plan,hass,edge,all);
       const returnPipe=edge.kind==='heating_circuit_internal_return'||
         edge.kind==='heating_circuit_mixer_bypass'||
         /^(return_out|coil_out|bottom_out|return)$/.test(edge.from_port)||
