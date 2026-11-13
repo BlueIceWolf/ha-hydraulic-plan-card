@@ -647,20 +647,14 @@ const HPC_NETWORK = (() => {
       const d='M'+h(p.x,p.y)+' V'+q.y;
       return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
     }
-    // Keep the ORIGINAL mixer and radiator connectors exactly in the hot
-    // and return routes. Their artwork is retained, not an independent pipe.
+    // The native heating circuit already draws the radiator-to-return
+    // elbow up to its left port. Continue from that exact port without
+    // doubling back into the circuit or producing a rectangular loop.
     if(fromNode.type==='heating_circuit'&&
        fromShape.type==='heating_circuit'&&edge.from_port==='return_out'){
-      const bendX=fromShape.x-10;
-      const joinX=fromShape.x-55;
-      const joinY=fromShape.y+165;
-      let d='M'+h(p.x,p.y)+' H'+bendX+' V'+(p.y+20)+
-        ' H'+(bendX-20)+' V'+joinY+' H'+joinX;
-      if(Math.abs(q.y-joinY)<.01)d+=' H'+q.x;
-      else {
-        const laneX=Math.max(joinX+20,q.x+35);
-        d+=' H'+laneX+' V'+q.y+' H'+q.x;
-      }
+      if(Math.abs(p.x-q.x)<1)return compactPath('M'+h(p.x,p.y)+' V'+q.y);
+      const railX=Math.min(p.x-36,q.x+36);
+      const d='M'+h(p.x,p.y)+' H'+railX+' V'+q.y+' H'+q.x;
       return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
     }
     let d;
