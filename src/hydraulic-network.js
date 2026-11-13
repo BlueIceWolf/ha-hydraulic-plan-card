@@ -664,7 +664,15 @@ const HPC_NETWORK = (() => {
       return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
     }
     let d;
-    if (p.x > q.x + 8 || fromSide === 'L' || toSide === 'R') {
+    // A consumer/storage return approaches the Fröling's RIGHT-hand water
+    // socket directly. An overhead detour could run visually through its
+    // fan/flue area and falsely suggest a chimney-water connection.
+    if (toNode.type==='wood_gasifier' && toNode.options?.froeling_view!=='classic' &&
+        edge.to_port==='return' && fromSide==='L' && toSide==='R' &&
+        p.x>q.x+8) {
+      const mid=(p.x+q.x)/2;
+      d='M'+h(p.x,p.y)+' H'+mid+' V'+q.y+' H'+q.x;
+    } else if (p.x > q.x + 8 || fromSide === 'L' || toSide === 'R') {
       const farX = p.x + (fromSide === 'L' ? -36 : 38);
       const entryX = q.x + (toSide === 'R' ? 36 : -36);
       const laneY = p.y < q.y - 120
