@@ -1050,7 +1050,7 @@ const HPC_INTEGRATED = (() => {
           :additionalSourceArt(type,b,on,node,hass);
         return '<g class="tap hpi-component hpi-source-unit" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.state||node.sensors.flow||'')+'">'
           +'<title>'+title+'</title>'
-          +'<text class="unit-title" x="'+cx+'" y="'+(b.y+26)+'" text-anchor="middle">'+title+'</text>'
+          +'<text class="unit-title hpi-generator-title" x="'+cx+'" y="'+(b.y+224)+'" text-anchor="middle">'+title+'</text>'
           +artwork+'</g>';
       }
       if(type==='oil_boiler'){
@@ -1153,6 +1153,24 @@ const HPC_INTEGRATED = (() => {
     // Temperature readings belong to a real, routed pipe segment. The role
     // and source ID—not the displayed value—define each label's identity.
     const occupiedLabels=[];
+    // Reserve source captions and known heating-circuit readouts *before*
+    // searching for automatic pipe labels. Otherwise a dynamically
+    // positioned VL/RL temperature is allowed to sit on a unit name.
+    for(const source of plan.components.filter(isSource)){
+      const b=loc(source.id);
+      if(!b)continue;
+      const primary=source.id===plan.components.find(isSource)?.id;
+      const titleY=primary?b.y+30:b.y+224;
+      const width=Math.max(95,Math.min(205,String(source.name||'').length*10+22));
+      occupiedLabels.push({left:b.x+b.w/2-width/2,
+        right:b.x+b.w/2+width/2,top:titleY-21,bottom:titleY+9});
+    }
+    for(const circuit of plan.components.filter(node=>node.type==='heating_circuit')){
+      const b=loc(circuit.id);
+      if(!b)continue;
+      const y=b.y-21;
+      occupiedLabels.push({left:b.x-112,right:b.x+116,top:y-24,bottom:y+12});
+    }
     const allPipeSegments=[];
     const seenPipeSegments=new Set();
     for(const paths of physicalPipes.values()){
@@ -1171,9 +1189,13 @@ const HPC_INTEGRATED = (() => {
       for(const [key,name] of [['flow','VL'],['return','RL']]){
         const state=HPC_FREE.state(hass,node.sensors[key]);
         if(state?.number===null||!Number.isFinite(state?.number))continue;
-        const connection=routeRecords.find(record=>
-          (record.edge.from===node.id&&record.edge.from_port===key)||
-          (record.edge.to===node.id&&record.edge.to_port===key));
+        // Source-side sensing is labelled against its physical connection.
+        // Never choose an unrelated return-lift bypass simply because it is
+        // the first edge touching the same source port.
+        const connection=routeRecords.find(record=>record.edge.kind!=='return_lift'&&
+          (key==='flow'?record.edge.from===node.id&&
+            record.edge.from_port==='flow':
+            record.edge.to===node.id&&record.edge.to_port==='return'));
         if(!connection)continue;
         const route=physicalPipes.get(connection.edge.id)?.pipe||connection.d;
         const position=pipeLabelPosition(route,port(node,b,key),key,name+' '+HPC_FREE.format(state),
