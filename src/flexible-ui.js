@@ -235,10 +235,18 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             const returnColour=routedReturn||
               (knownTemp(returnReading)?HPC_FREE.color(returnReading):
                 estimatedReturn?HPC_FREE.color(estimatedReturn):feedColour);
-            // Spread the gradient along the entire serpentine. The last
-            // bend and the first section of the return now have one colour.
-            if(middle&&middle.getAttribute('stop-color')!==feedColour)
-              middle.setAttribute('stop-color',feedColour);
+            // In the upstream card the middle stop was set equal to the
+            // supply. That held the first half of the floor loop at one
+            // colour. Use the halfway water temperature instead, keeping
+            // the actual supply at the inlet and routed return at the outlet.
+            const supplyValue=knownTemp(flowReading)?flowReading:
+              knownTemp(targetReading)?targetReading:null;
+            const returnValue=knownTemp(returnReading)?returnReading:estimatedReturn;
+            const middleColour=supplyValue&&returnValue
+              ?HPC_FREE.color({number:(supplyValue.number+returnValue.number)/2,unit:'°C'})
+              :'color-mix(in srgb, '+feedColour+' 50%, '+returnColour+')';
+            if(middle&&middle.getAttribute('stop-color')!==middleColour)
+              middle.setAttribute('stop-color',middleColour);
             if(bottom&&bottom.getAttribute('stop-color')!==returnColour)
               bottom.setAttribute('stop-color',returnColour);
             const gradient='url(#g-hcb'+suffix+')';
