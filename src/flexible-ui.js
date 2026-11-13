@@ -222,8 +222,21 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             // mixed supply. Blend only towards the return at the bottom.
             // Never let the legacy heat-source gradient tint it hot again.
             const returnReading=HPC_FREE.state(this._hass,circuit.sensors?.return);
-            const returnColour=knownTemp(returnReading)
-              ?HPC_FREE.color(returnReading):feedColour;
+            // The existing return elbow is coloured by the network using
+            // measured return (or 7 K/5 K below supply). Take exactly THAT
+            // colour for the emitter outlet. Previously an absent return
+            // sensor fell back to the supply colour, leaving a hard seam.
+            const routedReturn=paths.return?.colored?.find(segment=>
+              segment.kind==='heating_circuit_internal_return')?.color;
+            const delta=circuit.options?.emitter==='underfloor'?5:7;
+            const estimatedReturn=knownTemp(flowReading)||knownTemp(targetReading)
+              ?{number:(knownTemp(flowReading)?flowReading:targetReading).number-delta,
+                unit:'°C'}:null;
+            const returnColour=routedReturn||
+              (knownTemp(returnReading)?HPC_FREE.color(returnReading):
+                estimatedReturn?HPC_FREE.color(estimatedReturn):feedColour);
+            // Spread the gradient along the entire serpentine. The last
+            // bend and the first section of the return now have one colour.
             if(middle&&middle.getAttribute('stop-color')!==feedColour)
               middle.setAttribute('stop-color',feedColour);
             if(bottom&&bottom.getAttribute('stop-color')!==returnColour)
@@ -626,6 +639,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-link .pipe.on{stroke:var(--pc,var(--hfc-muted));}'
           +'.hpi-native-temperature{stroke:var(--pc,var(--hfc-muted))!important;}'
           +'.hpi-native-temperature{transition:none!important;}'
+          +'.waves.on .wave{stroke:#e66e5d;}'
           +'.hpi-buffer-hot{stroke:var(--hfc-hot,#f37b4e);}'
           +'.hpi-buffer-cold{stroke:var(--hfc-cold,#448cdd);}'
           +'.hpi-riser-bridge{pointer-events:none;}'
