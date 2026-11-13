@@ -671,6 +671,70 @@ check(combinedRender.nativePipes.combined_hk.flow.colored[0].color===
   HPC_FREE.color({number:41.7,unit:'°C'}),
   'Hot buffer water reaches heating mixer, actual flow temperature follows it');
 
+// S3 measured return belongs on the MIXED side of the RLA, directly
+// between boiler and mixer. Missing radiator and floor-heating returns
+// are only illustrative: 7 K and 5 K below actual/target flow respectively.
+const returnEstimatePlan=HPC_FREE.normalize({components:[
+  {id:'est_s3',type:'wood_gasifier',name:'Fröling S3',options:{
+    froeling_view:'s3_turbo',return_lift:true},sensors:{
+    flow:'sensor.est_s3_vl',return:'sensor.est_s3_rl',pump:'switch.est_s3'}},
+  {id:'est_buffer',type:'buffer',name:'Puffer',sensors:{top:'sensor.est_buf_top'}},
+  {id:'est_radiator',type:'heating_circuit',name:'HK Heizkörper',
+    options:{emitter:'radiator',mixed:true},sensors:{flow:'sensor.est_rad_flow'}},
+  {id:'est_floor',type:'heating_circuit',name:'HK Fußbodenheizung',
+    options:{emitter:'underfloor',mixed:true},sensors:{target:'sensor.est_floor_target'}}
+],connections:[
+  {id:'est_s3_hot',from:'est_s3',from_port:'flow',to:'est_buffer',to_port:'top_in'},
+  {id:'est_s3_cold',from:'est_buffer',from_port:'bottom_out',to:'est_s3',to_port:'return'},
+  {id:'est_rad_hot',from:'est_buffer',from_port:'top_out',to:'est_radiator',to_port:'flow_in'},
+  {id:'est_rad_cold',from:'est_radiator',from_port:'return_out',to:'est_buffer',to_port:'bottom_in'},
+  {id:'est_floor_hot',from:'est_buffer',from_port:'top_out',to:'est_floor',to_port:'flow_in'},
+  {id:'est_floor_cold',from:'est_floor',from_port:'return_out',to:'est_buffer',to_port:'bottom_in'}
+]});
+const estimateHass=hass({
+  'sensor.est_s3_vl':[76,'°C'],'sensor.est_s3_rl':[60,'°C'],
+  'sensor.est_buf_top':[70,'°C'],
+  'sensor.est_rad_flow':[54.5,'°C'],
+  'sensor.est_floor_target':[35,'°C'],
+  'switch.est_s3':'on'
+});
+const estimateLayout=HPC_INTEGRATED.layout(returnEstimatePlan);
+const estimateRender=HPC_INTEGRATED.svg(estimateLayout,estimateHass);
+const estimateSvg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+estimateSvg.innerHTML=estimateRender.body;
+const estBoiler=returnEstimatePlan.components.find(n=>n.id==='est_s3');
+const estSocket=HPC_INTEGRATED.port(estBoiler,estimateLayout.anchored.get('est_s3'),'return');
+const s3RlLabel=estimateSvg.querySelector('.hpi-pipe-reading[data-source="est_s3"][data-role="return"]');
+check(s3RlLabel&&Math.abs(Number(s3RlLabel.getAttribute('x'))-(estSocket.x+47.5))<.1&&
+  s3RlLabel.textContent.includes('60'),
+  'Measured S3 return label is between RLA mixer and real boiler return socket');
+const radEstimate=estimateSvg.querySelector('.hpi-estimated-rl[data-circuit="est_radiator"]');
+const floorEstimate=estimateSvg.querySelector('.hpi-estimated-rl[data-circuit="est_floor"]');
+check(radEstimate?.textContent.includes('47,5')&&
+  floorEstimate?.textContent.includes('30'),
+  'Unknown radiator return uses -7 K, underfloor return uses -5 K');
+check(estimateRender.nativePipes.est_radiator.return.colored[0].color===
+  HPC_FREE.color({number:47.5,unit:'°C'})&&
+  estimateRender.nativePipes.est_floor.return.colored[0].color===
+  HPC_FREE.color({number:30,unit:'°C'}),
+  'Estimated returns colour the actual radiator and floor return elbows');
+const measuredEstimatePlan=structuredClone(returnEstimatePlan);
+measuredEstimatePlan.components.find(n=>n.id==='est_radiator').sensors.return='sensor.est_rad_real_rl';
+const measuredEstimateHass=hass({
+  'sensor.est_s3_vl':[76,'°C'],'sensor.est_s3_rl':[60,'°C'],
+  'sensor.est_buf_top':[70,'°C'],'sensor.est_rad_flow':[54.5,'°C'],
+  'sensor.est_rad_real_rl':[42,'°C'],'sensor.est_floor_target':[35,'°C'],
+  'switch.est_s3':'on'
+});
+const measuredEstimateRender=HPC_INTEGRATED.svg(
+  HPC_INTEGRATED.layout(measuredEstimatePlan),measuredEstimateHass);
+const measuredEstimateSvg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+measuredEstimateSvg.innerHTML=measuredEstimateRender.body;
+check(!measuredEstimateSvg.querySelector('.hpi-estimated-rl[data-circuit="est_radiator"]')&&
+  measuredEstimateRender.nativePipes.est_radiator.return.colored[0].color===
+    HPC_FREE.color({number:42,unit:'°C'}),
+  'An actual radiator return sensor always overrides the estimated return');
+
 document.querySelector('#result').textContent=checks.every(line=>line.startsWith('OK'))?'PASS':'FAIL';
 document.querySelector('#log').textContent=checks.join('\n');
 </script></body></html>
