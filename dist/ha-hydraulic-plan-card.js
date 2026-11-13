@@ -8,7 +8,7 @@
  *
  * https://github.com/Sturmi77/heatpump-hydraulic-card · MIT License
  */
-const HFC_VERSION = '0.2.0-alpha.14';
+const HFC_VERSION = '0.2.0-alpha.15';
 // Derivative of Heat Pump Hydraulic Card (MIT, Sturmi77). Keep its engine reusable.
 const HPC_GENERATORS = ['heat_pump', 'wood_gasifier', 'oil', 'pellet', 'gas', 'electric'];
 const HPC_BOILERS = HPC_GENERATORS.slice(1);
@@ -7702,7 +7702,7 @@ const HPC_FREE = (function makeFreeHelpers() {
       // Remember which HA device was imported. This is only a read-only
       // identity for duplicate detection, never a credential or gateway URL.
       const discovery=typeof n.discovery?.id==="string"&&
-        ["ems-esp","eta","eta-system"].includes(n.discovery?.provider)&&
+        ["ems-esp","eta","eta-system","original-heatpump"].includes(n.discovery?.provider)&&
         /^[a-zA-Z0-9._:\/-]{1,150}$/.test(n.discovery.id)
         ?{provider:n.discovery.provider,id:n.discovery.id}:undefined;
       components.push({...n,id:n.id,type:n.type,name:String(n.name||display(n.type)).slice(0,75),
@@ -11915,6 +11915,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         emsDhw:signatureOf(detect('EMS-ESP hot water',HPC_EMS.detectDhw)),
         eta:signatureOf(detect('ETA',HPC_ETA.detect)),
         etaParts:signatureOf(detect('ETA system components',HPC_ETA_SYSTEM.detect)),
+        heatPumps:this._originalHeatPumpCandidates().map(c=>[c.id,c.count,
+          Object.entries(c.entities).sort(([a],[b])=>a.localeCompare(b))]),
         discoveryErrors
       });
       this._discoveryWarnings=discoveryErrors.length
@@ -11959,6 +11961,57 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     }
     _legacyPlan(){
       return HPC_MIGRATION.legacyPlan(this._config).plan;
+    }
+    _originalHeatPumpCandidates(){
+      // Reuse the ORIGINAL card's preset detection and entity resolver.
+      // This supports its actual integration-specific names, prefixes,
+      // device indexes, and live-vs-unavailable candidate selection.
+      const hass=this._hass;
+      if(!hass?.states)return [];
+      const candidates=[];
+      for(const [id,preset] of Object.entries(HFC_PRESETS)){
+        if(!preset?.detect||!preset.entities)continue;
+        try{
+          const idx={hp:1,dhw:1,buffer:1,hc:1,...(preset.index||{}),
+            ...(this._config?.index||{})};
+          const ctx=HeatpumpFlowCard._ctx(hass,this._config?.device,idx);
+          const prefix=preset.detect(ctx);
+          if(prefix===undefined||prefix===null)continue;
+          const resolved=HeatpumpFlowCard._resolve({
+            preset:id,prefix:this._config?.preset===id?
+              this._config?.prefix:prefix,index:this._config?.index,
+            device:this._config?.device,hc_count:this._config?.hc_count||1,
+            entities:{}},hass);
+          const roles={
+            state:['mode','compressor_status'],compressor:['compressor'],
+            compressor_speed:['compressor_speed'],
+            fan_speed:['fan_speed'],defrost:['defrost'],fault:['error'],
+            flow:['flow'],return:['return'],power:['power'],
+            pump:['pump'],volume:['volume']
+          };
+          const entities={};
+          for(const [target,keys] of Object.entries(roles)){
+            for(const key of keys){
+              const entity=resolved.entities?.[key];
+              if(typeof entity==='string'&&hass.states[entity]&&
+                !['unknown','unavailable'].includes(hass.states[entity].state)){
+                entities[target]=entity;
+                break;
+              }
+            }
+          }
+          // A positive detector hit alone can represent a gateway without
+          // a heat pump. Require actual heating measurements to offer it.
+          const evidence=['flow','return','compressor','compressor_speed',
+            'power'].filter(key=>entities[key]).length;
+          if(evidence<2)continue;
+          candidates.push({id,name:preset.name||id,entities,
+            unitStyle:preset.unit_style||'auto',count:Object.keys(entities).length});
+        }catch(error){
+          console.debug('hydraulic-plan-card: original preset unavailable',id,error);
+        }
+      }
+      return candidates.sort((a,b)=>b.count-a.count);
     }
     _renderFlex(){
       try{
@@ -12042,11 +12095,21 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         Object.values(n.sensors||{}).some(id=>Object.values(c.entities).includes(id))));
       // An imported or manually configured boiler must not keep appearing as
       // "new". A second, genuinely different device is offered next.
+      const originalHeatPumps=this._originalHeatPumpCandidates();
       const chosenEms=emsCandidates.find(c=>!HPC_DISCOVERY.matchedNode(p,c,'ems-esp',emsCandidates));
       const chosenEta=etaCandidates.find(c=>!HPC_DISCOVERY.matchedNode(p,c,'eta',etaCandidates));
       const emsTypeLabel=(type)=>type==="oil_boiler"?t("Ölkessel","Oil boiler"):
         type==="gas_boiler"?t("Gaskessel","Gas boiler"):
         type==="heat_pump"?t("Wärmepumpe","Heat pump"):t("Heizgerät (Typ prüfen)","Heating device (verify type)");
+      const heatPumpInfo=originalHeatPumps.length?`<section class="hpc-ems">
+        <h3>${t('Wärmepumpe mit Original-Erkennung gefunden','Heat pump found with original detection')}</h3>
+        <p>${t('Die bewährten Integrations-Presets der ursprünglichen Karte werden verwendet. Bestehende Sensoren bleiben erhalten. Rohrleitungen werden nicht automatisch verändert.','Uses the original card integration presets. Existing sensor mappings and pipe connections remain unchanged.')}</p>
+        <label class="hpc-field">${t('Erkannte Integration','Detected integration')}
+          <select id="hpc-original-wp">
+            ${originalHeatPumps.map(c=>`<option value="${esc(c.id)}">${esc(c.name)} · ${c.count} ${t('Messwerte','measurements')}</option>`).join('')}
+          </select></label>
+        <button type="button" data-action="original-wp-apply">${t('Wärmepumpe erkennen und Werte übernehmen','Import detected heat pump measurements')}</button>
+      </section>`:''; 
       const emsInfo=chosenEms?`<section class="hpc-ems">
         <h3>${t("Heizung über EMS-ESP erkannt","Heating device detected via EMS-ESP")}</h3>
         <p class="hpc-row">${HPC_FREE.icon(chosenEms.type==="unknown"?"manifold":chosenEms.type)}<strong>${esc(chosenEms.name)}</strong> · ${esc(chosenEms.source)}</p>
@@ -12911,7 +12974,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             </details>
             </div>
           </details>
-          ${emsInfo}${emsCircuitInfo}${emsDhwInfo}${etaInfo}${etaPartInfo}
+          ${heatPumpInfo}${emsInfo}${emsCircuitInfo}${emsDhwInfo}${etaInfo}${etaPartInfo}
           ${chosenEta||chosenEtaPart?`<button type="button" class="hpc-primary" data-action="eta-scan-all">
             ${t("ETA-Anlage automatisch erkennen","Detect ETA system automatically")}</button>`:''}
           <p>${t("Die Leitungen werden nur bei bestätigtem Pumpen- oder Flusssignal animiert. Die Vorschau bleibt Teil des ursprünglichen Hydraulikplans.","Pipes animate only with confirmed pump or flow signals. The preview remains part of the original hydraulic schematic.")}</p>
@@ -13147,6 +13210,46 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         }
         if(action==="migration-ack"){
           return this._save({...this._config,hpc_migration_review:false});
+        }
+        if(action==="original-wp-apply"){
+          const selectedPreset=root.querySelector('#hpc-original-wp')?.value;
+          const candidate=originalHeatPumps.find(item=>item.id===selectedPreset);
+          if(!candidate)return;
+          const copy=HPC_FREE.normalize(p);
+          // Never silently overwrite an unrelated heat source or a
+          // manually assigned entity. Reuse an existing heat-pump node.
+          let node=copy.components.find(item=>item.type==='heat_pump'&&
+            (Object.values(item.sensors||{}).some(id=>
+              Object.values(candidate.entities).includes(id))||
+              item.discovery?.provider==='original-heatpump'&&
+              item.discovery.id===candidate.id));
+          node ||= copy.components.find(item=>item.type==='heat_pump');
+          if(!node){
+            node=HPC_FREE.newNode('heat_pump',copy);
+            if(!node)return;
+            node.name=candidate.name.slice(0,75);
+            copy.components.push(node);
+          }
+          let changed=false;
+          for(const [role,entity] of Object.entries(candidate.entities)){
+            if(!node.sensors[role]){
+              node.sensors[role]=entity;
+              changed=true;
+            }
+          }
+          if(!node.options?.unit_style||node.options.unit_style==='auto'){
+            if(candidate.unitStyle!=='auto'){
+              node.options={...node.options,unit_style:candidate.unitStyle};
+              changed=true;
+            }
+          }
+          if(!node.discovery){
+            node.discovery={provider:'original-heatpump',id:candidate.id};
+            changed=true;
+          }
+          if(!changed)return;
+          this._selectedId=node.id;
+          return this._applyPlan(copy);
         }
         if(action==="eta-scan-all"){
           if(!window.confirm(t(
