@@ -9258,6 +9258,9 @@ const HPC_NETWORK = (() => {
 // Additional heating components share the original Heat Pump Hydraulic Card SVG.
 // The first heat source, first buffer, first DHW tank and up to six heating circuits
 // reuse their original renderer. All other components are ADDED to that same SVG.
+// Additional heating components share the original Heat Pump Hydraulic Card SVG.
+// The first heat source, first buffer, first DHW tank and up to six heating circuits
+// reuse their original renderer. All other components are ADDED to that same SVG.
 const HPC_INTEGRATED = (() => {
   const sources = new Set(['wood_gasifier','oil_boiler','pellet_boiler','wood_chip_boiler','gas_boiler','heat_pump']);
   const isSource = (node) => sources.has(node.type);
@@ -9492,7 +9495,7 @@ const HPC_INTEGRATED = (() => {
     derived.power_sources=derived.power_sources||'manual';
     return derived;
   }
-  function port(node,shape,key,circuitPump=true) {
+  function port(node,shape,key,circuitPump=true,externalReturn=false) {
     if(shape.type==='source') {
       // Primary and additional heat sources share the original 240x235
       // pictogram, but never the same absolute pipe ports. Otherwise all
@@ -9525,6 +9528,11 @@ const HPC_INTEGRATED = (() => {
     if(shape.type==='heating_circuit'){
       const y=shape.y+30;
       if(key==='flow_in')return{x:shape.x-(circuitPump?111:79),y};
+      // The visible return from the radiator to the mixing tee belongs to
+      // the native circuit SVG. The external return starts at its left end.
+      // Keep this separate from the emitter outlet used by the internal graph.
+      if(key==='return_out'&&externalReturn)
+        return{x:640,y:shape.y+165};
       if(key==='pump_out')return{x:shape.x-79,y};
       if(key==='emitter_in')return{x:shape.x+11,y};
       if(key==='mixer_hot'||key==='mixer_out')return{x:760,y};
@@ -9901,13 +9909,18 @@ const HPC_INTEGRATED = (() => {
       plan.components.some(candidate=>candidate.type==='buffer')||
       !!node.sensors?.pump||!model.primaryPump;
     const routeRecords=[...plan.connections,...HPC_NETWORK.auxiliaryEdges(plan,hass),
-      ...HPC_NETWORK.heatingCircuitEdges(plan)].map(edge=>{
+      // Native return elbows are curved paths, not router-generated square
+      // paths. The graph still models their connectivity for flow evidence.
+      ...HPC_NETWORK.heatingCircuitEdges(plan).filter(edge=>
+        edge.kind!=='heating_circuit_internal_return')].map(edge=>{
       // Native heating circuits keep their original radiator/mixer pictograms,
       // but their actual supply/return paths use this very same pipe registry.
       const fromShape=loc(edge.from),toShape=loc(edge.to);
       if(!fromShape||!toShape)return null;
       const p=port(all[edge.from],fromShape,edge.from_port,
-        all[edge.from]?.type!=='heating_circuit'||hasCircuitPump(all[edge.from]));
+        all[edge.from]?.type!=='heating_circuit'||hasCircuitPump(all[edge.from]),
+        all[edge.from]?.type==='heating_circuit'&&edge.from_port==='return_out'&&
+        !edge.kind?.startsWith('heating_circuit_'));
       const q=port(all[edge.to],toShape,edge.to_port,
         all[edge.to]?.type!=='heating_circuit'||hasCircuitPump(all[edge.to]));
       const fromSide=portSide(all[edge.from],fromShape,edge.from_port);
@@ -9951,6 +9964,30 @@ const HPC_INTEGRATED = (() => {
       const offsetY=(circuitIndexes.get(record.nativeCircuit)||0)*250;
       leg.pipe+=(leg.pipe?' ':'')+localizeCircuitPath(pair.pipe,offsetY);
       leg.flow+=(leg.flow?' ':'')+localizeCircuitPath(pair.flow,offsetY);
+    }
+    // Restore the original radiator/column/underfloor return elbow:
+    // emitter -> smooth downward bend -> horizontal return under the mixer.
+    // It is part of the *same* return path as the graph-routed external pipe,
+    // and the mixer bypass joins at x=760, y=495. Each native circuit group
+    // applies its existing 250px vertical offset when rendered.
+    for(const [id,index] of circuitIndexes){
+      const circuit=all[id];
+      const hasFeed=plan.connections.some(edge=>
+        edge.to===id&&edge.to_port==='flow_in');
+      const hasReturn=plan.connections.some(edge=>
+        edge.from===id&&edge.from_port==='return_out');
+      if(!hasFeed||!hasReturn)continue;
+      const kind=circuit?.options?.emitter||'radiator';
+      const elbow=kind==='underfloor'
+        ?'M800 480 Q785 480 785 490 Q785 495 775 495 H640'
+        :kind==='column'
+          ?'M826 460 H805 Q785 460 785 478 Q785 495 765 495 H640'
+          :'M826 455 H805 Q785 455 785 475 Q785 495 765 495 H640';
+      const leg=(nativePipes[id]||(nativePipes[id]={})).return||
+        (nativePipes[id].return={pipe:'',flow:''});
+      // In the SVG the individual circuit group is already translated.
+      leg.pipe=elbow+(leg.pipe?' '+leg.pipe:'');
+      if(circuitFlowing.get(id))leg.flow=elbow+(leg.flow?' '+leg.flow:'');
     }
     const links=routeRecords.filter(r=>!r.nativeCircuit)
       .map(({edge,on,color,junction,evidence:pipeState})=>{
