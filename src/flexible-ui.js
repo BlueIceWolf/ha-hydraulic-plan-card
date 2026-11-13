@@ -416,8 +416,9 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-buffer-port{fill:var(--card-background-color,#222);stroke-width:3;pointer-events:none;}'
           // Show the hydraulic temperature colour even if flow is not
           // confirmed. Only the animated white dash denotes circulation.
-          +'.hpi-link .pipe{stroke:color-mix(in srgb,var(--pc,var(--hfc-muted)) 65%,var(--card-background-color,#202124));}'
+          +'.hpi-link .pipe{stroke:var(--pc,var(--hfc-muted));}'
           +'.hpi-link .pipe.on{stroke:var(--pc,var(--hfc-muted));}'
+          +'.hpi-native-temperature{stroke:var(--pc,var(--hfc-muted))!important;}'
           +'.hpi-buffer-hot{stroke:var(--hfc-hot,#f37b4e);}'
           +'.hpi-buffer-cold{stroke:var(--hfc-cold,#448cdd);}'
           +'.hpi-riser-bridge{pointer-events:none;}'
