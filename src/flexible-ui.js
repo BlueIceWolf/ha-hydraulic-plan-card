@@ -243,17 +243,21 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         ['wood_chip_boiler','oil_boiler','gas_boiler'].includes(primaryType)||
         (primaryType==='wood_gasifier'&&primarySource.options?.froeling_view!=='classic')
           ?'none':'';
-      // Remove only the duplicate generator tile and values. The central
-      // hydraulic graph still connects to the real ports of its pictogram.
+      // Frameless is a Fröling S3-only feature. The original native frame,
+      // name and state readings stay available for every other generator.
+      const framelessFroeling=primaryType==='wood_gasifier'&&
+        primarySource?.options?.froeling_view!=='classic';
+      const sourceBox=svg.querySelector('#hp-box');
+      if(sourceBox)sourceBox.style.display=framelessFroeling?'none':'';
       if(primarySource){
-        const sourceBox=svg.querySelector('#hp-box');
-        if(sourceBox)sourceBox.style.display='none';
-        if(primaryType!=='heat_pump'){
-          const sourceGroup=sourceBox?.closest('g.tap');
+        const sourceGroup=sourceBox?.closest('g.tap');
+        if(framelessFroeling){
           sourceGroup?.querySelector('text.unit-title')?.setAttribute('display','none');
           sourceGroup?.querySelector('.vapour')?.setAttribute('display','none');
           for(const label of ['#t-hp-status','#t-hp-power','#t-hp-cop','#t-hp-heat'])
             sourceGroup?.querySelector(label)?.setAttribute('display','none');
+        }
+        if(primaryType!=='heat_pump'){
           const oldMiniBoiler=svg.querySelector('#boiler');
           if(oldMiniBoiler)oldMiniBoiler.style.display='none';
         }
