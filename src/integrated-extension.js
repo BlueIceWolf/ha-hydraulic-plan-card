@@ -969,13 +969,34 @@ const HPC_INTEGRATED = (() => {
         (on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+
         '" stroke-width="2"/>':'';
       const rla=edge.kind==='return_lift';
+      let pipeMarkup='<path class="pipe'+(rla?' hpi-rla-bypass':'')+
+        (paths.flow?' on':'')+'" d="'+paths.pipe+'"'+
+        (color?' style="--pc:'+color+'"':'')+'/>';
+      const receiver=all[edge.to];
+      if(receiver?.type==='wood_gasifier'&&receiver.options?.return_lift===true&&
+        edge.to_port==='return'&&!rla&&paths.pipe){
+        const box=loc(receiver.id),socket=box?port(receiver,box,'return'):null;
+        const valveX=socket?.x+(receiver.options?.froeling_view!=='classic'?95:42);
+        const mixed=HPC_FREE.state(hass,receiver.sensors?.return);
+        const mixedColor=mixed&&Number.isFinite(mixed.number)?
+          HPC_FREE.color(mixed):'#718096';
+        pipeMarkup=pipeSegments(paths.pipe).map(part=>{
+          const mixedLeg=socket&&Math.abs(part.y1-socket.y)<.1&&
+            Math.abs(part.y2-socket.y)<.1&&
+            Math.min(part.x1,part.x2)>=socket.x-.1&&
+            Math.max(part.x1,part.x2)<=valveX+.1;
+          const d='M'+part.x1+' '+part.y1+
+            (part.y1===part.y2?' H'+part.x2:' V'+part.y2);
+          return '<path class="pipe'+(paths.flow?' on':'')+
+            '" d="'+d+'" style="--pc:'+(mixedLeg?mixedColor:color)+'"/>';
+        }).join('');
+      }
       return '<g class="hpi-link'+(rla?' hpi-rla':'')+
         '" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"'+
         (rla?' data-hpi-rla="'+HPC_FREE.esc(edge.from)+'"':'')+
         ' data-flow-evidence="'+HPC_FREE.esc(pipeState)+'"><title>'+
         HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'+
-        '<path class="pipe'+(rla?' hpi-rla-bypass':'')+(paths.flow?' on':'')+
-        '" d="'+paths.pipe+'"'+(color?' style="--pc:'+color+'"':'')+'/>'+
+        pipeMarkup+
         (paths.flow?'<path class="flow'+(rla?' hpi-rla-flow':'')+
           ' on" d="'+paths.flow+'"'+
           (rla&&Number.isFinite(edge.mix)?' style="opacity:'+Math.max(.12,edge.mix)+'"':'')+
