@@ -105,8 +105,23 @@ const HPC_INTEGRATED = (() => {
         const tank=edge&&p.components.find(c=>c.id===edge.to&&c.type==='dhw_tank');
         const tankBox=tank&&(anchored.get(tank.id)||points.get(tank.id));
         if(tankBox){
-          // Place the configured charging device immediately before the
-          // coil inlet, inside the storage zone rather than beyond consumers.
+          // The original heat-pump drawing puts the WW/heating changeover
+          // at (420,250), in the main supply line between generator, DHW
+          // and buffer. A valve next to the tank's coil looks like a loading
+          // pump and creates long crossing lines around the storage.
+          const upstream=p.connections.find(e=>e.to===node.id&&e.to_port==='ab');
+          const generator=p.components.find(c=>c.id===upstream?.from);
+          const suppliesBuffer=p.connections.some(e=>e.from===node.id&&
+            e.from_port!=='ab'&&p.components.some(c=>
+              c.id===e.to&&c.type==='buffer'));
+          if(node.type==='diverter'&&generator?.type==='heat_pump'&&
+            suppliesBuffer&&anchored.has(tank.id)){
+            points.set(node.id,{x:400,y:230,w:40,h:40,
+              type:node.type,inline:true});
+            return;
+          }
+          // For charging pumps and other circuits, keep the control
+          // immediately upstream of the heat exchanger.
           const laneX=tankBox.x-60;
           const preferredLaneY=tankBox.y+20;
           const occupied=[...anchored,...points];
