@@ -54,7 +54,7 @@ const HPC_FREE = (function makeFreeHelpers() {
       buffer: '<rect x="12" y="5" width="24" height="38" rx="8"/><path d="M12 17h24M12 30h24M19 9h10M19 39h10"/>',
       dhw_tank: '<rect x="12" y="5" width="24" height="38" rx="8"/><path d="M12 18h24M16 31c5-9 11 9 16 0M21 23c-2 3-3 5 0 6s4-3 0-6Z"/>',
       heating_circuit: '<rect x="5" y="11" width="38" height="28" rx="3"/><path d="M12 13v24M20 13v24M28 13v24M36 13v24"/>',
-      pump: '<circle cx="24" cy="24" r="18"/><path d="M17 13 35 24 17 35Z"/>',
+      pump: '<circle cx="24" cy="24" r="18"/><path d="M24 12 34 24 24 36 14 24Z"/>',
       mixer: '<circle cx="24" cy="24" r="18"/><path d="M11 16 24 26 37 16M24 26v13"/>',
       diverter: '<circle cx="24" cy="24" r="18"/><path d="M11 16 24 26 37 16M24 26v13M30 16h7l-2 7"/>',
       electric_heater: '<rect x="5" y="11" width="38" height="27" rx="4"/><path d="M10 24h7l5-10 5 20 5-10h7"/>',
@@ -112,17 +112,30 @@ const HPC_FREE = (function makeFreeHelpers() {
               edges:n.options.dhw_charge.edges.filter(isId).slice(0,3)}}
             :{})}
         :n.type==="wood_gasifier"
-        ?{return_lift:n.options?.return_lift===true}
+        ?{return_lift:n.options?.return_lift===true,
+          froeling_view:n.options?.froeling_view==='classic'?'classic':'s3_turbo',
+          mixer_inverted:n.options?.mixer_inverted===true}
         :n.type==="wood_chip_boiler"
           ?{eta_model:["ehack","hack","hack_vr"].includes(n.options?.eta_model)?n.options.eta_model:"ehack",
             particle_separator:n.options?.particle_separator===true,
             silo:n.options?.silo===true}
+        :n.type==="mixer"
+          ?{mixer_inverted:n.options?.mixer_inverted===true,
+            a_closed_state:typeof n.options?.a_closed_state==="string"?n.options.a_closed_state.slice(0,60):"",
+            b_closed_state:typeof n.options?.b_closed_state==="string"?n.options.b_closed_state.slice(0,60):"",
+            ...(n.options?.a_closed_at!==''&&n.options?.a_closed_at!=null&&
+              Number.isFinite(Number(n.options.a_closed_at))?
+              {a_closed_at:Math.max(0,Math.min(100,Number(n.options.a_closed_at)))}:{}),
+            ...(n.options?.b_closed_at!==''&&n.options?.b_closed_at!=null&&
+              Number.isFinite(Number(n.options.b_closed_at))?
+              {b_closed_at:Math.max(0,Math.min(100,Number(n.options.b_closed_at)))}:{})}
         :n.type==="diverter"
           ?{dhw_port:n.options?.dhw_port==="b"?"b":"a",
             dhw_state:typeof n.options?.dhw_state==="string"?n.options.dhw_state.slice(0,60):"",
             heating_state:typeof n.options?.heating_state==="string"?n.options.heating_state.slice(0,60):""}
         :n.type==="heating_circuit"
           ?{emitter:HFC_EMITTERS.includes(n.options?.emitter)?n.options.emitter:"radiator",
+            mixer_inverted:n.options?.mixer_inverted===true,
             mixed:typeof n.options?.mixed==="boolean"?n.options.mixed:
               !!(n.sensors?.mixer||n.sensors?.mixer_opening||n.sensors?.mixer_closing),
             ...(n.options?.hydraulic_auto&&isId(n.options.hydraulic_auto.source)&&
@@ -527,12 +540,16 @@ const HPC_FREE = (function makeFreeHelpers() {
   function color(s) {
     if(!s||s.number===null||!["°c","c","°f","k"].includes(s.unit.toLowerCase()))return "#718096";
     const t=s.unit==="°F"?(s.number-32)*5/9:s.unit==="K"?s.number-273.15:s.number;
-    // Matching the upstream tank palette: blue → teal → warm amber → red.
+    // Hydraulic water/brine: -10 °C deep blue, violet midrange, red at 90 °C.
+    // RGB channel interpolation never passes through amber or brown.
     const ranges=[
-      [10,[72,110,170]],
-      [30,[63,145,164]],
-      [50,[200,120,61]],
-      [80,[199,91,91]],
+      [-10,[20,58,151]],
+      [0,[31,103,211]],
+      [20,[53,167,242]],
+      [40,[129,83,216]],
+      [60,[203,69,172]],
+      [75,[235,56,107]],
+      [90,[235,38,55]],
     ];
     if(t<=ranges[0][0])return "rgb("+ranges[0][1].join(",")+")";
     for(let i=1;i<ranges.length;i++){
@@ -602,7 +619,7 @@ const HPC_FREE = (function makeFreeHelpers() {
       gas_boiler:`<path d="M9 38 H38 M12 28 C11 19 25 13 25 6 C42 22 41 31 30 39 C32 30 25 27 24 21 C22 28 15 30 17 38Z"/>`,
       heat_pump:`<rect x="5" y="7" width="39" height="37" rx="6"/><circle cx="24" cy="26" r="12"/><path d="M24 26 L26 14 Q17 12 18 21Z M24 26 L36 27 Q38 18 29 22Z M24 26 L20 38 Q10 31 20 28Z"/>`,
       heating_circuit:`<path d="M4 11 V40 M43 11 V40 M4 11 H43 M4 40 H43 M10 14 V37 M17 14 V37 M24 14 V37 M31 14 V37 M38 14 V37"/>`,
-      pump:`<circle cx="24" cy="24" r="18"/><path d="M14 11 L37 24 L14 37Z"/>`,
+      pump:`<circle cx="24" cy="24" r="18"/><path d="M24 12 L34 24 L24 36 L14 24Z"/>`,
       mixer:`<circle cx="24" cy="24" r="18"/><path d="M9 14 L24 25 L39 14 M24 25 V40 M18 20 L30 20"/>`,
       diverter:`<circle cx="24" cy="24" r="18"/><path d="M8 14 L24 25 L39 14 M24 25 V40"/>`,
       manifold:`<path d="M24 4 V44 M4 14 H44 M4 25 H44 M4 36 H44"/>`,
