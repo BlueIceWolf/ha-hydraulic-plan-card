@@ -585,6 +585,68 @@ if(switched&&swValve){
     'Unknown valve position cannot animate either switched branch');
 }
 
+// Regression: secondary Fröling, oil boiler, shared return rails, framed
+// generators and measured return-temperature lift must coexist.
+const combinedPlan=HPC_FREE.normalize({components:[
+  {id:'combined_oil',type:'oil_boiler',name:'Buderus',sensors:{flow:'sensor.combined_oil_vl'}},
+  {id:'combined_s3',type:'wood_gasifier',name:'Fröling S3',sensors:{
+    flow:'sensor.combined_s3_vl',return:'sensor.combined_s3_rl',
+    pump:'switch.combined_s3'},options:{froeling_view:'s3_turbo',return_lift:true}},
+  {id:'combined_buffer',type:'buffer',name:'Puffer',sensors:{
+    top:'sensor.combined_buffer_top',bottom:'sensor.combined_buffer_bottom'}},
+  {id:'combined_hk',type:'heating_circuit',name:'EG',sensors:{
+    flow:'sensor.combined_hk_flow',return:'sensor.combined_hk_return',
+    pump:'switch.combined_hk'},options:{mixed:true}}
+],connections:[
+  {id:'c_oil_vl',from:'combined_oil',from_port:'flow',to:'combined_buffer',to_port:'top_in'},
+  {id:'c_oil_rl',from:'combined_buffer',from_port:'bottom_out',to:'combined_oil',to_port:'return'},
+  {id:'c_s3_vl',from:'combined_s3',from_port:'flow',to:'combined_buffer',to_port:'top_in'},
+  {id:'c_s3_rl',from:'combined_buffer',from_port:'bottom_out',to:'combined_s3',to_port:'return'},
+  {id:'c_hk_vl',from:'combined_buffer',from_port:'top_out',to:'combined_hk',to_port:'flow_in'},
+  {id:'c_hk_rl',from:'combined_hk',from_port:'return_out',to:'combined_buffer',to_port:'bottom_in'}
+]});
+const combinedHass=hass({
+  'sensor.combined_oil_vl':[71,'°C'],
+  'sensor.combined_s3_vl':[77,'°C'],'sensor.combined_s3_rl':[52,'°C'],
+  'sensor.combined_buffer_top':[75,'°C'],'sensor.combined_buffer_bottom':[43,'°C'],
+  'sensor.combined_hk_flow':[41.7,'°C'],'sensor.combined_hk_return':[33,'°C'],
+  'switch.combined_s3':'on','switch.combined_hk':'on'
+});
+const combinedLayout=HPC_INTEGRATED.layout(combinedPlan);
+const oilPort=HPC_INTEGRATED.port(combinedPlan.components[0],
+  combinedLayout.anchored.get('combined_oil'),'return');
+const s3Port=HPC_INTEGRATED.port(combinedPlan.components[1],
+  combinedLayout.points.get('combined_s3'),'return');
+check(oilPort.x===240&&Math.abs(s3Port.x-(52+238*350/540))<.01,
+  'Oil and secondary S3 return ports reach their physical cabinet edges');
+const combinedRender=HPC_INTEGRATED.svg(combinedLayout,combinedHass);
+const combinedSvg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+combinedSvg.innerHTML=combinedRender.body;
+const combinedReturn=combinedSvg.querySelector('[data-hpi-edge="c_s3_rl"]');
+const combinedSegments=[...(combinedReturn?.querySelectorAll('path.pipe')||[])];
+check(combinedSegments.length>=3&&
+  combinedSegments.at(-1)?.style.getPropertyValue('--pc')===
+    HPC_FREE.color({number:52,unit:'°C'}),
+  'RLA mixed return has measured return colour, unlike cool buffer return');
+check(combinedSvg.querySelector('[data-hpi-node="combined_s3"] rect.unit')===null&&
+  !!combinedSvg.querySelector('[data-hpi-node="combined_s3"] .hpi-generator-title'),
+  'Secondary S3 alone has no outer frame and has a readable caption');
+const extraFrame=HPC_FREE.normalize({components:[
+  {id:'frame_s3',type:'wood_gasifier',options:{froeling_view:'s3_turbo'}},
+  {id:'frame_oil',type:'oil_boiler'}],connections:[]});
+const extraSvg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+extraSvg.innerHTML=HPC_INTEGRATED.svg(HPC_INTEGRATED.layout(extraFrame),hass()).body;
+check(!!extraSvg.querySelector('[data-hpi-node="frame_oil"] rect.unit')&&
+  !extraSvg.querySelector('[data-hpi-node="frame_s3"] rect.unit'),
+  'Only S3 artwork is frameless, other heat sources keep their unit frame');
+check(!combinedSvg.querySelector('.hpi-froeling text[x="356"]'),
+  'No duplicated VL/RL captions inside S3 artwork');
+check(combinedRender.nativePipes.combined_hk.flow.colored[0].color===
+  HPC_FREE.color({number:75,unit:'°C'})&&
+  combinedRender.nativePipes.combined_hk.flow.colored.at(-1).color===
+  HPC_FREE.color({number:41.7,unit:'°C'}),
+  'Hot buffer water reaches heating mixer, actual flow temperature follows it');
+
 document.querySelector('#result').textContent=checks.every(line=>line.startsWith('OK'))?'PASS':'FAIL';
 document.querySelector('#log').textContent=checks.join('\n');
 </script></body></html>
