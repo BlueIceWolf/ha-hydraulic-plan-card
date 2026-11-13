@@ -648,9 +648,11 @@ const HPC_NETWORK = (() => {
       // Fröling S3: this is a HOT bypass from the jacket supply to the
       // return-lift mixer, not a second pipe passing behind the cabinet.
       // The final horizontal leg is the mixed return into the boiler.
-      const x=Math.max(p.x,q.x)+95;
+      const s3=fromNode.type==='wood_gasifier'&&fromNode.options?.froeling_view!=='classic';
+      const x=Math.max(p.x,q.x)+(s3?95:42);
       const d='M'+h(p.x,p.y)+' H'+x+' V'+q.y+' H'+q.x;
-      return compactPath(d);
+      return compactPath(s3?d:
+        avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
     }
     if(edge.kind==='heating_circuit_mixer_bypass'){
       const d='M'+h(p.x,p.y)+' V'+q.y;
