@@ -58,10 +58,10 @@ const HPC_MIGRATION = (() => {
         warnings.push('Bauteilname an '+n.id+' ist länger als unterstützt.');
       if(n.options&&typeof n.options==='object'){
         const supported={dhw_tank:['connection_style','dhw_charge'],
-          wood_gasifier:['return_lift'],wood_chip_boiler:['eta_model','particle_separator','silo'],
+          wood_gasifier:['return_lift','froeling_view','mixer_inverted'],wood_chip_boiler:['eta_model','particle_separator','silo'],
           diverter:['dhw_port','dhw_state','heating_state'],
-          mixer:['a_closed_state','b_closed_state','a_closed_at','b_closed_at','closed_ports'],
-          heating_circuit:['emitter','mixed','hydraulic_auto'],pellet_boiler:['boiler_kind','silo'],
+          mixer:['a_closed_state','b_closed_state','a_closed_at','b_closed_at','closed_ports','mixer_inverted'],
+          heating_circuit:['emitter','mixed','hydraulic_auto','mixer_inverted'],pellet_boiler:['boiler_kind','silo'],
           oil_boiler:['boiler_kind'],gas_boiler:['boiler_kind'],
           heat_pump:['unit_style','unit_size','source_type']}[n.type]||[];
         if(Object.keys(n.options).some(key=>!supported.includes(key)))
