@@ -108,7 +108,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             // Paint the routed hydraulic segments separately and exactly
             // once; never color the entire circuit with a single fallback.
             const id='hpi-temp-'+circuit.id+'-'+leg;
-            pipe.parentElement?.querySelector('[data-hpi-temp-group="'+id+'"]')?.remove();
+            // Keep the overlay mounted across Home Assistant state updates.
+            // Removing and recreating animated SVG paths every few seconds
+            // causes visible flashes and restarts the moving flow dashes.
+            let existingGroup=pipe.parentElement?.querySelector('[data-hpi-temp-group="'+id+'"]');
             const colors=paths[leg]?.colored||[];
             // The native feed can span the mixing valve in a single SVG
             // segment. Temperature changes at the outlet of the valve,
@@ -151,26 +154,40 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             }
             if(colors.length){
               pipe.setAttribute('d','');
-              const group=document.createElementNS('http://www.w3.org/2000/svg','g');
+              const group=existingGroup||document.createElementNS('http://www.w3.org/2000/svg','g');
               group.dataset.hpiTempGroup=id;
-              for(const segment of colors){
-                const path=document.createElementNS('http://www.w3.org/2000/svg','path');
-                path.setAttribute('class','pipe hpi-native-temperature');
-                path.setAttribute('d',segment.pipe);
-                path.style.setProperty('--pc',segment.color);
+              const specs=[];
+              for(const item of colors){
                 if(clipBefore&&clipAfter){
-                  // A clip boundary at the valve centre avoids rendering a
-                  // second physical pipe or recolouring the hot inlet.
-                  path.setAttribute('clip-path',clipBefore);
-                  const after=path.cloneNode(false);
-                  after.setAttribute('clip-path',clipAfter);
-                  after.style.setProperty('--pc',mixedColour);
-                  group.appendChild(path);
-                  group.appendChild(after);
-                }else group.appendChild(path);
+                  specs.push({d:item.pipe,color:item.color,clip:clipBefore});
+                  specs.push({d:item.pipe,color:mixedColour,clip:clipAfter});
+                }else specs.push({d:item.pipe,color:item.color,clip:null});
               }
-              pipe.parentElement?.insertBefore(group,pipe.nextSibling);
-            }else pipe.setAttribute('d',paths[leg]?.pipe||'');
+              // Only change SVG geometry and paint when the data changes.
+              // Stable nodes keep the browser paint layer and animation alive.
+              for(let i=0;i<specs.length;i++){
+                const spec=specs[i];
+                let path=group.children[i];
+                if(!path){
+                  path=document.createElementNS('http://www.w3.org/2000/svg','path');
+                  path.setAttribute('class','pipe hpi-native-temperature');
+                  group.appendChild(path);
+                }
+                if(path.getAttribute('d')!==spec.d)path.setAttribute('d',spec.d);
+                if(path.style.getPropertyValue('--pc')!==spec.color)
+                  path.style.setProperty('--pc',spec.color);
+                if(spec.clip){
+                  if(path.getAttribute('clip-path')!==spec.clip)
+                    path.setAttribute('clip-path',spec.clip);
+                }else path.removeAttribute('clip-path');
+              }
+              while(group.children.length>specs.length)group.lastElementChild.remove();
+              if(!existingGroup)pipe.parentElement?.insertBefore(group,pipe.nextSibling);
+            }else{
+              if(existingGroup)existingGroup.remove();
+              if(pipe.getAttribute('d')!==(paths[leg]?.pipe||''))
+                pipe.setAttribute('d',paths[leg]?.pipe||'');
+            }
           }
           if(flowPath)flowPath.setAttribute('d',paths[leg]?.flow||'');
           if(flowPath)flowPath.classList.toggle('on',active&&!!paths[leg]?.flow);
