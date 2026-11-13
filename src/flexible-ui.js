@@ -200,7 +200,51 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           'M748 352 L760 360 L748 368 Z '+
           'M772 352 L760 360 L772 368 Z '+
           'M752 374 L760 360 L768 374 Z');
-        group.querySelector('.hpi-mix-illustration')?.remove();
+        // Three-way mixer animation: retain the native valve, but show the
+        // measured hot/cold proportion directly in its three-way symbol.
+        // Never invent a position when the entity is unavailable.
+        let visual=group.querySelector('.hpi-mix-illustration');
+        if(!visual){
+          visual=document.createElementNS('http://www.w3.org/2000/svg','g');
+          visual.setAttribute('class','hpi-mix-illustration');
+          visual.setAttribute('aria-hidden','true');
+          const make=(cls,d,fill)=>{
+            const shape=document.createElementNS('http://www.w3.org/2000/svg','path');
+            shape.setAttribute('class',cls);
+            shape.setAttribute('d',d);
+            shape.setAttribute('fill',fill);
+            visual.appendChild(shape);
+            return shape;
+          };
+          make('hpi-mix-hot','M748 352 L760 360 L748 368 Z','#e77850');
+          make('hpi-mix-cold','M752 374 L760 360 L768 374 Z','#668fce');
+          make('hpi-mix-out','M772 352 L760 360 L772 368 Z','#a7b0bb');
+          make('hpi-mix-pointer','M759 354 L763 360 L759 366 Z','#f9fafb');
+          group.appendChild(visual);
+        }
+        const pointer=visual.querySelector('.hpi-mix-pointer');
+        const hotPath=visual.querySelector('.hpi-mix-hot');
+        const coldPath=visual.querySelector('.hpi-mix-cold');
+        const output=visual.querySelector('.hpi-mix-out');
+        visual.style.opacity=measured?'1':'0.65';
+        if(hotPath)hotPath.style.opacity=measured?String(0.2+0.8*hot):'0.45';
+        if(coldPath)coldPath.style.opacity=measured?String(0.2+0.8*(1-hot)):'0.45';
+        if(output&&measured){
+          // Outgoing hue follows the mixed flow, without recolouring pipes.
+          const r=Math.round(102+129*hot);
+          const g=Math.round(143-36*hot);
+          const b=Math.round(206-126*hot);
+          output.setAttribute('fill','rgb('+r+','+g+','+b+')');
+        }
+        if(pointer){
+          pointer.style.display=measured?'':'none';
+          if(measured){
+            pointer.style.transition='transform 450ms ease';
+            pointer.style.transformBox='view-box';
+            pointer.style.transformOrigin='760px 360px';
+            pointer.style.transform='rotate('+(-45+90*hot)+'deg)';
+          }
+        }
         const flows=plan.connections.filter(edge=>edge.to===circuit.id&&edge.to_port==='flow_in');
         const returns=plan.connections.filter(edge=>edge.from===circuit.id&&edge.from_port==='return_out');
         const active=flows.some(edge=>evidence.get(edge.id)?.active)&&
