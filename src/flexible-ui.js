@@ -227,12 +227,14 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       if(primarySource){
         const sourceBox=svg.querySelector('#hp-box');
         if(sourceBox)sourceBox.style.display='none';
-        const sourceGroup=sourceBox?.closest('g.tap');
-        sourceGroup?.querySelector('text.unit-title')?.setAttribute('display','none');
-        for(const label of ['#t-hp-status','#t-hp-power','#t-hp-cop','#t-hp-heat'])
-          sourceGroup?.querySelector(label)?.setAttribute('display','none');
-        const oldMiniBoiler=svg.querySelector('#boiler');
-        if(oldMiniBoiler)oldMiniBoiler.style.display='none';
+        if(primaryType!=='heat_pump'){
+          const sourceGroup=sourceBox?.closest('g.tap');
+          sourceGroup?.querySelector('text.unit-title')?.setAttribute('display','none');
+          for(const label of ['#t-hp-status','#t-hp-power','#t-hp-cop','#t-hp-heat'])
+            sourceGroup?.querySelector(label)?.setAttribute('display','none');
+          const oldMiniBoiler=svg.querySelector('#boiler');
+          if(oldMiniBoiler)oldMiniBoiler.style.display='none';
+        }
       }
       // A storage-only plan is valid. Without a selected heat source the
       // original engine would otherwise paint a fictitious heat pump/boiler.
