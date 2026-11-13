@@ -463,6 +463,9 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-rla-flow{fill:none;stroke:#fff;stroke-width:2;stroke-dasharray:4 10;animation:hpc-rla-motion 1.4s linear infinite;pointer-events:none;}'
           +'@keyframes hpc-rla-motion{to{stroke-dashoffset:-28}}'
           +'@media (prefers-reduced-motion:reduce){.hpi-rla-flow{animation:none;}}'
+          +'.hpi-rla-pump{fill:var(--card-background-color,#202124);stroke:var(--hfc-return,#4c9ed9);stroke-width:2.5;}'
+          +'.hpi-rla-pump-symbol{fill:none;stroke:var(--primary-text-color,#d5dce8);stroke-width:1.8;stroke-linejoin:round;}'
+          +'.hpi-rla-pump-symbol.on{fill:var(--hfc-return,#4c9ed9);}'
           +'.hpi-rla-valve{fill:var(--card-background-color,#202124);stroke:var(--hfc-heat,#e7853d);stroke-width:3;}'
           +'.hpi-rla-symbol{fill:none;stroke:var(--hfc-muted,#9ca3af);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;}'
           +'.hpi-rla-label{font-size:12px;font-weight:700;fill:var(--primary-text-color);}';
