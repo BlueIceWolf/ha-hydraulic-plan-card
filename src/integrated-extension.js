@@ -211,7 +211,14 @@ const HPC_INTEGRATED = (() => {
       // tanks, hot-water branches or a different heat source.
       const clean={...(config.entities||{})};
       for(const key of Object.keys(clean)){
-        if(/^(boiler_|buffer_|dhw_|hc(?:[1-6])?_|mode$|flow$|return$|power$|compressor$)/.test(key))delete clean[key];
+        // Explicit graph mappings win, but the old heat-pump card's manual
+        // overrides and unmapped roles must survive. Otherwise migration
+        // silently discards gateway flow/return, air and refrigerant data.
+        if(src?.type==='heat_pump'){
+          if(/^(boiler_|buffer_|dhw_)/.test(key)&&entities[key])
+            delete clean[key];
+        }else if(/^(boiler_|buffer_|dhw_|hc(?:[1-6])?_|mode$|flow$|return$|power$|compressor$)/.test(key))
+          delete clean[key];
       }
       derived.entities={...clean,...entities};
       derived.buffer=!!buffer;
@@ -230,7 +237,12 @@ const HPC_INTEGRATED = (() => {
         // column radiators; existing choices remain unchanged if not set.
         derived[key]=c.options?.emitter||config[key]||'radiator';
       });
-      derived.preset='none';
+      // Keep the original heat-pump integration preset active. Its resolver
+      // supplies source temperatures, air readings, heat output, COP, energy
+      // and compressor states even when the flexible component plan is used.
+      // Non-heat-pump sources must not inherit an unrelated heat-pump preset.
+      derived.preset=src?.type==='heat_pump'
+        ?(config.preset||'none'):'none';
     }else derived.entities={...entities,...(config.entities||{})};
     derived.power_sources=derived.power_sources||'manual';
     return derived;
