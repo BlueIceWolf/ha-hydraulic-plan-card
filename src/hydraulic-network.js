@@ -664,14 +664,19 @@ const HPC_NETWORK = (() => {
       return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
     }
     let d;
-    // A consumer/storage return approaches the Fröling's RIGHT-hand water
-    // socket directly. An overhead detour could run visually through its
-    // fan/flue area and falsely suggest a chimney-water connection.
-    if (toNode.type==='wood_gasifier' && toNode.options?.froeling_view!=='classic' &&
-        edge.to_port==='return' && fromSide==='L' && toSide==='R' &&
-        p.x>q.x+8) {
-      const mid=(p.x+q.x)/2;
-      d='M'+h(p.x,p.y)+' H'+mid+' V'+q.y+' H'+q.x;
+    // Every generator return is connected from the buffer by a shared
+    // collector rail between the storage and the generators. In particular,
+    // do not send a second (lower) boiler's return behind or around its
+    // picture, or route the upper boiler's return BELOW the lower boiler.
+    // Both returns use the same rail; the physical segment merger creates
+    // one continuous common return, with real branches at each boiler.
+    const sourceReturn=fromNode.type==='buffer'&&
+      ['wood_gasifier','oil_boiler','gas_boiler','pellet_boiler',
+        'wood_chip_boiler','heat_pump'].includes(toNode.type)&&
+      edge.to_port==='return'&&p.x>q.x+45;
+    if(sourceReturn){
+      const railX=Math.max(q.x+45,p.x-80);
+      d='M'+h(p.x,p.y)+' H'+railX+' V'+q.y+' H'+q.x;
     } else if (p.x > q.x + 8 || fromSide === 'L' || toSide === 'R') {
       const farX = p.x + (fromSide === 'L' ? -36 : 38);
       const entryX = q.x + (toSide === 'R' ? 36 : -36);
