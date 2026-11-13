@@ -8,7 +8,7 @@
  *
  * https://github.com/Sturmi77/heatpump-hydraulic-card · MIT License
  */
-const HFC_VERSION = '0.2.0-alpha.8';
+const HFC_VERSION = '0.2.0-alpha.9';
 // Derivative of Heat Pump Hydraulic Card (MIT, Sturmi77). Keep its engine reusable.
 const HPC_GENERATORS = ['heat_pump', 'wood_gasifier', 'oil', 'pellet', 'gas', 'electric'];
 const HPC_BOILERS = HPC_GENERATORS.slice(1);
@@ -7933,6 +7933,69 @@ const HPC_FREE = (function makeFreeHelpers() {
     }};
     return normalize(plan);
   }
+  // Wire a three-way valve exactly as in the classic heat-pump diagram:
+  // common AB from the generator, A to DHW, B to the heating buffer.
+  // Both consumer returns join at the generator return connection.
+  // Never infer a valve position from temperatures.
+  function connectDhwBufferDiverter(input,sourceId,tankId,bufferId,controlId="") {
+    const plan=normalize(input);
+    const source=plan.components.find(n=>n.id===sourceId);
+    const tank=plan.components.find(n=>n.id===tankId&&n.type==='dhw_tank');
+    const buffer=plan.components.find(n=>n.id===bufferId&&n.type==='buffer');
+    if(!source||!tank||!buffer||new Set([sourceId,tankId,bufferId]).size!==3||
+       byType[source.type]?.group!=='source')return null;
+    // A second coil feed or a shared valve with existing plumbing is unsafe
+    // to rewrite automatically.
+    if(plan.connections.some(e=>(e.to===tankId&&e.to_port==='coil_in')||
+      (e.from===tankId&&e.from_port==='coil_out')))return null;
+    const existing=controlId
+      ?plan.components.find(n=>n.id===controlId&&n.type==='diverter'):null;
+    if(controlId&&(!existing||plan.connections.some(e=>
+      e.from===controlId||e.to===controlId)))return null;
+    // Replace only the ordinary direct generator -> chosen buffer pair.
+    // Preserve all independent heating circuit and additional generator pipes.
+    const directHot=plan.connections.filter(e=>e.from===sourceId&&
+      e.from_port==='flow'&&e.to===bufferId&&e.to_port==='top_in');
+    const directCold=plan.connections.filter(e=>e.from===bufferId&&
+      e.from_port==='bottom_out'&&e.to===sourceId&&e.to_port==='return');
+    if(directHot.length!==directCold.length||directHot.length>1)return null;
+    // Do not silently turn a parallel direct supply to another buffer or
+    // load into an unintended second path past the switching valve.
+    if(plan.connections.some(e=>e.from===sourceId&&e.from_port==='flow'&&
+      !directHot.includes(e)))return null;
+    if(directHot.some(e=>e.temperature_entity||e.flow_entity)||
+       directCold.some(e=>e.temperature_entity||e.flow_entity))return null;
+    const removed=new Set([...directHot,...directCold].map(e=>e.id));
+    plan.connections=plan.connections.filter(e=>!removed.has(e.id));
+    const valve=existing||newNode('diverter',plan);
+    if(!valve)return null;
+    if(!existing){
+      valve.name='Umschaltventil WW / Heizung';
+      valve.options={dhw_port:'a',dhw_state:'',heating_state:''};
+      // Keep a newly created valve near the flow, not in the return area.
+      valve.y=Math.max(45,source.y+12);
+      plan.components.push(valve);
+    }
+    const specs=[
+      [sourceId,'flow',valve.id,'ab'],
+      [valve.id,'a',tankId,'coil_in'],
+      [tankId,'coil_out',sourceId,'return'],
+      [valve.id,'b',bufferId,'top_in'],
+      [bufferId,'bottom_out',sourceId,'return']
+    ];
+    const ids=new Set(plan.connections.map(e=>e.id)),created=[];
+    for(const [from,fromPort,to,toPort] of specs){
+      if(!validConnection(plan,from,fromPort,to,toPort))return null;
+      const id=nextId('leitung',ids);
+      ids.add(id);created.push(id);
+      plan.connections.push({id,from,from_port:fromPort,to,to_port:toPort,
+        flow_entity:'',temperature_entity:''});
+    }
+    tank.options={...tank.options,connection_style:'branch',dhw_charge:{
+      source:sourceId,kind:'diverter',control:valve.id,edges:created.slice(0,3)
+    }};
+    return normalize(plan);
+  }
   // Avoid a lexical conflict with the public function name used by the editor.
   function HPC_FREE_NEWNODE(type,plan){return newNode(type,plan);}
 
@@ -8241,7 +8304,7 @@ const HPC_FREE = (function makeFreeHelpers() {
   .hpc-editor .hpc-setup-group .hpc-checkbox span{flex:1}\n\
   .hpc-editor .hpc-setup-group .hpc-checkbox input[type=number]{width:76px}\n  .hpc-ems{border:1px solid var(--primary-color,#03a9f4);border-radius:12px;padding:8px 14px 14px;margin:14px 0;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-ems h3{margin-top:5px;}\n  .hpc-connection-warning{color:var(--error-color,#e16a42)!important;font-weight:600;}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-quick-connect{margin:8px 0 4px}\n  .hpc-editor .hpc-quick-connect label{flex:1 1 260px}\n  .hpc-editor .hpc-connection-hint{margin:4px 0 14px;font-size:.82em}\n  .hpc-editor details summary{cursor:pointer;font-weight:600;padding:8px 2px}\n  .hpc-editor .hpc-advanced-pipes{border-top:1px solid var(--divider-color,rgba(127,127,127,.16));margin:13px 0}\n  .hpc-editor .hpc-pipe-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding:9px 0}\n  .hpc-editor .hpc-pipe-row>span{display:flex;flex:1 1 230px;flex-direction:column;font-weight:500;font-size:.9em;line-height:1.4}\n  .hpc-editor .hpc-pipe-row small{font-weight:400;font-size:.87em;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-pipe-row details{flex:1 1 100%;font-size:.85em}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
   return {types,byType,ports,portRole,validConnection,connectPair,connectHeatingCircuit,
-    preferredHeatingBuffer,connectDhwCharge,connectionPairs,connectBufferSeries,
+    preferredHeatingBuffer,connectDhwCharge,connectDhwBufferDiverter,connectionPairs,connectBufferSeries,
     connectBuffersParallel,dimension,display,fieldLabel,icon,esc,normalize,newNode,
     sample,state,active,format,color,portXY,draw,css,text};
 })();
@@ -8880,10 +8943,10 @@ const HPC_NETWORK = (() => {
       ?Math.max(0,point.x-box.x):Math.max(0,box.x+box.w-point.x);
     const fromInset=inset(p,fromSide,fromBox),toInset=inset(q,toSide,toBox);
     const available=portGap-fromInset-toInset;
-    const fromStub=facing&&available>6
-      ?Math.min(18,Math.max(fromInset+1,available/3)):18;
-    const toStub=facing&&available>6
-      ?Math.min(18,Math.max(toInset+1,available/3)):18;
+    // The connection can be inset from an oversized legacy source box.
+    // Leave its real cabinet before searching for orthogonal routes.
+    const fromStub=Math.max(18,fromInset+12);
+    const toStub=Math.max(18,toInset+12);
     const pieces=d=>{
       const tokens=(d||'').match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
       const segments=[];let x=0,y=0;
@@ -9096,9 +9159,14 @@ const HPC_NETWORK = (() => {
       }
     }
     if(edge.kind==='return_lift'){
-      const x=Math.max(p.x,q.x)+42;
+      // Fröling S3: this is a HOT bypass from the jacket supply to the
+      // return-lift mixer, not a second pipe passing behind the cabinet.
+      // The final horizontal leg is the mixed return into the boiler.
+      const s3=fromNode.type==='wood_gasifier'&&fromNode.options?.froeling_view!=='classic';
+      const x=Math.max(p.x,q.x)+(s3?95:42);
       const d='M'+h(p.x,p.y)+' H'+x+' V'+q.y+' H'+q.x;
-      return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
+      return compactPath(s3?d:
+        avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
     }
     if(edge.kind==='heating_circuit_mixer_bypass'){
       const d='M'+h(p.x,p.y)+' V'+q.y;
@@ -9119,10 +9187,21 @@ const HPC_NETWORK = (() => {
     // socket directly. An overhead detour could run visually through its
     // fan/flue area and falsely suggest a chimney-water connection.
     if (toNode.type==='wood_gasifier' && toNode.options?.froeling_view!=='classic' &&
-        edge.to_port==='return' && fromSide==='L' && toSide==='R' &&
-        p.x>q.x+8) {
-      const mid=(p.x+q.x)/2;
-      d='M'+h(p.x,p.y)+' H'+mid+' V'+q.y+' H'+q.x;
+        edge.to_port==='return' && p.x>q.x+8) {
+      // Return from the storage system comes in on the RIGHT of the
+      // return-lift valve. Joining behind the boiler or across its heading
+      // is not a real water connection.
+      const mixerX=q.x+(toNode.options?.return_lift?95:54);
+      const inletX=Math.max(p.x-20,mixerX+35);
+      d='M'+h(p.x,p.y)+' H'+inletX+' V'+q.y+' H'+q.x;
+    } else if (fromNode.type==='buffer'&&
+        ['wood_gasifier','oil_boiler','gas_boiler','pellet_boiler',
+          'wood_chip_boiler','heat_pump'].includes(toNode.type)&&
+        edge.to_port==='return'&&p.x>q.x+45) {
+      // Shared storage return collector. Keep the S3's preceding dedicated
+      // RLA branch untouched, including its mixed-temperature outlet.
+      const railX=Math.max(q.x+45,p.x-80);
+      d='M'+h(p.x,p.y)+' H'+railX+' V'+q.y+' H'+q.x;
     } else if (p.x > q.x + 8 || fromSide === 'L' || toSide === 'R') {
       const farX = p.x + (fromSide === 'L' ? -36 : 38);
       const entryX = q.x + (toSide === 'R' ? 36 : -36);
@@ -9512,7 +9591,8 @@ const HPC_INTEGRATED = (() => {
     return derived;
   }
   function port(node,shape,key,circuitPump=true,externalReturn=false) {
-    if(shape.type==='source') {
+    // Secondary boilers use their concrete shape type, not 'source'.
+    if(isSource(node)) {
       // Primary and additional heat sources share the original 240x235
       // pictogram, but never the same absolute pipe ports. Otherwise all
       // supplemental boilers accidentally connect at the first boiler.
@@ -9525,6 +9605,12 @@ const HPC_INTEGRATED = (() => {
         const scaleX=(shape.w-2)/540,scaleY=156/355;
         return {x:svgX+350*scaleX,
           y:svgY+(key==='return'?300:162)*scaleY};
+      }
+      if(node?.type==='oil_boiler'){
+        const primary=shape.type==='source';
+        const x=shape.x+(primary?190:195);
+        return {x,y:shape.y+(primary?
+          (key==='return'?124:81):(key==='return'?115:76))};
       }
       const x=shape.x+shape.w;
       if(key==='return')return{x,y:shape.y+190};
@@ -9570,7 +9656,7 @@ const HPC_INTEGRATED = (() => {
     return{x:shape.x+(def?.side==='R'?shape.w:0),y:shape.y+(def?.y??.5)*shape.h};
   }
   function portSide(node,shape,key) {
-    if(shape.type==='source')return 'R';
+    if(isSource(node))return 'R';
     if(shape.type==='buffer')
       return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'L';
     if(shape.type==='dhw_tank')return key.startsWith('coil_')?'L':'R';
@@ -9863,8 +9949,7 @@ const HPC_INTEGRATED = (() => {
       +'<path d="M324 162 H350" fill="none" stroke="'+hotColor+'" stroke-width="9" stroke-linecap="round"/>'
       +'<path d="M324 300 H350" fill="none" stroke="'+coldColor+'" stroke-width="9" stroke-linecap="round"/>'
       +'</g>'
-      +'<text x="356" y="150" font-size="16" fill="#e3c5e8">VL</text>'
-      +'<text x="356" y="328" font-size="16" fill="#9dd7f6">RL</text>'
+      // VL/RL labels live on the routed pipe and are not duplicated in the art.
       +(value(boiler)?'<text x="42" y="24" font-size="18" font-weight="bold" fill="#fff0e4">Kessel '+value(boiler)+'</text>':'')
       +'</svg>';
   }
@@ -10062,6 +10147,11 @@ const HPC_INTEGRATED = (() => {
       if(n?.type==='wood_gasifier'&&n.options?.froeling_view!=='classic'){
         return {id,x:b.x+2,y:b.y+45,w:(b.w-2)*350/540,h:156};
       }
+      if(n?.type==='oil_boiler'){
+        const primary=b.type==='source';
+        return {id,x:b.x+(primary?58:50),y:b.y+48,
+          w:primary?132:145,h:primary?91:85};
+      }
       return {id,...b};
     };
     const obstacles=[...anchored,...points].map(([id,b])=>hydraulicObstacle(id,b));
@@ -10102,7 +10192,9 @@ const HPC_INTEGRATED = (() => {
       // Routing uses the real cabinet bounds rather than the larger
       // invisible artwork canvas. The endpoint itself is never moved.
       const routingShape=(id,shape)=>{
-        if(all[id]?.type==='wood_gasifier'&&all[id].options?.froeling_view!=='classic'){
+        if((all[id]?.type==='wood_gasifier'&&
+            all[id].options?.froeling_view!=='classic')||
+            all[id]?.type==='oil_boiler'){
           const body=hydraulicObstacle(id,shape);
           return {x:body.x,y:body.y,w:body.w,h:body.h,type:shape.type};
         }
@@ -10232,13 +10324,34 @@ const HPC_INTEGRATED = (() => {
         (on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+
         '" stroke-width="2"/>':'';
       const rla=edge.kind==='return_lift';
+      let pipeMarkup='<path class="pipe'+(rla?' hpi-rla-bypass':'')+
+        (paths.flow?' on':'')+'" d="'+paths.pipe+'"'+
+        (color?' style="--pc:'+color+'"':'')+'/>';
+      const receiver=all[edge.to];
+      if(receiver?.type==='wood_gasifier'&&receiver.options?.return_lift===true&&
+        edge.to_port==='return'&&!rla&&paths.pipe){
+        const box=loc(receiver.id),socket=box?port(receiver,box,'return'):null;
+        const valveX=socket?.x+(receiver.options?.froeling_view!=='classic'?95:42);
+        const mixed=HPC_FREE.state(hass,receiver.sensors?.return);
+        const mixedColor=mixed&&Number.isFinite(mixed.number)?
+          HPC_FREE.color(mixed):'#718096';
+        pipeMarkup=pipeSegments(paths.pipe).map(part=>{
+          const mixedLeg=socket&&Math.abs(part.y1-socket.y)<.1&&
+            Math.abs(part.y2-socket.y)<.1&&
+            Math.min(part.x1,part.x2)>=socket.x-.1&&
+            Math.max(part.x1,part.x2)<=valveX+.1;
+          const d='M'+part.x1+' '+part.y1+
+            (part.y1===part.y2?' H'+part.x2:' V'+part.y2);
+          return '<path class="pipe'+(paths.flow?' on':'')+
+            '" d="'+d+'" style="--pc:'+(mixedLeg?mixedColor:color)+'"/>';
+        }).join('');
+      }
       return '<g class="hpi-link'+(rla?' hpi-rla':'')+
         '" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"'+
         (rla?' data-hpi-rla="'+HPC_FREE.esc(edge.from)+'"':'')+
         ' data-flow-evidence="'+HPC_FREE.esc(pipeState)+'"><title>'+
         HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'+
-        '<path class="pipe'+(rla?' hpi-rla-bypass':'')+(paths.flow?' on':'')+
-        '" d="'+paths.pipe+'"'+(color?' style="--pc:'+color+'"':'')+'/>'+
+        pipeMarkup+
         (paths.flow?'<path class="flow'+(rla?' hpi-rla-flow':'')+
           ' on" d="'+paths.flow+'"'+
           (rla&&Number.isFinite(edge.mix)?' style="opacity:'+Math.max(.12,edge.mix)+'"':'')+
@@ -10252,11 +10365,20 @@ const HPC_INTEGRATED = (() => {
       if(node.type==='diverter'&&b.inline){
         const cx=b.x+b.w/2,cy=b.y+b.h/2;
         const outlet=HPC_NETWORK.diverterActivePort(node,hass);
-        const label=outlet?outlet.toUpperCase():'?';
+        const dhwPort=node.options?.dhw_port==='b'?'b':'a';
+        const mode=outlet===dhwPort?'ww':outlet?'heat':'unknown';
+        // Match the classic round changeover valve: WW upwards, buffer
+        // branch towards heating. No direction is implied while unknown.
+        const arrow=mode==='ww'
+          ?'M'+cx+' '+(cy+11)+' V'+(cy-10)+' M'+(cx-9)+' '+(cy-1)+' L'+cx+' '+(cy-11)+' L'+(cx+9)+' '+(cy-1)
+          :mode==='heat'
+          ?'M'+(cx-11)+' '+cy+' H'+(cx+11)+' M'+(cx+2)+' '+(cy-9)+' L'+(cx+12)+' '+cy+' L'+(cx+2)+' '+(cy+9)
+          :'M'+(cx-8)+' '+cy+' H'+(cx+8);
+        const label=mode==='ww'?'WW':mode==='heat'?'Heizung':'–';
         return '<g class="tap hpi-inline-diverter" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.position||'')+'">'
           +'<title>'+title+'</title>'
           +'<circle class="valve" cx="'+cx+'" cy="'+cy+'" r="20"/>'
-          +'<path class="valve-arrow" d="M'+(cx-12)+' '+cy+' H'+cx+' L'+(cx+10)+' '+(cy-10)+' M'+cx+' '+cy+' L'+(cx+10)+' '+(cy+10)+'"/>'
+          +'<path class="valve-arrow" d="'+arrow+'"/>'
           +'<text class="hpi-valve-port" x="'+(cx+23)+'" y="'+(cy-23)+'">'+label+'</text>'
           +'</g>';
       }
@@ -10316,9 +10438,16 @@ const HPC_INTEGRATED = (() => {
         const artwork=type==='oil_boiler'
           ?oilArt(b.x+35,b.y+44,170,96,!!burner&&HPC_FREE.active(burner),node.options?.boiler_kind)
           :additionalSourceArt(type,b,on,node,hass);
-        return '<g class="tap hpi-component hpi-source-unit" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.state||node.sensors.flow||'')+'">'
+        const frameless=type==='wood_gasifier'&&node.options?.froeling_view!=='classic';
+        return '<g class="tap hpi-component hpi-source-unit'+
+          (frameless?' hpi-source-frameless':'')+
+          '" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.state||node.sensors.flow||'')+'">'
           +'<title>'+title+'</title>'
-          +'<text class="unit-title" x="'+cx+'" y="'+(b.y+26)+'" text-anchor="middle">'+title+'</text>'
+          +(frameless?'':'<rect class="unit'+(on?' on':'')+
+            '" x="'+b.x+'" y="'+b.y+'" width="'+b.w+
+            '" height="'+b.h+'" rx="20"/>')
+          +'<text class="unit-title hpi-generator-title" x="'+cx+
+            '" y="'+(frameless?b.y+224:b.y+26)+'" text-anchor="middle">'+title+'</text>'
           +artwork+'</g>';
       }
       if(type==='oil_boiler'){
@@ -10421,6 +10550,23 @@ const HPC_INTEGRATED = (() => {
     // Temperature readings belong to a real, routed pipe segment. The role
     // and source ID—not the displayed value—define each label's identity.
     const occupiedLabels=[];
+    // Keep source names and heating-circuit headings clear of pipe labels.
+    for(const source of plan.components.filter(isSource)){
+      const b=loc(source.id);
+      if(!b)continue;
+      const primary=source.id===plan.components.find(isSource)?.id;
+      const titleY=primary?b.y+30:b.y+(source.type==='wood_gasifier'&&
+        source.options?.froeling_view!=='classic'?224:26);
+      const width=Math.max(95,Math.min(205,String(source.name||'').length*10+22));
+      occupiedLabels.push({left:b.x+b.w/2-width/2,
+        right:b.x+b.w/2+width/2,top:titleY-21,bottom:titleY+9});
+    }
+    for(const circuit of plan.components.filter(node=>node.type==='heating_circuit')){
+      const b=loc(circuit.id);
+      if(!b)continue;
+      const y=b.y-21;
+      occupiedLabels.push({left:b.x-112,right:b.x+116,top:y-24,bottom:y+12});
+    }
     const allPipeSegments=[];
     const seenPipeSegments=new Set();
     for(const paths of physicalPipes.values()){
@@ -10439,9 +10585,10 @@ const HPC_INTEGRATED = (() => {
       for(const [key,name] of [['flow','VL'],['return','RL']]){
         const state=HPC_FREE.state(hass,node.sensors[key]);
         if(state?.number===null||!Number.isFinite(state?.number))continue;
-        const connection=routeRecords.find(record=>
-          (record.edge.from===node.id&&record.edge.from_port===key)||
-          (record.edge.to===node.id&&record.edge.to_port===key));
+        const connection=routeRecords.find(record=>record.edge.kind!=='return_lift'&&
+          (key==='flow'?record.edge.from===node.id&&
+            record.edge.from_port==='flow':
+            record.edge.to===node.id&&record.edge.to_port==='return'));
         if(!connection)continue;
         const route=physicalPipes.get(connection.edge.id)?.pipe||connection.d;
         const position=pipeLabelPosition(route,port(node,b,key),key,name+' '+HPC_FREE.format(state),
@@ -10464,8 +10611,11 @@ const HPC_INTEGRATED = (() => {
       const node=all[edge.from],b=loc(edge.from);
       if(!node||!b)return '';
       const outlet=port(node,b,'flow'),returnPort=port(node,b,'return');
-      const valveX=Math.max(outlet.x,returnPort.x)+42;
+      const s3=node.type==='wood_gasifier'&&node.options?.froeling_view!=='classic';
+      const valveX=Math.max(outlet.x,returnPort.x)+(s3?95:42);
       const returnY=returnPort.y;
+      const pumpX=returnPort.x+43;
+      const pumpRunning=HPC_FREE.active(HPC_FREE.state(hass,node.sensors.pump));
       const position=HPC_FREE.state(hass,node.sensors.mixer);
       const percentage=position?.number!==null&&Number.isFinite(position?.number)
         ?' '+Math.round(node.options?.mixer_inverted?100-position.number:position.number)+' %':'';
@@ -10475,6 +10625,8 @@ const HPC_INTEGRATED = (() => {
       // other physical hydraulic segments.
       return '<g class="hpi-rla-marker" data-hpi-rla-marker="'+HPC_FREE.esc(node.id)+'">'
         +'<title>'+HPC_FREE.esc('Rücklaufanhebung / Return-temperature lift – '+node.name)+'</title>'
+        +(s3?'<circle class="hpi-rla-pump" cx="'+pumpX+'" cy="'+returnY+'" r="11"/>'
+          +'<path class="hpi-rla-pump-symbol'+(pumpRunning?' on':'')+'" d="M'+pumpX+' '+(returnY-7)+' L'+(pumpX+7)+' '+returnY+' L'+pumpX+' '+(returnY+7)+' L'+(pumpX-7)+' '+returnY+' Z"/>':'')
         +'<circle class="hpi-rla-valve" cx="'+valveX+'" cy="'+returnY+'" r="14"/>'
         +'<path class="hpi-rla-symbol" d="M'+(valveX-8)+' '+(returnY-7)+' L'+valveX+' '+returnY+' L'+(valveX+8)+' '+(returnY-7)+' M'+valveX+' '+returnY+' v10"/>'
         +'<text class="hpi-rla-label" x="'+(valveX+20)+'" y="'+(returnY-10)+'">'+HPC_FREE.esc(label+percentage)+'</text>'
@@ -10499,7 +10651,8 @@ const HPC_INTEGRATED = (() => {
       ?'<g class="tap hpi-gas-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
         +additionalSourceArt('gas_boiler',{x:50,y:195},!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource)+'</g>'
       :'';
-    const primaryTitle=firstSource&&firstSource.type!=='heat_pump'
+    const primaryTitle=firstSource?.type==='wood_gasifier'&&
+      firstSource.options?.froeling_view!=='classic'
       ?'<text class="unit-title hpi-primary-source-title" x="170" y="220" text-anchor="middle">'+HPC_FREE.esc(firstSource.name)+'</text>'
       :'';
     const firstBuffer=HPC_NETWORK.orderedBuffers(plan)[0];
@@ -11062,20 +11215,17 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           (circuit.options?.mixer_inverted?100-reading.number:reading.number)/100:null;
         const label=group.querySelector('#t-hc-mix'+suffix);
         if(label&&measured)label.textContent=Math.round(hot*100)+' %';
-        if(!group.querySelector('.hpi-mix-illustration')){
-          group.insertAdjacentHTML('beforeend',
-            '<g class="hpi-mix-illustration" aria-hidden="true">'+
-            '<path class="hot" d="M745 360 H757"/>'+
-            '<path class="cold" d="M760 374 V363"/></g>');
-        }
+        // Original upstream mixing valve pictogram, without decorative overlays.
+        const originalValve=group.querySelector('.mix-body');
+        if(originalValve)originalValve.setAttribute('d',
+          'M748 352 L760 360 L748 368 Z '+
+          'M772 352 L760 360 L772 368 Z '+
+          'M752 374 L760 360 L768 374 Z');
+        group.querySelector('.hpi-mix-illustration')?.remove();
         const flows=plan.connections.filter(edge=>edge.to===circuit.id&&edge.to_port==='flow_in');
         const returns=plan.connections.filter(edge=>edge.from===circuit.id&&edge.from_port==='return_out');
         const active=flows.some(edge=>evidence.get(edge.id)?.active)&&
           returns.some(edge=>evidence.get(edge.id)?.active);
-        const illustration=group.querySelector('.hpi-mix-illustration');
-        illustration.classList.toggle('on',!!measured&&active);
-        illustration.querySelector('.hot').style.opacity=measured?String(hot):'0';
-        illustration.querySelector('.cold').style.opacity=measured?String(1-hot):'0';
         // This path is routed by the network: never draw a second physical
         // pipe, just the flow particles within its existing return bypass.
         const bypass=svg.querySelector('#p-hc-mix'+suffix);
@@ -11145,17 +11295,20 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         ['wood_chip_boiler','oil_boiler','gas_boiler'].includes(primaryType)||
         (primaryType==='wood_gasifier'&&primarySource.options?.froeling_view!=='classic')
           ?'none':'';
-      // Remove only the duplicate generator tile and values. The central
-      // hydraulic graph still connects to the real ports of its pictogram.
+      // Only the Fröling S3 cutaway is frameless; other generators retain
+      // their native cabinet and status text.
+      const framelessFroeling=primaryType==='wood_gasifier'&&
+        primarySource?.options?.froeling_view!=='classic';
+      const sourceBox=svg.querySelector('#hp-box');
+      if(sourceBox)sourceBox.style.display=framelessFroeling?'none':'';
       if(primarySource){
-        const sourceBox=svg.querySelector('#hp-box');
-        if(sourceBox)sourceBox.style.display='none';
+        const sourceGroup=sourceBox?.closest('g.tap');
+        for(const selector of ['text.unit-title','.vapour',
+          '#t-hp-status','#t-hp-power','#t-hp-cop','#t-hp-heat']){
+          const el=sourceGroup?.querySelector(selector);
+          if(el)el.style.display=framelessFroeling?'none':'';
+        }
         if(primaryType!=='heat_pump'){
-          const sourceGroup=sourceBox?.closest('g.tap');
-          sourceGroup?.querySelector('text.unit-title')?.setAttribute('display','none');
-          sourceGroup?.querySelector('.vapour')?.setAttribute('display','none');
-          for(const label of ['#t-hp-status','#t-hp-power','#t-hp-cop','#t-hp-heat'])
-            sourceGroup?.querySelector(label)?.setAttribute('display','none');
           const oldMiniBoiler=svg.querySelector('#boiler');
           if(oldMiniBoiler)oldMiniBoiler.style.display='none';
         }
@@ -11354,17 +11507,15 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-oil-kind{font-size:11px;font-weight:600;fill:var(--secondary-text-color,#919ba6);}'
           +'.hpi-oil-reading{fill:var(--hfc-muted,var(--secondary-text-color));}'
           +'.hpi-source-unit .unit-title,.hpi-primary-source-title{font-size:17px;font-weight:700;paint-order:stroke;stroke:var(--card-background-color,#202124);stroke-width:3;}'
-          +'.hpi-mix-illustration{pointer-events:none;}'
-          +'.hpi-mix-illustration path{fill:none;stroke-width:3.5;stroke-linecap:round;stroke-dasharray:3 7;animation:hpc-rla-motion 1.2s linear infinite;}'
-          +'.hpi-mix-illustration .hot{stroke:#ef3f63;}'
-          +'.hpi-mix-illustration .cold{stroke:#258fdf;}'
-          +'.hpi-mix-illustration:not(.on) path{animation-play-state:paused;}'
           +'.hpi-mix-bypass-flow{opacity:.7;}'
-          +'@media(prefers-reduced-motion:reduce){.hpi-mix-illustration path,.hpi-mix-bypass-flow{animation:none!important;}}'
+          +'@media(prefers-reduced-motion:reduce){.hpi-mix-bypass-flow{animation:none!important;}}'
           +'.hpi-rla-bypass{fill:none;stroke:var(--pc,#8d53d6);stroke-width:5;stroke-linecap:round;stroke-linejoin:round;}'
           +'.hpi-rla-flow{fill:none;stroke:#fff;stroke-width:2;stroke-dasharray:4 10;animation:hpc-rla-motion 1.4s linear infinite;pointer-events:none;}'
           +'@keyframes hpc-rla-motion{to{stroke-dashoffset:-28}}'
           +'@media (prefers-reduced-motion:reduce){.hpi-rla-flow{animation:none;}}'
+          +'.hpi-rla-pump{fill:var(--card-background-color,#202124);stroke:var(--hfc-return,#4c9ed9);stroke-width:2.5;}'
+          +'.hpi-rla-pump-symbol{fill:none;stroke:var(--primary-text-color,#d5dce8);stroke-width:1.8;stroke-linejoin:round;}'
+          +'.hpi-rla-pump-symbol.on{fill:var(--hfc-return,#4c9ed9);}'
           +'.hpi-rla-valve{fill:var(--card-background-color,#202124);stroke:var(--hfc-heat,#e7853d);stroke-width:3;}'
           +'.hpi-rla-symbol{fill:none;stroke:var(--hfc-muted,#9ca3af);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;}'
           +'.hpi-rla-label{font-size:12px;font-weight:700;fill:var(--primary-text-color);}';
@@ -12108,6 +12259,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           const status=dhwRouteFor(node);
           const sources=p.components.filter(item=>item.type==='buffer'||
             HPC_FREE.byType[item.type]?.group==='source');
+          const availableBuffers=p.components.filter(item=>item.type==='buffer');
           const chargingSource= status.source?.id||
             sources.find(item=>item.id===p.connections.find(edge=>edge.to===node.id&&edge.to_port==='coil_in')?.from)?.id||'';
           const hasCoilConnection=p.connections.some(edge=>
@@ -12152,6 +12304,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               ${[['pump',t('Über Ladepumpe','Via charging pump')],['diverter',t('Über Umschaltventil','Via diverter valve')],['direct',t('Direkt angeschlossen','Direct')]]
                 .map(([value,label])=>`<option value="${value}" ${kind===value?'selected':''}>${label}</option>`).join('')}
             </select></label></div>
+            ${availableBuffers.length?`<label data-dhw-buffer-wrap ${kind==='diverter'?'':'hidden'}>${t('Heizung / Puffer laden','Heat / charge buffer')}
+              <select data-dhw-buffer="${esc(node.id)}">
+                <option value="">${t('Ohne Pufferumschaltung','Without buffer switching')}</option>
+                ${availableBuffers.map(buffer=>`<option value="${esc(buffer.id)}">${esc(buffer.name)}</option>`).join('')}
+              </select></label>`:''}
             <label>${t('Leitungsführung','Pipe routing')}<select data-dhw-style="${esc(node.id)}">
               <option value="branch" ${node.options?.connection_style==='branch'?'selected':''}>${t('Gemeinsamer Vorlauf und Rücklauf','Shared supply and return')}</option>
               <option value="separate" ${node.options?.connection_style!=='branch'?'selected':''}>${t('Eigener Ladekreis','Separate charging circuit')}</option>
@@ -13051,7 +13208,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           const kind=root.querySelector(`[data-dhw-kind="${CSS.escape(tank)}"]`)?.value;
           const style=root.querySelector(`[data-dhw-style="${CSS.escape(tank)}"]`)?.value||'branch';
           const control=root.querySelector(`[data-dhw-control="${CSS.escape(tank)}"]`)?.value||'';
-          const next=HPC_FREE.connectDhwCharge(p,source,tank,kind,style,control);
+          const buffer=root.querySelector(`[data-dhw-buffer="${CSS.escape(tank)}"]`)?.value||'';
+          const next=kind==='diverter'&&buffer
+            ?HPC_FREE.connectDhwBufferDiverter(p,source,tank,buffer,control)
+            :HPC_FREE.connectDhwCharge(p,source,tank,kind,style,control);
           if(!next)return;
           return this._applyPlan(next);
         }
@@ -13207,6 +13367,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         select.addEventListener('change',()=>{
           const wrap=select.closest('details')?.querySelector('[data-dhw-control-wrap]');
           if(wrap)wrap.hidden=select.value==='direct';
+          const buffer=select.closest('details')?.querySelector('[data-dhw-buffer-wrap]');
+          if(buffer)buffer.hidden=select.value!=='diverter';
         }));
       fromSelect?.addEventListener("change",()=>{
         toSelect.innerHTML='<option value="">–</option>'+portOptions("to",fromSelect.value);

@@ -429,10 +429,10 @@ const HPC_NETWORK = (() => {
       ?Math.max(0,point.x-box.x):Math.max(0,box.x+box.w-point.x);
     const fromInset=inset(p,fromSide,fromBox),toInset=inset(q,toSide,toBox);
     const available=portGap-fromInset-toInset;
-    const fromStub=facing&&available>6
-      ?Math.min(18,Math.max(fromInset+1,available/3)):18;
-    const toStub=facing&&available>6
-      ?Math.min(18,Math.max(toInset+1,available/3)):18;
+    // The connection can be inset from an oversized legacy source box.
+    // Leave its real cabinet before searching for orthogonal routes.
+    const fromStub=Math.max(18,fromInset+12);
+    const toStub=Math.max(18,toInset+12);
     const pieces=d=>{
       const tokens=(d||'').match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
       const segments=[];let x=0,y=0;
@@ -680,6 +680,14 @@ const HPC_NETWORK = (() => {
       const mixerX=q.x+(toNode.options?.return_lift?95:54);
       const inletX=Math.max(p.x-20,mixerX+35);
       d='M'+h(p.x,p.y)+' H'+inletX+' V'+q.y+' H'+q.x;
+    } else if (fromNode.type==='buffer'&&
+        ['wood_gasifier','oil_boiler','gas_boiler','pellet_boiler',
+          'wood_chip_boiler','heat_pump'].includes(toNode.type)&&
+        edge.to_port==='return'&&p.x>q.x+45) {
+      // Shared storage return collector. Keep the S3's preceding dedicated
+      // RLA branch untouched, including its mixed-temperature outlet.
+      const railX=Math.max(q.x+45,p.x-80);
+      d='M'+h(p.x,p.y)+' H'+railX+' V'+q.y+' H'+q.x;
     } else if (p.x > q.x + 8 || fromSide === 'L' || toSide === 'R') {
       const farX = p.x + (fromSide === 'L' ? -36 : 38);
       const entryX = q.x + (toSide === 'R' ? 36 : -36);

@@ -236,7 +236,8 @@ const HPC_INTEGRATED = (() => {
     return derived;
   }
   function port(node,shape,key,circuitPump=true,externalReturn=false) {
-    if(shape.type==='source') {
+    // Secondary boilers use their concrete shape type, not 'source'.
+    if(isSource(node)) {
       // Primary and additional heat sources share the original 240x235
       // pictogram, but never the same absolute pipe ports. Otherwise all
       // supplemental boilers accidentally connect at the first boiler.
@@ -249,6 +250,12 @@ const HPC_INTEGRATED = (() => {
         const scaleX=(shape.w-2)/540,scaleY=156/355;
         return {x:svgX+350*scaleX,
           y:svgY+(key==='return'?300:162)*scaleY};
+      }
+      if(node?.type==='oil_boiler'){
+        const primary=shape.type==='source';
+        const x=shape.x+(primary?190:195);
+        return {x,y:shape.y+(primary?
+          (key==='return'?124:81):(key==='return'?115:76))};
       }
       const x=shape.x+shape.w;
       if(key==='return')return{x,y:shape.y+190};
@@ -294,7 +301,7 @@ const HPC_INTEGRATED = (() => {
     return{x:shape.x+(def?.side==='R'?shape.w:0),y:shape.y+(def?.y??.5)*shape.h};
   }
   function portSide(node,shape,key) {
-    if(shape.type==='source')return 'R';
+    if(isSource(node))return 'R';
     if(shape.type==='buffer')
       return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'L';
     if(shape.type==='dhw_tank')return key.startsWith('coil_')?'L':'R';
@@ -587,8 +594,7 @@ const HPC_INTEGRATED = (() => {
       +'<path d="M324 162 H350" fill="none" stroke="'+hotColor+'" stroke-width="9" stroke-linecap="round"/>'
       +'<path d="M324 300 H350" fill="none" stroke="'+coldColor+'" stroke-width="9" stroke-linecap="round"/>'
       +'</g>'
-      +'<text x="356" y="150" font-size="16" fill="#e3c5e8">VL</text>'
-      +'<text x="356" y="328" font-size="16" fill="#9dd7f6">RL</text>'
+      // VL/RL labels live on the routed pipe and are not duplicated in the art.
       +(value(boiler)?'<text x="42" y="24" font-size="18" font-weight="bold" fill="#fff0e4">Kessel '+value(boiler)+'</text>':'')
       +'</svg>';
   }
@@ -786,6 +792,11 @@ const HPC_INTEGRATED = (() => {
       if(n?.type==='wood_gasifier'&&n.options?.froeling_view!=='classic'){
         return {id,x:b.x+2,y:b.y+45,w:(b.w-2)*350/540,h:156};
       }
+      if(n?.type==='oil_boiler'){
+        const primary=b.type==='source';
+        return {id,x:b.x+(primary?58:50),y:b.y+48,
+          w:primary?132:145,h:primary?91:85};
+      }
       return {id,...b};
     };
     const obstacles=[...anchored,...points].map(([id,b])=>hydraulicObstacle(id,b));
@@ -826,7 +837,9 @@ const HPC_INTEGRATED = (() => {
       // Routing uses the real cabinet bounds rather than the larger
       // invisible artwork canvas. The endpoint itself is never moved.
       const routingShape=(id,shape)=>{
-        if(all[id]?.type==='wood_gasifier'&&all[id].options?.froeling_view!=='classic'){
+        if((all[id]?.type==='wood_gasifier'&&
+            all[id].options?.froeling_view!=='classic')||
+            all[id]?.type==='oil_boiler'){
           const body=hydraulicObstacle(id,shape);
           return {x:body.x,y:body.y,w:body.w,h:body.h,type:shape.type};
         }
@@ -956,13 +969,34 @@ const HPC_INTEGRATED = (() => {
         (on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+
         '" stroke-width="2"/>':'';
       const rla=edge.kind==='return_lift';
+      let pipeMarkup='<path class="pipe'+(rla?' hpi-rla-bypass':'')+
+        (paths.flow?' on':'')+'" d="'+paths.pipe+'"'+
+        (color?' style="--pc:'+color+'"':'')+'/>';
+      const receiver=all[edge.to];
+      if(receiver?.type==='wood_gasifier'&&receiver.options?.return_lift===true&&
+        edge.to_port==='return'&&!rla&&paths.pipe){
+        const box=loc(receiver.id),socket=box?port(receiver,box,'return'):null;
+        const valveX=socket?.x+(receiver.options?.froeling_view!=='classic'?95:42);
+        const mixed=HPC_FREE.state(hass,receiver.sensors?.return);
+        const mixedColor=mixed&&Number.isFinite(mixed.number)?
+          HPC_FREE.color(mixed):'#718096';
+        pipeMarkup=pipeSegments(paths.pipe).map(part=>{
+          const mixedLeg=socket&&Math.abs(part.y1-socket.y)<.1&&
+            Math.abs(part.y2-socket.y)<.1&&
+            Math.min(part.x1,part.x2)>=socket.x-.1&&
+            Math.max(part.x1,part.x2)<=valveX+.1;
+          const d='M'+part.x1+' '+part.y1+
+            (part.y1===part.y2?' H'+part.x2:' V'+part.y2);
+          return '<path class="pipe'+(paths.flow?' on':'')+
+            '" d="'+d+'" style="--pc:'+(mixedLeg?mixedColor:color)+'"/>';
+        }).join('');
+      }
       return '<g class="hpi-link'+(rla?' hpi-rla':'')+
         '" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"'+
         (rla?' data-hpi-rla="'+HPC_FREE.esc(edge.from)+'"':'')+
         ' data-flow-evidence="'+HPC_FREE.esc(pipeState)+'"><title>'+
         HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'+
-        '<path class="pipe'+(rla?' hpi-rla-bypass':'')+(paths.flow?' on':'')+
-        '" d="'+paths.pipe+'"'+(color?' style="--pc:'+color+'"':'')+'/>'+
+        pipeMarkup+
         (paths.flow?'<path class="flow'+(rla?' hpi-rla-flow':'')+
           ' on" d="'+paths.flow+'"'+
           (rla&&Number.isFinite(edge.mix)?' style="opacity:'+Math.max(.12,edge.mix)+'"':'')+
@@ -1049,9 +1083,16 @@ const HPC_INTEGRATED = (() => {
         const artwork=type==='oil_boiler'
           ?oilArt(b.x+35,b.y+44,170,96,!!burner&&HPC_FREE.active(burner),node.options?.boiler_kind)
           :additionalSourceArt(type,b,on,node,hass);
-        return '<g class="tap hpi-component hpi-source-unit" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.state||node.sensors.flow||'')+'">'
+        const frameless=type==='wood_gasifier'&&node.options?.froeling_view!=='classic';
+        return '<g class="tap hpi-component hpi-source-unit'+
+          (frameless?' hpi-source-frameless':'')+
+          '" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.state||node.sensors.flow||'')+'">'
           +'<title>'+title+'</title>'
-          +'<text class="unit-title" x="'+cx+'" y="'+(b.y+26)+'" text-anchor="middle">'+title+'</text>'
+          +(frameless?'':'<rect class="unit'+(on?' on':'')+
+            '" x="'+b.x+'" y="'+b.y+'" width="'+b.w+
+            '" height="'+b.h+'" rx="20"/>')
+          +'<text class="unit-title hpi-generator-title" x="'+cx+
+            '" y="'+(frameless?b.y+224:b.y+26)+'" text-anchor="middle">'+title+'</text>'
           +artwork+'</g>';
       }
       if(type==='oil_boiler'){
@@ -1154,6 +1195,23 @@ const HPC_INTEGRATED = (() => {
     // Temperature readings belong to a real, routed pipe segment. The role
     // and source ID—not the displayed value—define each label's identity.
     const occupiedLabels=[];
+    // Keep source names and heating-circuit headings clear of pipe labels.
+    for(const source of plan.components.filter(isSource)){
+      const b=loc(source.id);
+      if(!b)continue;
+      const primary=source.id===plan.components.find(isSource)?.id;
+      const titleY=primary?b.y+30:b.y+(source.type==='wood_gasifier'&&
+        source.options?.froeling_view!=='classic'?224:26);
+      const width=Math.max(95,Math.min(205,String(source.name||'').length*10+22));
+      occupiedLabels.push({left:b.x+b.w/2-width/2,
+        right:b.x+b.w/2+width/2,top:titleY-21,bottom:titleY+9});
+    }
+    for(const circuit of plan.components.filter(node=>node.type==='heating_circuit')){
+      const b=loc(circuit.id);
+      if(!b)continue;
+      const y=b.y-21;
+      occupiedLabels.push({left:b.x-112,right:b.x+116,top:y-24,bottom:y+12});
+    }
     const allPipeSegments=[];
     const seenPipeSegments=new Set();
     for(const paths of physicalPipes.values()){
@@ -1172,9 +1230,10 @@ const HPC_INTEGRATED = (() => {
       for(const [key,name] of [['flow','VL'],['return','RL']]){
         const state=HPC_FREE.state(hass,node.sensors[key]);
         if(state?.number===null||!Number.isFinite(state?.number))continue;
-        const connection=routeRecords.find(record=>
-          (record.edge.from===node.id&&record.edge.from_port===key)||
-          (record.edge.to===node.id&&record.edge.to_port===key));
+        const connection=routeRecords.find(record=>record.edge.kind!=='return_lift'&&
+          (key==='flow'?record.edge.from===node.id&&
+            record.edge.from_port==='flow':
+            record.edge.to===node.id&&record.edge.to_port==='return'));
         if(!connection)continue;
         const route=physicalPipes.get(connection.edge.id)?.pipe||connection.d;
         const position=pipeLabelPosition(route,port(node,b,key),key,name+' '+HPC_FREE.format(state),
@@ -1237,7 +1296,8 @@ const HPC_INTEGRATED = (() => {
       ?'<g class="tap hpi-gas-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
         +additionalSourceArt('gas_boiler',{x:50,y:195},!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource)+'</g>'
       :'';
-    const primaryTitle=firstSource&&firstSource.type!=='heat_pump'
+    const primaryTitle=firstSource?.type==='wood_gasifier'&&
+      firstSource.options?.froeling_view!=='classic'
       ?'<text class="unit-title hpi-primary-source-title" x="170" y="220" text-anchor="middle">'+HPC_FREE.esc(firstSource.name)+'</text>'
       :'';
     const firstBuffer=HPC_NETWORK.orderedBuffers(plan)[0];
