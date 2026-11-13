@@ -1,45 +1,45 @@
-# Hydraulic Plan Card — English guide
+# Hydraulic Plan Card
 
-[Deutsch / main README](../README.md)
+A clear heating-system overview for Home Assistant, from the heat pump to individual heating circuits.
 
-Hydraulic Plan Card brings a live heating-system diagram into Home Assistant. It builds on [Sturmi77's Heat Pump Hydraulic Card](https://github.com/Sturmi77/heatpump-hydraulic-card), keeping the familiar heat-pump, radiator and mixer artwork while adding boilers, buffer tanks, pumps and other parts of the system.
+Based on [Sturmi77's Heat Pump Hydraulic Card](https://github.com/Sturmi77/heatpump-hydraulic-card), with support for more heat sources and flexible system layouts.
 
-**Release status:** `main` still provides the test build `0.2.0-alpha.6`, not a stable release. The shared routing and migration changes are integrated, but the complete hydraulic and visual acceptance is still open.
+## Features
 
-## What you can show
+- **Heat sources:** heat pumps, oil and gas boilers, pellet boilers, wood gasifiers and wood-chip boilers
+- **Tanks:** buffer and hot-water tanks, including multiple tanks
+- **Heating circuits:** radiators, underfloor heating, pumps and mixing valves
+- **Connections:** charging pumps, diverter valves and return-temperature mixing
+- **Live view:** temperatures, operating states and animated pipes
 
-The card supports heat pumps; wood gasifiers; oil, gas, pellet, electric and supported ETA wood-chip boilers; buffer and hot-water tanks; direct and mixed heating circuits; pumps; valves; and temperature sensors. A buffer can display temperature layers from multiple sensors. The component editor lets you choose the actual parts and their connections without manually positioning them.
+Set up the diagram in the visual editor. For supported integrations, the card can suggest existing entities, including through the original card's heat-pump presets. You choose which mappings to import.
 
-Compatibility depends on the data available in your Home Assistant installation. Device discovery for supported ETA and EMS-ESP systems only suggests mappings from existing Home Assistant entities; you must confirm before anything is added.
+## Installation
 
-## Install
-
-In **HACS**, add `https://github.com/BlueIceWolf/ha-hydraulic-plan-card` as a custom **Dashboard** repository, install the card and reload your Home Assistant browser.
-
-For manual installation, copy [the JavaScript bundle](../dist/ha-hydraulic-plan-card.js) to `/config/www/` and register `/local/ha-hydraulic-plan-card.js` as a JavaScript module in dashboard resources.
-
-Add the card with:
+1. Add `https://github.com/BlueIceWolf/ha-hydraulic-plan-card` to **HACS** as a custom **Dashboard** repository.
+2. Install **Hydraulic Plan Card** and reload Home Assistant in your browser.
+3. Add a new card:
 
 ```yaml
 type: custom:hydraulic-plan-card
 ```
 
-Open the editor, choose your heat generator, add tanks and circuits, connect them according to the actual installation, then map the relevant sensors.
+Use the editor to add your equipment, connect it according to the real pipework and assign Home Assistant entities.
 
-## Reading the diagram
+**Manual install:** Copy the [JavaScript file](../dist/ha-hydraulic-plan-card.js) to `/config/www/` and register `/local/ha-hydraulic-plan-card.js` as a dashboard JavaScript module.
 
-Pipe animations represent plausible circulation inferred from mapped pump states or flow sensors. **They do not measure flow.** A measured zero flow or a mapped pump that is off should stop animation in its own branch, but advanced multi-branch topology is still under development. Mixer percentages do not by themselves prove that a valve is closed.
+## Good to know
 
-The card is a read-only visualisation, not a hydraulic simulator or safety controller. Do not rely on it for service or safety decisions.
+Pipe colours follow the mapped temperatures. Animated dots indicate **flow inferred from sensor and pump states**; they are not a direct flow measurement. This card is a display, not a controller or safety device.
 
-## Updates, testing and feedback
+**Alpha version:** Some system layouts are not fully tested. Back up your card configuration before updating.
 
-Before upgrading an existing card, back up its YAML or your Home Assistant configuration. The newer component editor includes versioned migration and restoration safeguards; unusual old installations still need manual checking.
+## Feedback
 
-Open acceptance checks, including complex plants, visual references and older configurations, are tracked in [issue #20](https://github.com/BlueIceWolf/ha-hydraulic-plan-card/issues/20) and the [acceptance report](ACCEPTANCE-2026-11-09.md).
+Found a display issue? [Open an issue](https://github.com/BlueIceWolf/ha-hydraulic-plan-card/issues) with a screenshot, card version and, if possible, an anonymised configuration.
 
-If you spot duplicate pipes, incorrect return connections or animations in the wrong circuit, please [open an issue](https://github.com/BlueIceWolf/ha-hydraulic-plan-card/issues). A diagram screenshot, anonymised configuration, card version and explanation of the real pipework are useful.
+More details: [Components and connections](FREE_PLAN.md) · [Equipment and readings](BOILERS.md) · [Deutsch](../README.md)
 
-Developers can run `npm ci`, `npm run build`, `npm run syntax` and `npm run test`. The build regenerates the installable bundle from the source modules. See the [hydraulic architecture notes](HYDRAULIC_ARCHITECTURE.md) and [boiler notes](BOILERS.md).
+## Credits
 
-Based on the MIT-licensed Heat Pump Hydraulic Card by Sturmi77. [License](../LICENSE).
+Based on the [Heat Pump Hydraulic Card by Sturmi77](https://github.com/Sturmi77/heatpump-hydraulic-card). Continued under the [MIT license](../LICENSE); not an official part of the original project.
