@@ -8079,16 +8079,19 @@ const HPC_FREE = (function makeFreeHelpers() {
   function color(s) {
     if(!s||s.number===null||!["°c","c","°f","k"].includes(s.unit.toLowerCase()))return "#718096";
     const t=s.unit==="°F"?(s.number-32)*5/9:s.unit==="K"?s.number-273.15:s.number;
-    // Hydraulic water/brine: -10 °C deep blue, violet midrange, red at 90 °C.
-    // RGB channel interpolation never passes through amber or brown.
+    // One shared water/brine palette. Cold and normal returns remain blue;
+    // violet appears gradually at higher temperatures, red from 90 °C.
+    // RGB interpolation avoids brown, amber and warm-looking cold pipes.
     const ranges=[
-      [-10,[20,58,151]],
-      [0,[31,103,211]],
-      [20,[53,167,242]],
-      [40,[129,83,216]],
-      [60,[203,69,172]],
-      [75,[235,56,107]],
-      [90,[235,38,55]],
+      [-10,[21,61,158]],
+      [0,[20,107,208]],
+      [20,[34,140,226]],
+      [35,[49,156,240]],
+      [45,[103,118,223]],
+      [55,[175,102,201]],
+      [65,[223,88,160]],
+      [75,[237,64,120]],
+      [90,[237,40,56]],
     ];
     if(t<=ranges[0][0])return "rgb("+ranges[0][1].join(",")+")";
     for(let i=1;i<ranges.length;i++){
@@ -10128,25 +10131,31 @@ const HPC_INTEGRATED = (() => {
             row.to_port==='flow_in');
           reading=feed?pipeTemperature(plan,hass,feed,all):null;
         }else if(edge.to_port==='emitter_in'){
-          // The actual mixed-flow sensor wins. An unmeasured mixture is
-          // illustrative only when both temperatures and the valve exist.
-          reading=HPC_FREE.state(hass,circuit.sensors?.flow);
-          if(!reading||!Number.isFinite(reading.number)){
+          // After the mixing valve use the real flow measurement first.
+          // If it is unavailable, display the configured target temperature.
+          // Only without both values can an illustrative mix be inferred
+          // from real hot/return temperatures and a known valve position.
+          const actual=HPC_FREE.state(hass,circuit.sensors?.flow);
+          const target=HPC_FREE.state(hass,circuit.sensors?.target);
+          const temperature=value=>value&&Number.isFinite(value.number)&&
+            ['°c','c','°f','k'].includes(value.unit.toLowerCase());
+          reading=temperature(actual)?actual:temperature(target)?target:null;
+          if(!reading){
             const feed=plan.connections.find(row=>row.to===circuit.id&&
               row.to_port==='flow_in');
             const hot=feed?pipeTemperature(plan,hass,feed,all):null;
             const cold=HPC_FREE.state(hass,circuit.sensors?.return);
             const position=HPC_FREE.state(hass,circuit.sensors?.mixer);
-            if(hot&&cold&&position&&Number.isFinite(hot.number)&&
-                Number.isFinite(cold.number)&&Number.isFinite(position.number)&&
-                position.number>=0&&position.number<=100&&
-                ['°C','°c','C'].includes(hot.unit)&&
-                ['°C','°c','C'].includes(cold.unit)){
+            if(temperature(hot)&&temperature(cold)&&position&&
+                Number.isFinite(position.number)&&position.number>=0&&
+                position.number<=100&&
+                ['°c','c'].includes(hot.unit.toLowerCase())&&
+                ['°c','c'].includes(cold.unit.toLowerCase())){
               const opening=(circuit.options?.mixer_inverted?
                 100-position.number:position.number)/100;
               reading={number:hot.number*opening+cold.number*(1-opening),
                 unit:'°C',illustrative:true};
-            }else reading=null;
+            }
           }
         }
       }
