@@ -8,7 +8,7 @@
 
 Die Karte baut auf der [Heat Pump Hydraulic Card von Sturmi77](https://github.com/Sturmi77/heatpump-hydraulic-card) auf. Die bekannte Darstellung der Wärmepumpe, die Heizkörper und die Mischer bleiben erhalten. Dazu kommen weitere Wärmeerzeuger und die Möglichkeit, auch umfangreichere Heizungsanlagen abzubilden.
 
-> **Noch in Entwicklung:** `main` enthält weiterhin den Teststand `0.2.0-alpha.6`, keine stabile Freigabe. Die gemeinsame Rohrführung und die Migration sind integriert, aber die vollständige hydraulische und visuelle Abnahme ist noch offen. Sichere deine Kartenkonfiguration vor einem Update.
+> **Noch in Entwicklung:** Aktuelle Entwicklerversion: `v0.2.0-alpha.10`. Die gemeinsame Rohrführung und Migration sind integriert, aber die vollständige hydraulische und visuelle Abnahme ist noch offen. Sichere deine Kartenkonfiguration vor einem Update.
 
 ## Was kann die Karte?
 
@@ -20,6 +20,24 @@ Die Karte baut auf der [Heat Pump Hydraulic Card von Sturmi77](https://github.co
 - **Flexible Einrichtung:** Bauteile und ihre Verbindungen im Karteneditor anlegen, ohne Positionen auf einer Zeichenfläche festlegen zu müssen.
 
 Nicht jede Kombination ist bereits abschließend getestet. Insbesondere komplexe gemeinsame Vor- und Rücklaufleitungen gehören noch zur laufenden Überarbeitung.
+
+## Versionen und Updates
+
+HACS-Versionen erhalten ab `v0.2.0-alpha.10` nachvollziehbare GitHub-Releases
+statt der Commit-Kurznummern. Nach einer Änderung an `dist/ha-hydraulic-plan-card.js`
+wird eine neue Release-Version nur dann erstellt, wenn zuvor die Versionsnummer
+in `package.json` erhöht wurde und das Bundle dieselbe Version enthält.
+Das Workflow-Ergebnis unter **Actions → Publish HACS version** zeigt an,
+ob die Veröffentlichung erfolgreich war.
+
+**Versionsschema:** `v0.2.0-alpha.10`, `v0.2.0-alpha.11`, ...; eine
+stabile `v0.2.0` erst nach vollständiger Abnahme.
+Für eine weitere Veröffentlichung: Version in `package.json` erhöhen,
+`npm run build` ausführen und beide Dateien gemeinsam committen.
+
+In HACS: **Hydraulic Plan Card → ⋮ → Informationen aktualisieren**,
+danach **⋮ → Neu herunterladen** und die gewünschte Version wählen.
+Falls ein Browser noch den alten Stand anzeigt: Dashboard hart neu laden.
 
 ## Installation
 
