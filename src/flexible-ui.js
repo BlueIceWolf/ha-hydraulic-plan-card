@@ -432,6 +432,25 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(!hp.sensors[field]&&typeof id==='string'&&
           this._hass?.states?.[id])hp.sensors[field]=id;
       }
+      // EMS-ESP's "hp3way" / DHW valve flag is the same switch already
+      // used by the classic card: ON = DHW, OFF = heating. Only borrow
+      // that documented EMS mapping for the matching WW/buffer valve and
+      // only when the installer hasn't provided an explicit valve entity.
+      if(this._config?.preset==='emsesp'&&typeof original.valve==='string'&&
+        this._hass?.states?.[original.valve]){
+        const dhw=p.components.find(n=>n.type==='dhw_tank');
+        for(const valve of p.components.filter(n=>n.type==='diverter')){
+          const feedsDhw=p.connections.some(e=>e.from===valve.id&&
+            e.to===dhw?.id&&e.to_port==='coil_in');
+          const feedsBuffer=p.connections.some(e=>e.from===valve.id&&
+            p.components.some(n=>n.id===e.to&&n.type==='buffer'));
+          if(!feedsDhw||!feedsBuffer||valve.sensors?.position)continue;
+          valve.sensors.position=original.valve;
+          valve.options={...valve.options,
+            dhw_state:valve.options?.dhw_state||'on',
+            heating_state:valve.options?.heating_state||'off'};
+        }
+      }
       return p;
     }
     _syncAdditional(force=false) {
