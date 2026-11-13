@@ -9261,6 +9261,9 @@ const HPC_NETWORK = (() => {
 // Additional heating components share the original Heat Pump Hydraulic Card SVG.
 // The first heat source, first buffer, first DHW tank and up to six heating circuits
 // reuse their original renderer. All other components are ADDED to that same SVG.
+// Additional heating components share the original Heat Pump Hydraulic Card SVG.
+// The first heat source, first buffer, first DHW tank and up to six heating circuits
+// reuse their original renderer. All other components are ADDED to that same SVG.
 const HPC_INTEGRATED = (() => {
   const sources = new Set(['wood_gasifier','oil_boiler','pellet_boiler','wood_chip_boiler','gas_boiler','heat_pump']);
   const isSource = (node) => sources.has(node.type);
@@ -9937,7 +9940,15 @@ const HPC_INTEGRATED = (() => {
         field==='top_out'?from.sensors.top:
         field==='mid_out'?from.sensors.middle:
         field==='bottom_out'?from.sensors.bottom:'';
+      // Pipe temperature is optional. When no thermometer is configured,
+      // keep the hydraulic supply/return colour instead of rendering an
+      // almost invisible grey line (notably the oil boiler -> DHW coil).
       const reading=HPC_FREE.state(hass,edge.temperature_entity||inferred);
+      const returnPipe=edge.kind==='heating_circuit_internal_return'||
+        edge.kind==='heating_circuit_mixer_bypass'||
+        /^(return_out|coil_out|bottom_out|return)$/.test(edge.from_port)||
+        /^(return|return_in|bottom_in|mixer_bypass_in|mixer_return)$/.test(edge.to_port);
+      const defaultPipeColor=returnPipe?'var(--hfc-cold,#359fe7)':'var(--hfc-hot,#f37435)';
       const nativeCircuit=all[edge.to]?.type==='heating_circuit'&&anchored.has(edge.to)
         ?edge.to:all[edge.from]?.type==='heating_circuit'&&anchored.has(edge.from)
           ?edge.from:null;
@@ -9945,7 +9956,7 @@ const HPC_INTEGRATED = (() => {
         edge.kind?.startsWith('heating_circuit_')?!!circuitFlowing.get(edge.from):flowing.has(edge.id),
         evidence:edge.kind==='return_lift'?(edge.active?'inferred':'stopped'):
           evidence.get(edge.id)?.state||'unknown',
-        color:reading?HPC_FREE.color(reading):null,
+        color:reading?HPC_FREE.color(reading):defaultPipeColor,
         junction:supplyTee||returnTee};
     }).filter(Boolean);
     // Resolve all route overlaps together, rather than having every boiler,
@@ -10972,6 +10983,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-silo-value,.hpi-flue-status,.hpi-flue-values{font-size:11px;}'
           +'.hpi-flue-duct{fill:none;stroke:var(--divider-color,#858b93);stroke-width:10;stroke-linecap:round;stroke-linejoin:round;}'
           +'.hpi-buffer-port{fill:var(--card-background-color,#222);stroke-width:3;pointer-events:none;}'
+          // Show the hydraulic temperature colour even if flow is not
+          // confirmed. Only the animated white dash denotes circulation.
+          +'.hpi-link .pipe{stroke:color-mix(in srgb,var(--pc,var(--hfc-muted)) 65%,var(--card-background-color,#202124));}'
+          +'.hpi-link .pipe.on{stroke:var(--pc,var(--hfc-muted));}'
           +'.hpi-buffer-hot{stroke:var(--hfc-hot,#f37b4e);}'
           +'.hpi-buffer-cold{stroke:var(--hfc-cold,#448cdd);}'
           +'.hpi-riser-bridge{pointer-events:none;}'
