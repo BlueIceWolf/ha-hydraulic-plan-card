@@ -447,7 +447,7 @@ const rlaPump=rlaMarker?.querySelector('.hpi-rla-pump');
 const rlaValve=rlaMarker?.querySelector('.hpi-rla-valve');
 const s3ReturnY=s3Return.y;
 const mixerAtX=s3Return.x+95;
-check(rlaPath.includes('H'+mixerAtX)&&
+check(rlaPath.includes('M'+mixerAtX+' '+s3Flow.y)&&
   rlaPath.includes('V'+s3ReturnY),
   'S3 hot bypass runs to right-side RLA, not behind boiler or through chimney');
 check(rlaPump?.getAttribute('cx')===String(s3Return.x+43)&&
