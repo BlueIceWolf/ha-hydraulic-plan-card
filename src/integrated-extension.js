@@ -595,8 +595,7 @@ const HPC_INTEGRATED = (() => {
       +'<path d="M324 162 H350" fill="none" stroke="'+hotColor+'" stroke-width="9" stroke-linecap="round"/>'
       +'<path d="M324 300 H350" fill="none" stroke="'+coldColor+'" stroke-width="9" stroke-linecap="round"/>'
       +'</g>'
-      +'<text x="356" y="150" font-size="16" fill="#e3c5e8">VL</text>'
-      +'<text x="356" y="328" font-size="16" fill="#9dd7f6">RL</text>'
+      // Water labels are rendered once on the actual routed pipes.
       +(value(boiler)?'<text x="42" y="24" font-size="18" font-weight="bold" fill="#fff0e4">Kessel '+value(boiler)+'</text>':'')
       +'</svg>';
   }
@@ -964,13 +963,36 @@ const HPC_INTEGRATED = (() => {
         (on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+
         '" stroke-width="2"/>':'';
       const rla=edge.kind==='return_lift';
+      // The last return segment, after an automatic return-temperature lift,
+      // contains the MIXED boiler return, not unmodified cool buffer water.
+      // Paint deduplicated orthogonal segments individually, without drawing
+      // a second overlapping hot/mixed return pipe.
+      let pipeMarkup='<path class="pipe'+(rla?' hpi-rla-bypass':'')+
+        (paths.flow?' on':'')+'" d="'+paths.pipe+'" style="--pc:'+color+'"/>';
+      const receiver=all[edge.to];
+      if(receiver?.type==='wood_gasifier'&&receiver.options?.return_lift===true&&
+          edge.to_port==='return'&&edge.kind!=='return_lift'&&paths.pipe){
+        const b=loc(receiver.id),socket=b?port(receiver,b,'return'):null;
+        const mixed=HPC_FREE.state(hass,receiver.sensors?.return);
+        const mixedColor=mixed&&Number.isFinite(mixed.number)?
+          HPC_FREE.color(mixed):'#718096';
+        pipeMarkup=pipeSegments(paths.pipe).map(part=>{
+          const nearMixer=socket&&Math.abs(part.y1-socket.y)<.1&&
+            Math.abs(part.y2-socket.y)<.1&&
+            Math.min(part.x1,part.x2)>=socket.x-.1&&
+            Math.max(part.x1,part.x2)<=socket.x+42.1;
+          const d='M'+part.x1+' '+part.y1+
+            (part.y1===part.y2?' H'+part.x2:' V'+part.y2);
+          return '<path class="pipe'+(paths.flow?' on':'')+
+            '" d="'+d+'" style="--pc:'+(nearMixer?mixedColor:color)+'"/>';
+        }).join('');
+      }
       return '<g class="hpi-link'+(rla?' hpi-rla':'')+
         '" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"'+
         (rla?' data-hpi-rla="'+HPC_FREE.esc(edge.from)+'"':'')+
         ' data-flow-evidence="'+HPC_FREE.esc(pipeState)+'"><title>'+
         HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'+
-        '<path class="pipe'+(rla?' hpi-rla-bypass':'')+(paths.flow?' on':'')+
-        '" d="'+paths.pipe+'"'+(color?' style="--pc:'+color+'"':'')+'/>'+
+        pipeMarkup+
         (paths.flow?'<path class="flow'+(rla?' hpi-rla-flow':'')+
           ' on" d="'+paths.flow+'"'+
           (rla&&Number.isFinite(edge.mix)?' style="opacity:'+Math.max(.12,edge.mix)+'"':'')+
