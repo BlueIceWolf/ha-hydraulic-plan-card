@@ -442,6 +442,30 @@ check(s3Sockets?.length===2&&[...s3Sockets].every(path=>
 check(s3Art?.querySelector('.hpi-fr-flue')?.getAttribute('d')==='M445 85 H470 V12',
   'The flue points upward and is geometrically separate from water connections');
 
+// Guard the S3's fan/flue readouts against right-edge SVG clipping and
+// keep the fan label above the hot boiler outlet at y=162.
+const readoutPlan=structuredClone(s3);
+readoutPlan.components.find(node=>node.id==='s3').sensors.fan='sensor.s3_fan';
+readoutPlan.components.find(node=>node.id==='s3').sensors.exhaust='sensor.s3_exhaust';
+const readoutHass=hass({
+  'switch.s3':'on','sensor.s3_vl':[75.5,'°C'],
+  'sensor.s3_fan':[85,'%'],'sensor.s3_exhaust':[182.5,'°C']
+});
+const readoutSvg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+readoutSvg.innerHTML=HPC_INTEGRATED.svg(HPC_INTEGRATED.layout(readoutPlan),readoutHass).body;
+const fanReadout=readoutSvg.querySelector('.hpi-fr-fan-reading');
+const exhaustReadout=readoutSvg.querySelector('.hpi-fr-exhaust-reading');
+check(!!fanReadout&&!!exhaustReadout&&
+  fanReadout.textContent.includes('85')&&exhaustReadout.textContent.includes('182,5'),
+  'Fan and exhaust sensors show their actual readings in the S3 artwork');
+check(fanReadout?.getAttribute('text-anchor')==='end'&&
+  exhaustReadout?.getAttribute('text-anchor')==='end'&&
+  Number(fanReadout?.getAttribute('x'))<470&&
+  Number(exhaustReadout?.getAttribute('x'))<470&&
+  Number(fanReadout?.getAttribute('y'))<162&&
+  Number(exhaustReadout?.getAttribute('y'))<46,
+  'Both S3 labels stay inside the viewport, clear of hot supply and flue');
+
 const rlaPath=s3Svg.querySelector('[data-hpi-edge="rla_s3"] .pipe')?.getAttribute('d')||'';
 const rlaMarker=s3Svg.querySelector('[data-hpi-rla-marker="s3"]');
 const rlaPump=rlaMarker?.querySelector('.hpi-rla-pump');
