@@ -433,6 +433,7 @@ const s3Render=HPC_INTEGRATED.svg(s3Model,hass({
 }));
 const s3Svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
 s3Svg.innerHTML=s3Render.body;
+const s3ReturnPipe=s3Svg.querySelector('[data-hpi-edge="s3_rl"] .pipe')?.getAttribute('d')||'';
 const s3Art=s3Svg.querySelector('.hpi-froeling-primary .hpi-froeling');
 const s3Sockets=s3Art?.querySelectorAll('.hpi-fr-water-ports path');
 check(s3Sockets?.length===2&&[...s3Sockets].every(path=>
@@ -461,7 +462,6 @@ check(!s3RlaReturn.includes('H69')&&
   s3RlaReturn.endsWith('H'+s3Return.x),
   'S3 return pipe approaches from right and joins RLA without left boiler loop');
 
-const s3ReturnPipe=s3Svg.querySelector('[data-hpi-edge="s3_rl"] .pipe')?.getAttribute('d')||'';
 check(s3ReturnPipe.endsWith('H'+s3Return.x)&&
   !/V288(?:\\s|$)/.test(s3ReturnPipe),
   'The return approaches the water port directly without a chimney detour');
