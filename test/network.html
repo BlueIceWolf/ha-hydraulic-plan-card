@@ -440,6 +440,27 @@ check(s3Sockets?.length===2&&[...s3Sockets].every(path=>
   'Only two short local pipe sockets, no independent external VL/RL stubs');
 check(s3Art?.querySelector('.hpi-fr-flue')?.getAttribute('d')==='M445 85 H470 V12',
   'The flue points upward and is geometrically separate from water connections');
+
+const rlaPath=s3Svg.querySelector('[data-hpi-edge="rla_s3"] .pipe')?.getAttribute('d')||'';
+const rlaMarker=s3Svg.querySelector('[data-hpi-rla-marker="s3"]');
+const rlaPump=rlaMarker?.querySelector('.hpi-rla-pump');
+const rlaValve=rlaMarker?.querySelector('.hpi-rla-valve');
+const s3ReturnY=s3Return.y;
+const mixerAtX=s3Return.x+95;
+check(rlaPath.includes('H'+mixerAtX)&&
+  rlaPath.includes('V'+s3ReturnY),
+  'S3 hot bypass runs to right-side RLA, not behind boiler or through chimney');
+check(rlaPump?.getAttribute('cx')===String(s3Return.x+43)&&
+  rlaPump?.getAttribute('cy')===String(s3ReturnY)&&
+  rlaValve?.getAttribute('cx')===String(mixerAtX)&&
+  rlaValve?.getAttribute('cy')===String(s3ReturnY),
+  'S3 return loading pump sits between physical return socket and RLA mixer');
+const s3RlaReturn=s3ReturnPipe.replace(/M/g,' M');
+check(!s3RlaReturn.includes('H69')&&
+  s3RlaReturn.includes('H'+mixerAtX)&&
+  s3RlaReturn.endsWith('H'+s3Return.x),
+  'S3 return pipe approaches from right and joins RLA without left boiler loop');
+
 const s3ReturnPipe=s3Svg.querySelector('[data-hpi-edge="s3_rl"] .pipe')?.getAttribute('d')||'';
 check(s3ReturnPipe.endsWith('H'+s3Return.x)&&
   !/V288(?:\\s|$)/.test(s3ReturnPipe),
