@@ -475,7 +475,7 @@ check(coloured.nativePipes.s3_hk?.return?.colored?.[0]?.color===returnColor&&
 const coldColor=HPC_FREE.color({number:32,unit:'°C'});
 const nearCold=HPC_FREE.color({number:43,unit:'°C'});
 const hotBand=HPC_FREE.color({number:75,unit:'°C'});
-const rgb=text=>(text.match(/\\d+/g)||[]).map(Number);
+const rgb=text=>(text.match(/\d+/g)||[]).map(Number);
 const coldRgb=rgb(coldColor),nearRgb=rgb(nearCold),hotRgb=rgb(hotBand);
 check(coldRgb[2]>coldRgb[0]*2.5&&coldRgb[2]>coldRgb[1],
   'Cold/32 °C remains visibly blue and not purple');
