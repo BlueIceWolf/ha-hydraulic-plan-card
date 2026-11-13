@@ -10368,9 +10368,20 @@ const HPC_INTEGRATED = (() => {
         const artwork=type==='oil_boiler'
           ?oilArt(b.x+35,b.y+44,170,96,!!burner&&HPC_FREE.active(burner),node.options?.boiler_kind)
           :additionalSourceArt(type,b,on,node,hass);
-        return '<g class="tap hpi-component hpi-source-unit" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.state||node.sensors.flow||'')+'">'
+        // Deliberately remove the decorative card ONLY for the new Fröling
+        // cutaway. Other generators retain their previously familiar frame.
+        const frameless=type==='wood_gasifier'&&node.options?.froeling_view!=='classic';
+        const titleY=frameless?b.y+224:b.y+27;
+        return '<g class="tap hpi-component hpi-source-unit'+
+          (frameless?' hpi-source-frameless':'')+
+          '" data-hpi-node="'+HPC_FREE.esc(node.id)+
+          '" data-entity="'+HPC_FREE.esc(node.sensors.state||node.sensors.flow||'')+'">'
           +'<title>'+title+'</title>'
-          +'<text class="unit-title hpi-generator-title" x="'+cx+'" y="'+(b.y+224)+'" text-anchor="middle">'+title+'</text>'
+          +(frameless?'':'<rect class="unit'+(on?' on':'')+
+            '" x="'+b.x+'" y="'+b.y+'" width="'+b.w+
+            '" height="'+b.h+'" rx="20"/>')
+          +'<text class="unit-title hpi-generator-title" x="'+cx+
+            '" y="'+titleY+'" text-anchor="middle">'+title+'</text>'
           +artwork+'</g>';
       }
       if(type==='oil_boiler'){
@@ -10573,7 +10584,10 @@ const HPC_INTEGRATED = (() => {
       ?'<g class="tap hpi-gas-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
         +additionalSourceArt('gas_boiler',{x:50,y:195},!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource)+'</g>'
       :'';
-    const primaryTitle=firstSource&&firstSource.type!=='heat_pump'
+    // The native primary title/card stays intact for all other generators.
+    // Only the Fröling S3 cutaway draws its name on a freestanding picture.
+    const primaryTitle=firstSource?.type==='wood_gasifier'&&
+        firstSource.options?.froeling_view!=='classic'
       ?'<text class="unit-title hpi-primary-source-title" x="170" y="220" text-anchor="middle">'+HPC_FREE.esc(firstSource.name)+'</text>'
       :'';
     const firstBuffer=HPC_NETWORK.orderedBuffers(plan)[0];
@@ -11136,20 +11150,19 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           (circuit.options?.mixer_inverted?100-reading.number:reading.number)/100:null;
         const label=group.querySelector('#t-hc-mix'+suffix);
         if(label&&measured)label.textContent=Math.round(hot*100)+' %';
-        if(!group.querySelector('.hpi-mix-illustration')){
-          group.insertAdjacentHTML('beforeend',
-            '<g class="hpi-mix-illustration" aria-hidden="true">'+
-            '<path class="hot" d="M745 360 H757"/>'+
-            '<path class="cold" d="M760 374 V363"/></g>');
-        }
+        // Preserve the original valve pictogram: two opposing upper
+        // triangles and one lower return port. Dynamic percentages belong
+        // to the flow indication, not to an additional symbol overlay.
+        const originalValve=group.querySelector('.mix-body');
+        if(originalValve)originalValve.setAttribute('d',
+          'M748 352 L760 360 L748 368 Z '+
+          'M772 352 L760 360 L772 368 Z '+
+          'M752 374 L760 360 L768 374 Z');
+        group.querySelector('.hpi-mix-illustration')?.remove();
         const flows=plan.connections.filter(edge=>edge.to===circuit.id&&edge.to_port==='flow_in');
         const returns=plan.connections.filter(edge=>edge.from===circuit.id&&edge.from_port==='return_out');
         const active=flows.some(edge=>evidence.get(edge.id)?.active)&&
           returns.some(edge=>evidence.get(edge.id)?.active);
-        const illustration=group.querySelector('.hpi-mix-illustration');
-        illustration.classList.toggle('on',!!measured&&active);
-        illustration.querySelector('.hot').style.opacity=measured?String(hot):'0';
-        illustration.querySelector('.cold').style.opacity=measured?String(1-hot):'0';
         // This path is routed by the network: never draw a second physical
         // pipe, just the flow particles within its existing return bypass.
         const bypass=svg.querySelector('#p-hc-mix'+suffix);
@@ -11219,17 +11232,21 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         ['wood_chip_boiler','oil_boiler','gas_boiler'].includes(primaryType)||
         (primaryType==='wood_gasifier'&&primarySource.options?.froeling_view!=='classic')
           ?'none':'';
-      // Remove only the duplicate generator tile and values. The central
-      // hydraulic graph still connects to the real ports of its pictogram.
+      // Frameless is a Fröling S3-only feature. The original native frame,
+      // name and state readings stay available for every other generator.
+      const framelessFroeling=primaryType==='wood_gasifier'&&
+        primarySource?.options?.froeling_view!=='classic';
+      const sourceBox=svg.querySelector('#hp-box');
+      if(sourceBox)sourceBox.style.display=framelessFroeling?'none':'';
       if(primarySource){
-        const sourceBox=svg.querySelector('#hp-box');
-        if(sourceBox)sourceBox.style.display='none';
-        if(primaryType!=='heat_pump'){
-          const sourceGroup=sourceBox?.closest('g.tap');
+        const sourceGroup=sourceBox?.closest('g.tap');
+        if(framelessFroeling){
           sourceGroup?.querySelector('text.unit-title')?.setAttribute('display','none');
           sourceGroup?.querySelector('.vapour')?.setAttribute('display','none');
           for(const label of ['#t-hp-status','#t-hp-power','#t-hp-cop','#t-hp-heat'])
             sourceGroup?.querySelector(label)?.setAttribute('display','none');
+        }
+        if(primaryType!=='heat_pump'){
           const oldMiniBoiler=svg.querySelector('#boiler');
           if(oldMiniBoiler)oldMiniBoiler.style.display='none';
         }
@@ -11428,13 +11445,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-oil-kind{font-size:11px;font-weight:600;fill:var(--secondary-text-color,#919ba6);}'
           +'.hpi-oil-reading{fill:var(--hfc-muted,var(--secondary-text-color));}'
           +'.hpi-source-unit .unit-title,.hpi-primary-source-title{font-size:17px;font-weight:700;paint-order:stroke;stroke:var(--card-background-color,#202124);stroke-width:3;}'
-          +'.hpi-mix-illustration{pointer-events:none;}'
-          +'.hpi-mix-illustration path{fill:none;stroke-width:3.5;stroke-linecap:round;stroke-dasharray:3 7;animation:hpc-rla-motion 1.2s linear infinite;}'
-          +'.hpi-mix-illustration .hot{stroke:#ef3f63;}'
-          +'.hpi-mix-illustration .cold{stroke:#258fdf;}'
-          +'.hpi-mix-illustration:not(.on) path{animation-play-state:paused;}'
           +'.hpi-mix-bypass-flow{opacity:.7;}'
-          +'@media(prefers-reduced-motion:reduce){.hpi-mix-illustration path,.hpi-mix-bypass-flow{animation:none!important;}}'
+          +'@media(prefers-reduced-motion:reduce){.hpi-mix-bypass-flow{animation:none!important;}}'
           +'.hpi-rla-bypass{fill:none;stroke:var(--pc,#8d53d6);stroke-width:5;stroke-linecap:round;stroke-linejoin:round;}'
           +'.hpi-rla-flow{fill:none;stroke:#fff;stroke-width:2;stroke-dasharray:4 10;animation:hpc-rla-motion 1.4s linear infinite;pointer-events:none;}'
           +'@keyframes hpc-rla-motion{to{stroke-dashoffset:-28}}'
