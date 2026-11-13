@@ -411,7 +411,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'@keyframes hpi-fr-spin{to{transform:rotate(360deg)}}'
           +'@keyframes hpi-fr-burn{from{transform:scaleX(.87) scaleY(.89);opacity:.8}to{transform:scaleX(1.06) scaleY(1.06);opacity:1}}'
           +'@keyframes hpi-fr-smoke{to{stroke-dashoffset:-34}}'
-          +'@media (prefers-reduced-motion:reduce){.hpi-froeling .hpi-fr-flame,.hpi-froeling .hpi-fr-smoke,.hpi-froeling .hpi-fr-fanwheel,.hpi-froeling .hpi-fr-pumpwheel{animation:none!important},.hpi-froeling .hpi-fr-waterflow{animation:none!important}}'
+          +'@media (prefers-reduced-motion:reduce){.hpi-froeling .hpi-fr-flame,.hpi-froeling .hpi-fr-smoke,.hpi-froeling .hpi-fr-fanwheel,.hpi-froeling .hpi-fr-pumpwheel,.hpi-froeling .hpi-fr-waterflow{animation:none!important}}'
           +'.hpi-oil-seam{fill:none;stroke:var(--divider-color,#596c7c);stroke-width:1.25;stroke-linecap:round;}'
           +'.hpi-oil-burner{fill:var(--secondary-background-color,#4d5966);stroke:var(--hfc-muted,#8795a0);stroke-width:1.7;}'
           +'.hpi-oil-burner-neck{fill:var(--secondary-background-color,#7b858d);stroke:var(--divider-color,#a6b0b9);stroke-width:1.3;}'
