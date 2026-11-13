@@ -129,6 +129,23 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         }
         const body=svg.querySelector('#f-hc-body'+suffix);
         if(body)body.classList.toggle('on',active);
+        // The emitter's fixed legacy body starts where the network-routed
+        // mixed flow ends (x=826). Use the *same* post-mixer temperature
+        // instead of falling back to the original generator's hot colour.
+        const emitter=svg.querySelector('#p-hc-body'+suffix);
+        const feedColour=paths.flow?.colored?.at(-1)?.color;
+        if(emitter&&feedColour){
+          emitter.style.setProperty('--pc',feedColour);
+          // Preserve the radiator's supply-to-return gradient where used.
+          // Only the upper stop gets the mixed-temperature colour.
+          const head=svg.querySelector('#g-hcb'+suffix+'-a');
+          if(head){
+            head.setAttribute('stop-color',feedColour);
+            emitter.style.stroke='url(#g-hcb'+suffix+')';
+          }else emitter.style.stroke=feedColour;
+          const ribs=svg.querySelector('#g-rad'+suffix+'-a');
+          if(ribs)ribs.setAttribute('stop-color',feedColour);
+        }
         const mixer=svg.querySelector('#p-hc-mix'+suffix);
         if(mixer){
           mixer.setAttribute('d',paths.mixer?.pipe||'');
@@ -160,8 +177,25 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           (circuit.options?.mixer_inverted?100-reading.number:reading.number)/100:null;
         const label=group.querySelector('#t-hc-mix'+suffix);
         if(label&&measured)label.textContent=Math.round(hot*100)+' %';
-        // Original upstream mixing valve pictogram, without decorative overlays.
+        if(label){
+          label.setAttribute('x','782');
+          label.setAttribute('y','399');
+          label.setAttribute('text-anchor','start');
+        }
+        // Original three-port valve, with an opaque backplate so the
+        // hot/cold supply pipes cannot draw THROUGH its triangular symbol.
+        // Reuse the native SVG and move the complete group above the
+        // temperature-coloured pipe overlays within its native circuit.
         const originalValve=group.querySelector('.mix-body');
+        if(!group.querySelector('.hpi-mix-backplate')){
+          const backdrop=document.createElementNS('http://www.w3.org/2000/svg','circle');
+          backdrop.setAttribute('class','hpi-mix-backplate');
+          backdrop.setAttribute('cx','760');
+          backdrop.setAttribute('cy','360');
+          backdrop.setAttribute('r','19');
+          group.insertBefore(backdrop,group.firstChild);
+        }
+        group.parentElement?.appendChild(group);
         if(originalValve)originalValve.setAttribute('d',
           'M748 352 L760 360 L748 368 Z '+
           'M772 352 L760 360 L772 368 Z '+
@@ -452,6 +486,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-oil-kind{font-size:11px;font-weight:600;fill:var(--secondary-text-color,#919ba6);}'
           +'.hpi-oil-reading{fill:var(--hfc-muted,var(--secondary-text-color));}'
           +'.hpi-source-unit .unit-title,.hpi-primary-source-title{font-size:17px;font-weight:700;paint-order:stroke;stroke:var(--card-background-color,#202124);stroke-width:3;}'
+          +'.hpi-mix-backplate{fill:var(--card-background-color,#202124);stroke:var(--hfc-muted,#9ca3af);stroke-width:1.5;pointer-events:none;}'
+          +'.mixer .mix-body{fill:var(--card-background-color,#202124);stroke:var(--primary-text-color,#e5e7eb);stroke-width:2.3;stroke-linejoin:round;pointer-events:none;}'
           +'.hpi-mix-bypass-flow{opacity:.7;}'
           +'@media(prefers-reduced-motion:reduce){.hpi-mix-bypass-flow{animation:none!important;}}'
           +'.hpi-rla-bypass{fill:none;stroke:var(--pc,#8d53d6);stroke-width:5;stroke-linecap:round;stroke-linejoin:round;}'
