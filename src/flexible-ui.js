@@ -997,8 +997,9 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <button type="button" data-action="add-level" data-component="${esc(node.id)}">
             ${t('Fühler hinzufügen','Add sensor')}</button></details>`:'';
         let specialized='';
+        let appearance='';
         if(node.type==='heat_pump'){
-          specialized=`<div class="hpc-row"><label>${t('Darstellung des Außengeräts','Outdoor unit style')}
+          appearance=`<div class="hpc-row"><label>${t('Darstellung des Außengeräts','Outdoor unit style')}
             <select data-wp-style="${esc(node.id)}">${HPC_WPLS_UNIT_STYLES.map(style=>
               `<option value="${style}" ${(node.options?.unit_style||'auto')===style?'selected':''}>${esc(unitLabels[style]||style)}</option>`).join('')}</select></label>
             <label>${t('Gerätegröße / Lüfter','Unit size / fans')}<select data-wp-size="${esc(node.id)}">
@@ -1153,18 +1154,34 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const removeWarning=assigned.length
           ?t(`${assigned.length} Leitungen und zugeordnete Messwerte können betroffen sein.`,
               `${assigned.length} pipes and their assigned measurements may be affected.`):'';
-        return `<details class="hpc-component-card" data-panel="component:${esc(node.id)}">
-          <summary><strong>${esc(node.name)}</strong> · ${esc(HPC_FREE.display(node.type,lang))}</summary>
-          <div class="hpc-component-body">${typeSelect}${nameInput}${specialized}
-            ${sourceConnection}
-            <details data-panel="sensors:${esc(node.id)}"><summary>${t('Sensoren und Messwerte','Sensors and measurements')}</summary>
-              <div class="hpc-component-sensors">${sensorInputs}${moreInputs}</div></details>
-            ${levels}<p class="hpc-connection-summary">${edgeSummary.length
-              ?t('Graphverbindungen: ','Graph connections: ')+edgeSummary.join(' · ')
-              :t('Noch keine hydraulische Verbindung im Graphen.','No hydraulic graph connection yet.')}</p>
-            <button type="button" data-action="remove-component" data-component="${esc(node.id)}">
-              ${t('Komponente entfernen','Remove component')}</button>
-            ${removeWarning?`<small>${esc(removeWarning)}</small>`:''}</div></details>`;
+        const assignedCount=fields.filter(key=>!!node.sensors?.[key]).length;
+        return `<details class="hpc-component-card" data-panel="component:${esc(node.id)}" ${node.id===selected?.id?'open':''}>
+          <summary>${HPC_FREE.icon(node.type)} <span><strong>${esc(node.name)}</strong>
+            <small>${esc(HPC_FREE.display(node.type,lang))} · ${assignedCount} ${t('Messwerte','values')}</small></span></summary>
+          <div class="hpc-component-body">
+            <section class="hpc-component-group">
+              <h4>${t('Gerät und Anschluss','Equipment and connections')}</h4>
+              <div class="hpc-form-fields">${typeSelect}${nameInput}${specialized}${sourceConnection}</div>
+            </section>
+            ${appearance?`<section class="hpc-component-group">
+              <h4>${t('Darstellung','Appearance')}</h4>
+              <div class="hpc-form-fields">${appearance}</div>
+            </section>`:''}
+            <section class="hpc-component-group">
+              <h4>${t('Messwerte','Measurements')} <small>· ${t('alle optional','all optional')}</small></h4>
+              <div class="hpc-component-sensors">${sensorInputs}</div>${moreInputs}
+              ${levels}
+            </section>
+            <details class="hpc-component-actions" data-panel="component-management:${esc(node.id)}">
+              <summary>${t('Weitere Aktionen','More actions')}</summary>
+              <p class="hpc-connection-summary">${edgeSummary.length
+                ?t('Verbindungen: ','Connections: ')+edgeSummary.join(' · ')
+                :t('Noch keine hydraulische Verbindung.','No hydraulic connection yet.')}</p>
+              <button type="button" data-action="remove-component" data-component="${esc(node.id)}">
+                ${t('Komponente entfernen','Remove component')}</button>
+              ${removeWarning?`<small>${esc(removeWarning)}</small>`:''}
+            </details>
+          </div></details>`;
       };
       const managedControls=new Set();
       for(const circuit of p.components.filter(node=>node.type==='heating_circuit')){
@@ -1182,14 +1199,24 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         }
         if(tank.options?.dhw_charge?.control)managedControls.add(tank.options.dhw_charge.control);
       }
-      const componentSections=p.components
-        .filter(node=>HPC_FREE.byType[node.type]?.group!=='control'||!managedControls.has(node.id))
-        .map((node,index)=>({node,index}))
-        .sort((a,b)=>{
-          const order={source:0,storage:1,load:2,control:3};
-          return (order[HPC_FREE.byType[a.node.type]?.group]??4)-
-            (order[HPC_FREE.byType[b.node.type]?.group]??4)||a.index-b.index;
-        }).map(({node})=>componentCard(node)).join('');
+      const visibleComponents=p.components.filter(node=>
+        HPC_FREE.byType[node.type]?.group!=='control'||!managedControls.has(node.id));
+      const groups=[
+        ['source',t('Wärmeerzeuger','Heat sources')],
+        ['storage',t('Speicher und Warmwasser','Storage and hot water')],
+        ['load',t('Heizkreise','Heating circuits')],
+        ['control',t('Weitere Bauteile','Other components')]
+      ];
+      // Group by purpose, like the native editor. This does not change the
+      // saved graph, the component IDs or existing measurement assignments.
+      const componentSections=groups.map(([group,label])=>{
+        const nodes=visibleComponents.filter(node=>HPC_FREE.byType[node.type]?.group===group);
+        if(!nodes.length)return '';
+        return `<section class="hpc-component-section" aria-label="${esc(label)}">
+          <h3>${esc(label)} <small>${nodes.length}</small></h3>
+          ${nodes.map(componentCard).join('')}
+        </section>`;
+      }).join('');
       const graphOverview=p.components.map(node=>{
         const edges=p.connections.filter(edge=>edge.from===node.id||edge.to===node.id);
         const otherNames=[...new Set(edges.map(edge=>{
@@ -1273,7 +1300,21 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const legacySchema=legacyForm.schema.filter(field=>
         field.name==='preset'||field.name==='entities'||field.name==='advanced');
       const html=`<style>${HPC_FREE.css}
-        .hpc-category,.hpc-component-card{border:1px solid var(--divider-color,rgba(127,127,127,.25));margin:0;padding:0}
+        .hpc-category,.hpc-component-card{border:1px solid var(--divider-color,rgba(127,127,127,.25));margin:0;padding:0;background:var(--card-background-color,transparent)}
+        .hpc-component-section{margin:14px 0 20px}
+        .hpc-component-section>h3{display:flex;align-items:center;gap:8px;margin:0 0 9px;font-size:1.05rem;font-weight:600}
+        .hpc-component-section>h3 small,.hpc-component-card summary small{font-size:.78rem;color:var(--secondary-text-color);font-weight:400}
+        .hpc-component-card>summary{display:flex;align-items:center;gap:10px}
+        .hpc-component-card>summary span{min-width:0;display:flex;flex-direction:column;gap:3px}
+        .hpc-component-card>summary .hpc-pictogram{width:30px;height:30px;flex-shrink:0}
+        .hpc-component-group{padding:12px 0;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.2))}
+        .hpc-component-group h4{margin:0 0 12px;font-size:.94rem;font-weight:600}
+        .hpc-component-group h4 small{font-weight:400;color:var(--secondary-text-color)}
+        .hpc-form-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px}
+        .hpc-form-fields>section,.hpc-form-fields>details,.hpc-form-fields>.hpc-row{grid-column:1/-1}
+        .hpc-component-actions{margin-top:12px}
+        .hpc-setup-hint{color:var(--secondary-text-color);line-height:1.45;margin:14px 0}
+        .hpc-editor .hpc-component-card>summary:before{order:2;margin-left:auto;flex-shrink:0}
         .hpc-category:first-of-type,.hpc-component-card:first-of-type{border-radius:8px 8px 0 0}
         .hpc-category:last-of-type,.hpc-component-card:last-of-type{border-radius:0 0 8px 8px}
         .hpc-category+details,.hpc-component-card+details{border-top:0}
@@ -1345,8 +1386,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
                 ${t('Hinzufügen','Add')}</button></div>
             </div>
           </details>
-          <h3>${t("Hydraulikschema","Hydraulic schematic")}</h3>
-          <p>${t("Die Bauteile werden passend zu ihren Anschlüssen automatisch im ursprünglichen Hydraulikplan angeordnet. Du musst keine Positionen eingeben. Die Live-Vorschau siehst du im Dashboard.","Components are automatically arranged in the original hydraulic schematic. No manual coordinates are required. The dashboard shows the live preview.")}</p>
+          <p class="hpc-setup-hint">${t("Gerät, Messwerte und Darstellung findest du direkt beim jeweiligen Bauteil. Nicht benötigte Datenpunkte bleiben frei.","Device, measurements and appearance are grouped with each component. Unneeded measurements can stay empty.")}</p>
           ${componentSections}
           <details class="hpc-category" data-panel="advanced">
             <summary><strong>${t('Erweiterte Einstellungen','Advanced settings')}</strong></summary>
