@@ -374,12 +374,18 @@ const HPC_NETWORK = (() => {
       const volume=HPC_FREE.state(hass,node.sensors?.volume);
       const stopped=volume?.number!==null&&volume?.number<=0||
         pump?.text?.toLowerCase()==='off';
+      const position=HPC_FREE.state(hass,node.sensors?.mixer);
+      // A known position controls illustrative bypass intensity, never
+      // inventing a measured volume flow from a percentage.
+      const hot=position&&Number.isFinite(position.number)&&
+        position.number>=0&&position.number<=100?
+        (node.options?.mixer_inverted?100-position.number:position.number)/100:null;
       const active=!stopped&&(volume?.number>0||
-        pump!==null&&HPC_FREE.active(pump));
+        pump!==null&&HPC_FREE.active(pump))&&(hot===null||hot>0);
       edges.push({
         id:'rla_'+node.id,kind:'return_lift',
         from:node.id,from_port:'flow',to:node.id,to_port:'return',
-        active,flow_entity:'',temperature_entity:''
+        active,mix:hot,flow_entity:'',temperature_entity:''
       });
     }
     return edges;
