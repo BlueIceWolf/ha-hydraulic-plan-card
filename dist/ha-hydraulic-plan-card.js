@@ -8880,10 +8880,12 @@ const HPC_NETWORK = (() => {
       ?Math.max(0,point.x-box.x):Math.max(0,box.x+box.w-point.x);
     const fromInset=inset(p,fromSide,fromBox),toInset=inset(q,toSide,toBox);
     const available=portGap-fromInset-toInset;
-    const fromStub=facing&&available>6
-      ?Math.min(18,Math.max(fromInset+1,available/3)):18;
-    const toStub=facing&&available>6
-      ?Math.min(18,Math.max(toInset+1,available/3)):18;
+    // Physical boiler connections can be inside an older, oversized visual
+    // source tile. The graph's access stub must leave that box entirely;
+    // otherwise the routing search STARTS/ENDS inside a blocked cell and
+    // incorrectly concludes that no orthogonal route can exist.
+    const fromStub=Math.max(18,fromInset+12);
+    const toStub=Math.max(18,toInset+12);
     const pieces=d=>{
       const tokens=(d||'').match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
       const segments=[];let x=0,y=0;
