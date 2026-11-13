@@ -995,7 +995,7 @@ const HPC_INTEGRATED = (() => {
           +'</g>';
       }
       const icon=isSource(node)?additionalSourceArt(type,b,on,node,hass):
-        type==='pump'?'<circle class="pump" cx="'+cx+'" cy="'+cy+'" r="23"/><path class="imp" d="M'+(cx-7)+' '+(cy-12)+' L'+(cx+12)+' '+cy+' L'+(cx-7)+' '+(cy+12)+'Z"/>':
+        type==='pump'?'<circle class="pump" cx="'+cx+'" cy="'+cy+'" r="23"/><g class="impeller'+(on?' on':'')+'" style="transform-origin:'+cx+'px '+cy+'px"><path class="imp" d="M'+cx+' '+(cy-12)+' L'+(cx+9)+' '+cy+' L'+cx+' '+(cy+12)+' L'+(cx-9)+' '+cy+'Z"/></g>':
         type==='mixer'||type==='diverter'?'<circle class="valve" cx="'+cx+'" cy="'+cy+'" r="21"/><path class="valve-arrow" d="M'+(cx-13)+' '+(cy-9)+' L'+cx+' '+(cy+7)+' L'+(cx+13)+' '+(cy-9)+'"/>':
         type==='electric_heater'?'<path class="heater" d="M'+(cx-26)+' '+cy+' h12 l10 -15 l11 30 l10 -15 h12"/>':
         type==='heating_circuit'?'<path class="rib" d="M'+(cx-30)+' '+(cy-18)+' v36 M'+(cx-17)+' '+(cy-18)+' v36 M'+(cx-4)+' '+(cy-18)+' v36 M'+(cx+9)+' '+(cy-18)+' v36 M'+(cx+22)+' '+(cy-18)+' v36"/>':
