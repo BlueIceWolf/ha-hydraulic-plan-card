@@ -1,0 +1,55 @@
+name: Publish HACS version
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - dist/ha-hydraulic-plan-card.js
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hydraulic-hacs-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact commit
+        uses: actions/checkout@v4
+      - name: Verify version and distributable
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          test -s dist/ha-hydraulic-plan-card.js
+          grep -Fq "const HFC_VERSION = '$version';" dist/ha-hydraulic-plan-card.js
+          echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+      - name: Publish GitHub release with HACS JavaScript asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::notice::Release $TAG already exists, no changes."
+            exit 0
+          fi
+          cat > release-notes.md <<EOF
+          Hydraulic Plan Card $VERSION – Entwicklungsstand (nicht vollständig visuell abgenommen).
+
+          HACS: In der Karte „Neu herunterladen“ wählen und $TAG installieren.
+          Die veröffentlichte Datei ha-hydraulic-plan-card.js ist der gebaute Dashboard-Code.
+          Die Kartenkonfiguration bleibt beim Update erhalten; vor Alpha-Updates ein Backup empfohlen.
+          EOF
+          gh release create "$TAG" dist/ha-hydraulic-plan-card.js \
+            --target "$GITHUB_SHA" \
+            --title "$TAG – Hydraulic Plan Card (Alpha)" \
+            --notes-file release-notes.md
