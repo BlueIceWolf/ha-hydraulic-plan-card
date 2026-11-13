@@ -110,6 +110,37 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             const id='hpi-temp-'+circuit.id+'-'+leg;
             pipe.parentElement?.querySelector('[data-hpi-temp-group="'+id+'"]')?.remove();
             const colors=paths[leg]?.colored||[];
+            // The native feed can span the mixing valve in a single SVG
+            // segment. Temperature changes at the outlet of the valve,
+            // never at the next tee/radiator. Keep the true source colour
+            // upstream, and the measured/target circuit colour downstream.
+            const mixedColour=leg==='flow'
+              ?paths.flow?.colored?.at(-1)?.color:null;
+            let clipBefore=null,clipAfter=null;
+            if(mixedColour&&colors.length){
+              const defs=svg.querySelector('defs');
+              if(defs){
+                const makeClip=(side)=>{
+                  const id='hpi-mixer-boundary-'+circuit.id+'-'+side;
+                  let clip=defs.querySelector('[id="'+id+'"]');
+                  if(!clip){
+                    clip=document.createElementNS('http://www.w3.org/2000/svg','clipPath');
+                    clip.setAttribute('id',id);
+                    clip.setAttribute('clipPathUnits','userSpaceOnUse');
+                    const rect=document.createElementNS('http://www.w3.org/2000/svg','rect');
+                    rect.setAttribute('x',side==='before'?-10000:760);
+                    rect.setAttribute('y','-10000');
+                    rect.setAttribute('width',side==='before'?'10760':'10000');
+                    rect.setAttribute('height','20000');
+                    clip.appendChild(rect);
+                    defs.appendChild(clip);
+                  }
+                  return 'url(#'+id+')';
+                };
+                clipBefore=makeClip('before');
+                clipAfter=makeClip('after');
+              }
+            }
             if(colors.length){
               pipe.setAttribute('d','');
               const group=document.createElementNS('http://www.w3.org/2000/svg','g');
@@ -119,7 +150,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
                 path.setAttribute('class','pipe hpi-native-temperature');
                 path.setAttribute('d',segment.pipe);
                 path.style.setProperty('--pc',segment.color);
-                group.appendChild(path);
+                if(clipBefore&&clipAfter){
+                  // A clip boundary at the valve centre avoids rendering a
+                  // second physical pipe or recolouring the hot inlet.
+                  path.setAttribute('clip-path',clipBefore);
+                  const after=path.cloneNode(false);
+                  after.setAttribute('clip-path',clipAfter);
+                  after.style.setProperty('--pc',mixedColour);
+                  group.appendChild(path);
+                  group.appendChild(after);
+                }else group.appendChild(path);
               }
               pipe.parentElement?.insertBefore(group,pipe.nextSibling);
             }else pipe.setAttribute('d',paths[leg]?.pipe||'');
