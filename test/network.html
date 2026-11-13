@@ -470,6 +470,46 @@ check(colourSegments.length>=3&&colourSegments[0].color===hotColor&&
 check(coloured.nativePipes.s3_hk?.return?.colored?.[0]?.color===returnColor&&
   coloured.nativePipes.s3_hk?.mixer?.colored?.[0]?.color===returnColor,
   'Measured return temperature controls both return elbow and mixer bypass');
+// 32 °C return water must read as blue, not purple; 43 °C stays
+// blue-leaning, while 75 °C is a hot pink/red and >=90 °C full red.
+const coldColor=HPC_FREE.color({number:32,unit:'°C'});
+const nearCold=HPC_FREE.color({number:43,unit:'°C'});
+const hotBand=HPC_FREE.color({number:75,unit:'°C'});
+const rgb=text=>(text.match(/\\d+/g)||[]).map(Number);
+const coldRgb=rgb(coldColor),nearRgb=rgb(nearCold),hotRgb=rgb(hotBand);
+check(coldRgb[2]>coldRgb[0]*2.5&&coldRgb[2]>coldRgb[1],
+  'Cold/32 °C remains visibly blue and not purple');
+check(nearRgb[2]>nearRgb[0]*1.8,
+  '43 °C return still has a blue-dominant hue');
+check(hotRgb[0]>hotRgb[2]*1.8,
+  '75 °C hot buffer water is red/pink, not a cold hue');
+const expectedTarget=HPC_FREE.color({number:40,unit:'°C'});
+const targetPlan=structuredClone(colourPlan);
+targetPlan.components.find(node=>node.id==='s3_hk').sensors.target='sensor.s3_hk_target';
+const targetHass=hass({
+  'switch.s3':'on','switch.s3_hk':'on',
+  'sensor.s3_buffer_top':[75,'°C'],'sensor.s3_buffer_bottom':[35,'°C'],
+  'sensor.s3_hk_target':[40,'°C'],'sensor.s3_hk_return':[32,'°C']
+});
+const targetResult=HPC_INTEGRATED.svg(HPC_INTEGRATED.layout(targetPlan),targetHass)
+  .nativePipes.s3_hk.flow.colored;
+check(targetResult[0].color===HPC_FREE.color({number:75,unit:'°C'})&&
+  targetResult[1].color===HPC_FREE.color({number:75,unit:'°C'})&&
+  targetResult.at(-1).color===expectedTarget,
+  'Hot puffer VL reaches mixer; afterwards use configured target without actual');
+const actualPlan=structuredClone(targetPlan);
+actualPlan.components.find(node=>node.id==='s3_hk').sensors.flow='sensor.s3_hk_actual';
+const actualHass=hass({
+  'switch.s3':'on','switch.s3_hk':'on',
+  'sensor.s3_buffer_top':[75,'°C'],
+  'sensor.s3_hk_target':[40,'°C'],'sensor.s3_hk_actual':[44,'°C'],
+  'sensor.s3_hk_return':[32,'°C']
+});
+const actualResult=HPC_INTEGRATED.svg(HPC_INTEGRATED.layout(actualPlan),actualHass)
+  .nativePipes.s3_hk.flow.colored;
+check(actualResult.at(-1).color===HPC_FREE.color({number:44,unit:'°C'}),
+  'Actual measured heating flow takes precedence over the setpoint after mixer');
+
 document.querySelector('#result').textContent=checks.every(line=>line.startsWith('OK'))?'PASS':'FAIL';
 document.querySelector('#log').textContent=checks.join('\n');
 </script></body></html>
