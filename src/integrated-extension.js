@@ -842,12 +842,45 @@ const HPC_INTEGRATED = (() => {
       // Explicit pipe sensor wins, followed by the temperature of the
       // actual supplying component. The storage-temperature sensor of the
       // DHW tank never represents its heat-exchanger coil water.
-      const reading=pipeTemperature(plan,hass,edge,all);
+      let reading=pipeTemperature(plan,hass,edge,all);
+      // The hot buffer supply keeps its source temperature THROUGH the
+      // heating-circuit pump, until it actually reaches the mixer.
+      if(edge.kind==='heating_circuit_internal'&&all[edge.from]?.type==='heating_circuit'){
+        const circuit=all[edge.from];
+        if(edge.to_port==='mixer_hot'||(edge.to_port==='emitter_in'&&
+            circuit.options?.mixed===false)){
+          const feed=plan.connections.find(row=>row.to===circuit.id&&
+            row.to_port==='flow_in');
+          reading=feed?pipeTemperature(plan,hass,feed,all):null;
+        }else if(edge.to_port==='emitter_in'){
+          // The actual mixed-flow sensor wins. An unmeasured mixture is
+          // illustrative only when both temperatures and the valve exist.
+          reading=HPC_FREE.state(hass,circuit.sensors?.flow);
+          if(!reading||!Number.isFinite(reading.number)){
+            const feed=plan.connections.find(row=>row.to===circuit.id&&
+              row.to_port==='flow_in');
+            const hot=feed?pipeTemperature(plan,hass,feed,all):null;
+            const cold=HPC_FREE.state(hass,circuit.sensors?.return);
+            const position=HPC_FREE.state(hass,circuit.sensors?.mixer);
+            if(hot&&cold&&position&&Number.isFinite(hot.number)&&
+                Number.isFinite(cold.number)&&Number.isFinite(position.number)&&
+                position.number>=0&&position.number<=100&&
+                ['°C','°c','C'].includes(hot.unit)&&
+                ['°C','°c','C'].includes(cold.unit)){
+              const opening=(circuit.options?.mixer_inverted?
+                100-position.number:position.number)/100;
+              reading={number:hot.number*opening+cold.number*(1-opening),
+                unit:'°C',illustrative:true};
+            }else reading=null;
+          }
+        }
+      }
       const returnPipe=edge.kind==='heating_circuit_internal_return'||
         edge.kind==='heating_circuit_mixer_bypass'||
         /^(return_out|coil_out|bottom_out|return)$/.test(edge.from_port)||
         /^(return|return_in|bottom_in|mixer_bypass_in|mixer_return)$/.test(edge.to_port);
-      const defaultPipeColor=returnPipe?'#258fdf':'#b956bd';
+      // Unknown actual temperature uses neutral slate, not a false hot/cold value.
+      const defaultPipeColor='#718096';
       const nativeCircuit=all[edge.to]?.type==='heating_circuit'&&anchored.has(edge.to)
         ?edge.to:all[edge.from]?.type==='heating_circuit'&&anchored.has(edge.from)
           ?edge.from:null;
@@ -870,10 +903,13 @@ const HPC_INTEGRATED = (() => {
         record.edge.to===record.nativeCircuit?'flow':'return';
       const pair=physicalPipes.get(record.edge.id)||{pipe:'',flow:''};
       const group=nativePipes[record.nativeCircuit]||(nativePipes[record.nativeCircuit]={});
-      const leg=group[direction]||(group[direction]={pipe:'',flow:''});
+      const leg=group[direction]||(group[direction]={pipe:'',flow:'',colored:[]});
       const offsetY=(circuitIndexes.get(record.nativeCircuit)||0)*250;
-      leg.pipe+=(leg.pipe?' ':'')+localizeCircuitPath(pair.pipe,offsetY);
+      const localPipe=localizeCircuitPath(pair.pipe,offsetY);
+      leg.pipe+=(leg.pipe?' ':'')+localPipe;
       leg.flow+=(leg.flow?' ':'')+localizeCircuitPath(pair.flow,offsetY);
+      if(localPipe)leg.colored.push({pipe:localPipe,color:record.color,
+        kind:record.edge.kind||'',measured:!!record.edge.temperature_entity});
     }
     // Restore the original radiator/column/underfloor return elbow:
     // emitter -> smooth downward bend -> horizontal return under the mixer.
