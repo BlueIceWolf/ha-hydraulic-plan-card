@@ -843,6 +843,8 @@ const HPC_INTEGRATED = (() => {
       // actual supplying component. The storage-temperature sensor of the
       // DHW tank never represents its heat-exchanger coil water.
       let reading=pipeTemperature(plan,hass,edge,all);
+      if(['heating_circuit_internal_return','heating_circuit_mixer_bypass'].includes(edge.kind))
+        reading=HPC_FREE.state(hass,all[edge.from]?.sensors?.return);
       // The hot buffer supply keeps its source temperature THROUGH the
       // heating-circuit pump, until it actually reaches the mixer.
       if(edge.kind==='heating_circuit_internal'&&all[edge.from]?.type==='heating_circuit'){
@@ -934,6 +936,11 @@ const HPC_INTEGRATED = (() => {
       // In the SVG the individual circuit group is already translated.
       leg.pipe=elbow+(leg.pipe?' '+leg.pipe:'');
       if(circuitFlowing.get(id))leg.flow=elbow+(leg.flow?' '+leg.flow:'');
+      const returnTemp=HPC_FREE.state(hass,circuit?.sensors?.return);
+      leg.colored=[{pipe:elbow,
+        color:returnTemp&&Number.isFinite(returnTemp.number)?
+          HPC_FREE.color(returnTemp):'#718096',
+        kind:'heating_circuit_internal_return'},...(leg.colored||[])];
     }
     const links=routeRecords.filter(r=>!r.nativeCircuit)
       .map(({edge,on,color,junction,evidence:pipeState})=>{
