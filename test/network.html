@@ -510,6 +510,60 @@ const actualResult=HPC_INTEGRATED.svg(HPC_INTEGRATED.layout(actualPlan),actualHa
 check(actualResult.at(-1).color===HPC_FREE.color({number:44,unit:'°C'}),
   'Actual measured heating flow takes precedence over the setpoint after mixer');
 
+// The classic WW / heating buffer switching topology must be created by
+// one editor action: AB feed, A->DHW, B->buffer, shared return to the source.
+const switchedBase=HPC_FREE.normalize({
+  components:[
+    {id:'sw_wp',type:'heat_pump',sensors:{pump:'switch.sw_wp'}},
+    {id:'sw_ww',type:'dhw_tank'},
+    {id:'sw_buffer',type:'buffer'}
+  ],
+  connections:[
+    {id:'sw_direct_flow',from:'sw_wp',from_port:'flow',to:'sw_buffer',to_port:'top_in'},
+    {id:'sw_direct_return',from:'sw_buffer',from_port:'bottom_out',to:'sw_wp',to_port:'return'}
+  ]
+});
+const switched=HPC_FREE.connectDhwBufferDiverter(
+  switchedBase,'sw_wp','sw_ww','sw_buffer');
+const swValve=switched?.components.find(node=>node.type==='diverter');
+const swEdge=(from,fromPort,to,toPort)=>switched?.connections.find(edge=>
+  edge.from===from&&edge.from_port===fromPort&&
+  edge.to===to&&edge.to_port===toPort);
+check(!!switched&&!!swValve&&switched.connections.length===5&&
+  !switched.connections.some(edge=>edge.id==='sw_direct_flow')&&
+  !!swEdge('sw_wp','flow',swValve.id,'ab')&&
+  !!swEdge(swValve.id,'a','sw_ww','coil_in')&&
+  !!swEdge(swValve.id,'b','sw_buffer','top_in')&&
+  !!swEdge('sw_ww','coil_out','sw_wp','return')&&
+  !!swEdge('sw_buffer','bottom_out','sw_wp','return'),
+  'Diverter helper replaces direct buffer feed with complete DHW/heat changeover');
+if(switched&&swValve){
+  swValve.sensors.position='sensor.sw_valve';
+  swValve.options={...swValve.options,dhw_state:'WW',heating_state:'Heizen'};
+  const swDhw=HPC_NETWORK.flowStates(switched,hass({
+    'switch.sw_wp':'on','sensor.sw_valve':'WW'
+  }));
+  const swHeat=HPC_NETWORK.flowStates(switched,hass({
+    'switch.sw_wp':'on','sensor.sw_valve':'Heizen'
+  }));
+  const swUnknown=HPC_NETWORK.flowStates(switched,hass({
+    'switch.sw_wp':'on','sensor.sw_valve':'unavailable'
+  }));
+  const ww=swEdge(swValve.id,'a','sw_ww','coil_in').id;
+  const heating=swEdge(swValve.id,'b','sw_buffer','top_in').id;
+  const wwReturn=swEdge('sw_ww','coil_out','sw_wp','return').id;
+  const heatingReturn=swEdge('sw_buffer','bottom_out','sw_wp','return').id;
+  check(swDhw.has(ww)&&swDhw.has(wwReturn)&&
+    !swDhw.has(heating)&&!swDhw.has(heatingReturn),
+    'Warmwater valve state circulates only through coil and its return');
+  check(swHeat.has(heating)&&swHeat.has(heatingReturn)&&
+    !swHeat.has(ww)&&!swHeat.has(wwReturn),
+    'Heating valve state circulates only through buffer and its return');
+  check(!swUnknown.has(ww)&&!swUnknown.has(heating)&&
+    !swUnknown.has(wwReturn)&&!swUnknown.has(heatingReturn),
+    'Unknown valve position cannot animate either switched branch');
+}
+
 document.querySelector('#result').textContent=checks.every(line=>line.startsWith('OK'))?'PASS':'FAIL';
 document.querySelector('#log').textContent=checks.join('\n');
 </script></body></html>
