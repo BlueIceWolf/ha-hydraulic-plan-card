@@ -592,6 +592,21 @@ check(egColor.length>=3&&egColor[0].color===
   egColor.at(-1).color===HPC_FREE.color({number:41.7,unit:'°C'}),
   'EG line uses hot buffer colour until mixer, actual temperature afterward');
 
+// The Fröling S3 is the only freestanding heat-source pictogram.
+// Other generators retain their surrounding tile while the original
+// three-way mixer remains the upstream renderer's native 3-port symbol.
+const framePlan=HPC_FREE.normalize({components:[
+  {id:'frame_wood',type:'wood_gasifier',name:'Fröling S3',
+    sensors:{},options:{froeling_view:'s3_turbo'}},
+  {id:'frame_oil',type:'oil_boiler',name:'Buderus',sensors:{}}
+],connections:[]});
+const frameSvg=HPC_INTEGRATED.svg(HPC_INTEGRATED.layout(framePlan),{states:{}}).body;
+const frameRoot=document.createElementNS('http://www.w3.org/2000/svg','svg');
+frameRoot.innerHTML=frameSvg;
+const oilFrame=frameRoot.querySelector('[data-hpi-node="frame_oil"] rect.unit');
+const woodFrame=frameRoot.querySelector('[data-hpi-node="frame_wood"] rect.unit');
+check(!!oilFrame&&!woodFrame,
+  'Only Fröling cutaway is frameless; all other boiler types keep their card border');
 document.querySelector('#result').textContent=checks.every(line=>line.startsWith('OK'))?'PASS':'FAIL';
 document.querySelector('#log').textContent=checks.join('\n');
 </script></body></html>
