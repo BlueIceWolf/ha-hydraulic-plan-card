@@ -236,7 +236,7 @@ const HPC_INTEGRATED = (() => {
     return derived;
   }
   function port(node,shape,key,circuitPump=true,externalReturn=false) {
-    if(shape.type==='source') {
+    if(isSource(node)) {
       // Primary and additional heat sources share the original 240x235
       // pictogram, but never the same absolute pipe ports. Otherwise all
       // supplemental boilers accidentally connect at the first boiler.
@@ -244,6 +244,11 @@ const HPC_INTEGRATED = (() => {
       // not at the end of the decorative picture or the chimney duct.
       // Geometry below is derived from the *same* nested SVG transform
       // used by froelingArt: x + 2, y + 45, (w - 2) × 156.
+      // IMPORTANT: an additional boiler is laid out with shape.type set to
+      // its concrete type (wood_gasifier), whereas the primary shape is
+      // type="source". Only checking shape.type mistakenly connected
+      // supplemental Fröling returns at their LEFT side and wrapped the
+      // network pipes around the whole heat source.
       if(node?.type==='wood_gasifier'&&node.options?.froeling_view!=='classic'){
         const svgX=shape.x+2,svgY=shape.y+45;
         const scaleX=(shape.w-2)/540,scaleY=156/355;
@@ -294,7 +299,10 @@ const HPC_INTEGRATED = (() => {
     return{x:shape.x+(def?.side==='R'?shape.w:0),y:shape.y+(def?.y??.5)*shape.h};
   }
   function portSide(node,shape,key) {
-    if(shape.type==='source')return 'R';
+    // All generator ports, including extra boilers, are on the physical
+    // appliance connection side. Never infer the side from shape.type:
+    // secondary sources keep their concrete node type in the layout.
+    if(isSource(node))return 'R';
     if(shape.type==='buffer')
       return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'L';
     if(shape.type==='dhw_tank')return key.startsWith('coil_')?'L':'R';
