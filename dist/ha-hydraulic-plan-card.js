@@ -8,7 +8,7 @@
  *
  * https://github.com/Sturmi77/heatpump-hydraulic-card · MIT License
  */
-const HFC_VERSION = '0.2.0-alpha.8';
+const HFC_VERSION = '0.2.0-alpha.9';
 // Derivative of Heat Pump Hydraulic Card (MIT, Sturmi77). Keep its engine reusable.
 const HPC_GENERATORS = ['heat_pump', 'wood_gasifier', 'oil', 'pellet', 'gas', 'electric'];
 const HPC_BOILERS = HPC_GENERATORS.slice(1);
@@ -9115,14 +9115,19 @@ const HPC_NETWORK = (() => {
       return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
     }
     let d;
-    // A consumer/storage return approaches the Fröling's RIGHT-hand water
-    // socket directly. An overhead detour could run visually through its
-    // fan/flue area and falsely suggest a chimney-water connection.
-    if (toNode.type==='wood_gasifier' && toNode.options?.froeling_view!=='classic' &&
-        edge.to_port==='return' && fromSide==='L' && toSide==='R' &&
-        p.x>q.x+8) {
-      const mid=(p.x+q.x)/2;
-      d='M'+h(p.x,p.y)+' H'+mid+' V'+q.y+' H'+q.x;
+    // Every generator return is connected from the buffer by a shared
+    // collector rail between the storage and the generators. In particular,
+    // do not send a second (lower) boiler's return behind or around its
+    // picture, or route the upper boiler's return BELOW the lower boiler.
+    // Both returns use the same rail; the physical segment merger creates
+    // one continuous common return, with real branches at each boiler.
+    const sourceReturn=fromNode.type==='buffer'&&
+      ['wood_gasifier','oil_boiler','gas_boiler','pellet_boiler',
+        'wood_chip_boiler','heat_pump'].includes(toNode.type)&&
+      edge.to_port==='return'&&p.x>q.x+45;
+    if(sourceReturn){
+      const railX=Math.max(q.x+45,p.x-80);
+      d='M'+h(p.x,p.y)+' H'+railX+' V'+q.y+' H'+q.x;
     } else if (p.x > q.x + 8 || fromSide === 'L' || toSide === 'R') {
       const farX = p.x + (fromSide === 'L' ? -36 : 38);
       const entryX = q.x + (toSide === 'R' ? 36 : -36);
@@ -9512,7 +9517,7 @@ const HPC_INTEGRATED = (() => {
     return derived;
   }
   function port(node,shape,key,circuitPump=true,externalReturn=false) {
-    if(shape.type==='source') {
+    if(isSource(node)) {
       // Primary and additional heat sources share the original 240x235
       // pictogram, but never the same absolute pipe ports. Otherwise all
       // supplemental boilers accidentally connect at the first boiler.
@@ -9520,11 +9525,24 @@ const HPC_INTEGRATED = (() => {
       // not at the end of the decorative picture or the chimney duct.
       // Geometry below is derived from the *same* nested SVG transform
       // used by froelingArt: x + 2, y + 45, (w - 2) × 156.
+      // IMPORTANT: an additional boiler is laid out with shape.type set to
+      // its concrete type (wood_gasifier), whereas the primary shape is
+      // type="source". Only checking shape.type mistakenly connected
+      // supplemental Fröling returns at their LEFT side and wrapped the
+      // network pipes around the whole heat source.
       if(node?.type==='wood_gasifier'&&node.options?.froeling_view!=='classic'){
         const svgX=shape.x+2,svgY=shape.y+45;
         const scaleX=(shape.w-2)/540,scaleY=156/355;
         return {x:svgX+350*scaleX,
           y:svgY+(key==='return'?300:162)*scaleY};
+      }
+      // Oil burners are drawn as freestanding cabinets. Their water pipes
+      // must meet the cabinet edge, not an invisible 240px-wide source tile.
+      if(node?.type==='oil_boiler'){
+        const primary=shape.type==='source';
+        const x=shape.x+(primary?190:195);
+        return {x,y:shape.y+(primary?
+          (key==='return'?124:81):(key==='return'?115:76))};
       }
       const x=shape.x+shape.w;
       if(key==='return')return{x,y:shape.y+190};
@@ -9570,7 +9588,10 @@ const HPC_INTEGRATED = (() => {
     return{x:shape.x+(def?.side==='R'?shape.w:0),y:shape.y+(def?.y??.5)*shape.h};
   }
   function portSide(node,shape,key) {
-    if(shape.type==='source')return 'R';
+    // All generator ports, including extra boilers, are on the physical
+    // appliance connection side. Never infer the side from shape.type:
+    // secondary sources keep their concrete node type in the layout.
+    if(isSource(node))return 'R';
     if(shape.type==='buffer')
       return HPC_FREE.ports(node.type).find(p=>p.id===key)?.side||'L';
     if(shape.type==='dhw_tank')return key.startsWith('coil_')?'L':'R';
@@ -9863,8 +9884,7 @@ const HPC_INTEGRATED = (() => {
       +'<path d="M324 162 H350" fill="none" stroke="'+hotColor+'" stroke-width="9" stroke-linecap="round"/>'
       +'<path d="M324 300 H350" fill="none" stroke="'+coldColor+'" stroke-width="9" stroke-linecap="round"/>'
       +'</g>'
-      +'<text x="356" y="150" font-size="16" fill="#e3c5e8">VL</text>'
-      +'<text x="356" y="328" font-size="16" fill="#9dd7f6">RL</text>'
+      // Water labels are rendered once on the actual routed pipes.
       +(value(boiler)?'<text x="42" y="24" font-size="18" font-weight="bold" fill="#fff0e4">Kessel '+value(boiler)+'</text>':'')
       +'</svg>';
   }
@@ -10062,6 +10082,11 @@ const HPC_INTEGRATED = (() => {
       if(n?.type==='wood_gasifier'&&n.options?.froeling_view!=='classic'){
         return {id,x:b.x+2,y:b.y+45,w:(b.w-2)*350/540,h:156};
       }
+      if(n?.type==='oil_boiler'){
+        const primary=b.type==='source';
+        return {id,x:b.x+(primary?58:50),y:b.y+(primary?48:48),
+          w:primary?132:145,h:primary?91:85};
+      }
       return {id,...b};
     };
     const obstacles=[...anchored,...points].map(([id,b])=>hydraulicObstacle(id,b));
@@ -10102,7 +10127,9 @@ const HPC_INTEGRATED = (() => {
       // Routing uses the real cabinet bounds rather than the larger
       // invisible artwork canvas. The endpoint itself is never moved.
       const routingShape=(id,shape)=>{
-        if(all[id]?.type==='wood_gasifier'&&all[id].options?.froeling_view!=='classic'){
+        if((all[id]?.type==='wood_gasifier'&&
+            all[id].options?.froeling_view!=='classic')||
+            all[id]?.type==='oil_boiler'){
           const body=hydraulicObstacle(id,shape);
           return {x:body.x,y:body.y,w:body.w,h:body.h,type:shape.type};
         }
@@ -10232,13 +10259,36 @@ const HPC_INTEGRATED = (() => {
         (on?'var(--hfc-hot,#ff7043)':'var(--divider-color,#7e8790)')+
         '" stroke-width="2"/>':'';
       const rla=edge.kind==='return_lift';
+      // The last return segment, after an automatic return-temperature lift,
+      // contains the MIXED boiler return, not unmodified cool buffer water.
+      // Paint deduplicated orthogonal segments individually, without drawing
+      // a second overlapping hot/mixed return pipe.
+      let pipeMarkup='<path class="pipe'+(rla?' hpi-rla-bypass':'')+
+        (paths.flow?' on':'')+'" d="'+paths.pipe+'" style="--pc:'+color+'"/>';
+      const receiver=all[edge.to];
+      if(receiver?.type==='wood_gasifier'&&receiver.options?.return_lift===true&&
+          edge.to_port==='return'&&edge.kind!=='return_lift'&&paths.pipe){
+        const b=loc(receiver.id),socket=b?port(receiver,b,'return'):null;
+        const mixed=HPC_FREE.state(hass,receiver.sensors?.return);
+        const mixedColor=mixed&&Number.isFinite(mixed.number)?
+          HPC_FREE.color(mixed):'#718096';
+        pipeMarkup=pipeSegments(paths.pipe).map(part=>{
+          const nearMixer=socket&&Math.abs(part.y1-socket.y)<.1&&
+            Math.abs(part.y2-socket.y)<.1&&
+            Math.min(part.x1,part.x2)>=socket.x-.1&&
+            Math.max(part.x1,part.x2)<=socket.x+42.1;
+          const d='M'+part.x1+' '+part.y1+
+            (part.y1===part.y2?' H'+part.x2:' V'+part.y2);
+          return '<path class="pipe'+(paths.flow?' on':'')+
+            '" d="'+d+'" style="--pc:'+(nearMixer?mixedColor:color)+'"/>';
+        }).join('');
+      }
       return '<g class="hpi-link'+(rla?' hpi-rla':'')+
         '" data-hpi-edge="'+HPC_FREE.esc(edge.id)+'"'+
         (rla?' data-hpi-rla="'+HPC_FREE.esc(edge.from)+'"':'')+
         ' data-flow-evidence="'+HPC_FREE.esc(pipeState)+'"><title>'+
         HPC_FREE.esc(all[edge.from].name+' → '+all[edge.to].name)+'</title>'+
-        '<path class="pipe'+(rla?' hpi-rla-bypass':'')+(paths.flow?' on':'')+
-        '" d="'+paths.pipe+'"'+(color?' style="--pc:'+color+'"':'')+'/>'+
+        pipeMarkup+
         (paths.flow?'<path class="flow'+(rla?' hpi-rla-flow':'')+
           ' on" d="'+paths.flow+'"'+
           (rla&&Number.isFinite(edge.mix)?' style="opacity:'+Math.max(.12,edge.mix)+'"':'')+
@@ -10318,7 +10368,7 @@ const HPC_INTEGRATED = (() => {
           :additionalSourceArt(type,b,on,node,hass);
         return '<g class="tap hpi-component hpi-source-unit" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.state||node.sensors.flow||'')+'">'
           +'<title>'+title+'</title>'
-          +'<text class="unit-title" x="'+cx+'" y="'+(b.y+26)+'" text-anchor="middle">'+title+'</text>'
+          +'<text class="unit-title hpi-generator-title" x="'+cx+'" y="'+(b.y+224)+'" text-anchor="middle">'+title+'</text>'
           +artwork+'</g>';
       }
       if(type==='oil_boiler'){
@@ -10421,6 +10471,24 @@ const HPC_INTEGRATED = (() => {
     // Temperature readings belong to a real, routed pipe segment. The role
     // and source ID—not the displayed value—define each label's identity.
     const occupiedLabels=[];
+    // Reserve source captions and known heating-circuit readouts *before*
+    // searching for automatic pipe labels. Otherwise a dynamically
+    // positioned VL/RL temperature is allowed to sit on a unit name.
+    for(const source of plan.components.filter(isSource)){
+      const b=loc(source.id);
+      if(!b)continue;
+      const primary=source.id===plan.components.find(isSource)?.id;
+      const titleY=primary?b.y+30:b.y+224;
+      const width=Math.max(95,Math.min(205,String(source.name||'').length*10+22));
+      occupiedLabels.push({left:b.x+b.w/2-width/2,
+        right:b.x+b.w/2+width/2,top:titleY-21,bottom:titleY+9});
+    }
+    for(const circuit of plan.components.filter(node=>node.type==='heating_circuit')){
+      const b=loc(circuit.id);
+      if(!b)continue;
+      const y=b.y-21;
+      occupiedLabels.push({left:b.x-112,right:b.x+116,top:y-24,bottom:y+12});
+    }
     const allPipeSegments=[];
     const seenPipeSegments=new Set();
     for(const paths of physicalPipes.values()){
@@ -10439,9 +10507,13 @@ const HPC_INTEGRATED = (() => {
       for(const [key,name] of [['flow','VL'],['return','RL']]){
         const state=HPC_FREE.state(hass,node.sensors[key]);
         if(state?.number===null||!Number.isFinite(state?.number))continue;
-        const connection=routeRecords.find(record=>
-          (record.edge.from===node.id&&record.edge.from_port===key)||
-          (record.edge.to===node.id&&record.edge.to_port===key));
+        // Source-side sensing is labelled against its physical connection.
+        // Never choose an unrelated return-lift bypass simply because it is
+        // the first edge touching the same source port.
+        const connection=routeRecords.find(record=>record.edge.kind!=='return_lift'&&
+          (key==='flow'?record.edge.from===node.id&&
+            record.edge.from_port==='flow':
+            record.edge.to===node.id&&record.edge.to_port==='return'));
         if(!connection)continue;
         const route=physicalPipes.get(connection.edge.id)?.pipe||connection.d;
         const position=pipeLabelPosition(route,port(node,b,key),key,name+' '+HPC_FREE.format(state),
