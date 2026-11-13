@@ -9251,6 +9251,9 @@ const HPC_NETWORK = (() => {
 // Additional heating components share the original Heat Pump Hydraulic Card SVG.
 // The first heat source, first buffer, first DHW tank and up to six heating circuits
 // reuse their original renderer. All other components are ADDED to that same SVG.
+// Additional heating components share the original Heat Pump Hydraulic Card SVG.
+// The first heat source, first buffer, first DHW tank and up to six heating circuits
+// reuse their original renderer. All other components are ADDED to that same SVG.
 const HPC_INTEGRATED = (() => {
   const sources = new Set(['wood_gasifier','oil_boiler','pellet_boiler','wood_chip_boiler','gas_boiler','heat_pump']);
   const isSource = (node) => sources.has(node.type);
@@ -9775,12 +9778,67 @@ const HPC_INTEGRATED = (() => {
       +'</g>';
   }
 
+  // Fröling S3 Turbo cutaway, adapted from the approved V3 preview.
+  // All water-side components here are pictograms only; actual pipe paths
+  // and circulation belong to HPC_NETWORK. No extra hydraulic edges.
+  function froelingArt(x,y,w,h,node,hass) {
+    const state=HPC_FREE.state(hass,node.sensors?.state);
+    const fire=!!state&&HPC_FREE.active(state);
+    const speed=HPC_FREE.state(hass,node.sensors?.fan);
+    const fan=!!speed&&(speed.number!==null?speed.number>0:HPC_FREE.active(speed));
+    const pumpState=HPC_FREE.state(hass,node.sensors?.pump);
+    const pump=!!pumpState&&(pumpState.number!==null?pumpState.number>0:HPC_FREE.active(pumpState));
+    const mixerState=HPC_FREE.state(hass,node.sensors?.mixer);
+    const exhaust=HPC_FREE.state(hass,node.sensors?.exhaust);
+    const boiler=HPC_FREE.state(hass,node.sensors?.flow);
+    const safe=HPC_FREE.esc;
+    const value=reading=>reading&&Number.isFinite(reading.number)?safe(HPC_FREE.format(reading)):'';
+    const uid='hpc-fr-'+String(node.id).replace(/[^a-zA-Z0-9_-]/g,'-');
+    const rla=node.options?.return_lift===true;
+    // The fan wheel and its protective ring are separate so only the wheel
+    // rotates. The flame points downward through the nozzle.
+    return '<svg x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" viewBox="0 0 540 355" preserveAspectRatio="xMidYMid meet" class="hpi-froeling'+(fire?' burning':'')+(fan?' fan-on':'')+(pump?' pump-on':'')+'" aria-label="Fröling S3 Turbo Schnittbild">'
+      +'<defs><linearGradient id="'+uid+'-case" x2="1" y2="0"><stop stop-color="#831820"/><stop offset=".5" stop-color="#d42d3d"/><stop offset="1" stop-color="#8a1923"/></linearGradient>'
+      +'<linearGradient id="'+uid+'-fire" x2="0" y2="1"><stop stop-color="#fff4b0"/><stop offset=".5" stop-color="#ffa622"/><stop offset="1" stop-color="#ef4b1e"/></linearGradient></defs>'
+      +'<rect x="10" y="18" width="340" height="317" rx="12" fill="#2a343c" stroke="#657783" stroke-width="5"/>'
+      +'<rect x="20" y="28" width="320" height="297" rx="9" fill="url(#'+uid+'-case)"/>'
+      +'<rect x="35" y="39" width="230" height="274" rx="6" fill="#304955" stroke="#9fb6bf" stroke-width="5"/>'
+      +'<rect x="49" y="53" width="199" height="151" rx="3" fill="#28201d" stroke="#af9982" stroke-width="7"/>'
+      +'<g fill="#80563a" stroke="#d3a075" stroke-width="2"><rect x="63" y="128" width="164" height="21" rx="10" transform="rotate(-4 145 138)"/><rect x="69" y="151" width="161" height="20" rx="9" transform="rotate(5 150 159)"/><rect x="63" y="174" width="163" height="19" rx="9"/></g>'
+      +'<path d="M56 209 H116 L131 222 H168 L181 209 H242" fill="none" stroke="#e1b68f" stroke-width="9"/>'
+      +'<rect x="49" y="232" width="199" height="74" rx="5" fill="#ba8864" stroke="#e9ba8c" stroke-width="7"/>'
+      +'<rect x="62" y="243" width="174" height="54" rx="3" fill="#322019"/>'
+      +'<g class="hpi-fr-flame"><path d="M138 219 Q128 242 137 260 Q144 280 155 290 Q150 262 166 250 Q171 235 159 218Z" fill="url(#'+uid+'-fire)"/><path d="M145 222 Q144 245 153 257 Q149 271 162 283 Q158 259 164 243Z" fill="#fff5c4"/></g>'
+      +'<path class="hpi-fr-embers" d="M108 285 Q153 293 193 285" stroke="#e76f25" stroke-width="6" fill="none"/>'
+      +'<rect x="275" y="54" width="52" height="207" rx="5" fill="#202d35" stroke="#9ba9b2" stroke-width="3"/>'
+      +'<path d="M242 277 H279 V102 H292 V244 H306 V102 H318 V85 H374" fill="none" stroke="#91a1aa" stroke-width="9" stroke-linejoin="round"/>'
+      +'<path class="hpi-fr-smoke" d="M242 277 H279 V102 H292 V244 H306 V102 H318 V85 H374" fill="none" stroke="#e3a47b" stroke-width="2" stroke-dasharray="4 12"/>'
+      +'<rect x="363" y="46" width="83" height="77" rx="10" fill="#34434e" stroke="#8faab8" stroke-width="4"/>'
+      +'<circle cx="404" cy="85" r="31" fill="#1c2a33" stroke="#bacbd3" stroke-width="5"/>'
+      +'<g transform="translate(404 85)"><g class="hpi-fr-fanwheel" fill="#a5d8e6">'
+      +Array.from({length:6},(_,i)=>'<path transform="rotate('+(i*60)+')" d="M-5 -3 C-15 -13 -17 -24 -4 -27 C7 -29 11 -16 5 -3 Z"/>').join('')
+      +'</g><circle r="6" fill="#e5edf0"/></g>'
+      +'<path d="M445 85 H479 V24 H532" fill="none" stroke="#8d9ca7" stroke-width="12" stroke-linecap="round"/>'
+      +(value(exhaust)?'<text x="458" y="16" font-size="18" fill="#e8c19d">Abgas '+value(exhaust)+'</text>':'')
+      +(value(speed)?'<text x="457" y="145" font-size="17" fill="#a6dceb">Saugzug '+value(speed)+'</text>':'')
+      +'<path d="M349 162 H489" fill="none" stroke="#e77b46" stroke-width="9" stroke-linecap="round"/>'
+      +'<path d="M349 300 H489" fill="none" stroke="#52abe8" stroke-width="9" stroke-linecap="round"/>'
+      +'<text x="464" y="151" font-size="16" fill="#f6bc96">VL</text><text x="465" y="326" font-size="16" fill="#9dd7f6">RL</text>'
+      +'<g transform="translate(406 300)"><circle r="18" fill="#253641" stroke="#8ec9df" stroke-width="4"/><g class="hpi-fr-pumpwheel" fill="#a8dbe9"><path d="M0 -13 L7 5 L-7 5Z M0 13 L-7 -5 L7 -5Z"/></g><circle r="3" fill="#f3fbff"/></g>'
+      +(rla?'<path d="M475 162 V300" fill="none" stroke="#d48b58" stroke-width="6"/><g transform="translate(475 268)"><path d="M-15 -11 L0 0 L-15 11Z M15 -11 L0 0 L15 11Z" fill="#b5c9d4" stroke="#364751" stroke-width="2"/></g>':'')
+      +(rla&&value(mixerState)?'<text x="481" y="256" font-size="14" fill="#d6e5ed">'+value(mixerState)+'</text>':'')
+      +(value(boiler)?'<text x="42" y="24" font-size="18" font-weight="bold" fill="#fff0e4">Kessel '+value(boiler)+'</text>':'')
+      +'</svg>';
+  }
+
   // The existing heat pump, hot-water and buffer drawings remain in the upstream
   // SVG. These original-style outlines extend its vocabulary for further
   // heating sources instead of displaying a generic flame in an empty box.
   function additionalSourceArt(type, box, on, node, hass) {
     const x=box.x+35, y=box.y+43;
     if(type==='wood_chip_boiler')return chipArt(x,y,170,89,node,on,hass);
+    if(type==='wood_gasifier'&&node.options?.froeling_view!=='classic')
+      return froelingArt(box.x+12,box.y+47,216,130,node,hass);
     const casing='<rect class="hpi-source-case" x="'+x+'" y="'+y+'" width="170" height="89" rx="12"/>';
     const panel='<rect class="hpi-source-panel" x="'+(x+126)+'" y="'+(y+12)+'" width="33" height="59" rx="5"/>'
       +'<rect class="hpi-source-display" x="'+(x+132)+'" y="'+(y+19)+'" width="21" height="13" rx="3"/>'
@@ -10212,7 +10270,8 @@ const HPC_INTEGRATED = (() => {
             HPC_FREE.esc(levelText)+'</text>':'')
           +'</g>');
       }
-      if(node.sensors.exhaust||node.options?.particle_separator){
+      if((node.sensors.exhaust||node.options?.particle_separator)&&
+         !(node.type==='wood_gasifier'&&node.options?.froeling_view!=='classic')){
         const baseX=b.x+b.w-35, baseY=b.y+25;
         const flueY=Math.max(17,b.y-52), flueEnd=baseX+104;
         const ex=HPC_FREE.state(hass,node.sensors.exhaust);
@@ -10308,13 +10367,16 @@ const HPC_INTEGRATED = (() => {
       ?'<g class="tap hpi-oil-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
         +oilArt(92,238,156,102,!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource.options?.boiler_kind)+'</g>'
       :'';
+    const primaryFroeling=firstSource?.type==='wood_gasifier'&&firstSource.options?.froeling_view!=='classic'
+      ?'<g class="tap hpi-froeling-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||'')+'">'
+        +froelingArt(63,238,216,130,firstSource,hass)+'</g>':'';
     const primaryGas=firstSource?.type==='gas_boiler'
       ?'<g class="tap hpi-gas-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
         +additionalSourceArt('gas_boiler',{x:50,y:195},!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource)+'</g>'
       :'';
     const firstBuffer=HPC_NETWORK.orderedBuffers(plan)[0];
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank'&&anchored.has(c.id));
-    return {defs,body:'<g id="hpc-integrated">'+links+nodes+accessories+pipeLabels+lift+primaryChip+primaryOil+primaryGas+'</g>',
+    return {defs,body:'<g id="hpc-integrated">'+links+nodes+accessories+pipeLabels+lift+primaryChip+primaryOil+primaryFroeling+primaryGas+'</g>',
       nativePipes,nativeTemperatureLabels:[...nativeTemperatureLabels].filter(Boolean),
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
@@ -11048,6 +11110,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-buffer-cold{stroke:var(--hfc-cold,#448cdd);}'
           +'.hpi-riser-bridge{pointer-events:none;}'
 
+          +'.hpi-froeling .hpi-fr-flame{transform-box:fill-box;transform-origin:center top;animation:hpi-fr-burn .8s ease-in-out infinite alternate;}'
+          +'.hpi-froeling:not(.burning) .hpi-fr-flame,.hpi-froeling:not(.burning) .hpi-fr-embers{display:none;}'
+          +'.hpi-froeling .hpi-fr-fanwheel,.hpi-froeling .hpi-fr-pumpwheel{transform-box:fill-box;transform-origin:center;animation:hpi-fr-spin 1.2s linear infinite;}'
+          +'.hpi-froeling:not(.fan-on) .hpi-fr-fanwheel,.hpi-froeling:not(.pump-on) .hpi-fr-pumpwheel{animation-play-state:paused;}'
+          +'.hpi-froeling .hpi-fr-smoke{animation:hpi-fr-smoke 1.4s linear infinite;}'
+          +'.hpi-froeling:not(.fan-on) .hpi-fr-smoke{animation-play-state:paused;opacity:.15;}'
+          +'@keyframes hpi-fr-spin{to{transform:rotate(360deg)}}'
+          +'@keyframes hpi-fr-burn{from{transform:scaleX(.87) scaleY(.89);opacity:.8}to{transform:scaleX(1.06) scaleY(1.06);opacity:1}}'
+          +'@keyframes hpi-fr-smoke{to{stroke-dashoffset:-34}}'
+          +'@media (prefers-reduced-motion:reduce){.hpi-froeling .hpi-fr-flame,.hpi-froeling .hpi-fr-smoke,.hpi-froeling .hpi-fr-fanwheel,.hpi-froeling .hpi-fr-pumpwheel{animation:none!important}}'
           +'.hpi-oil-seam{fill:none;stroke:var(--divider-color,#596c7c);stroke-width:1.25;stroke-linecap:round;}'
           +'.hpi-oil-burner{fill:var(--secondary-background-color,#4d5966);stroke:var(--hfc-muted,#8795a0);stroke-width:1.7;}'
           +'.hpi-oil-burner-neck{fill:var(--secondary-background-color,#7b858d);stroke:var(--divider-color,#a6b0b9);stroke-width:1.3;}'
@@ -11731,6 +11803,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           </select></label>`;
         }
         if(node.type==='wood_gasifier'){
+          appearance+=`<label>${t('Fröling-Darstellung','Fröling artwork')}<select data-froeling-view="${esc(node.id)}">
+            <option value="s3_turbo" ${(node.options?.froeling_view||'s3_turbo')==='s3_turbo'?'selected':''}>Fröling S3 Turbo · ${t('Schnittbild','Cutaway')}</option>
+            <option value="classic" ${node.options?.froeling_view==='classic'?'selected':''}>${t('Klassisch','Classic')}</option>
+          </select></label>`;
           specialized+=`<label class="hpc-checkbox"><input type="checkbox" data-return-lift="${esc(node.id)}"
             ${node.options?.return_lift?'checked':''}/><span>${t('Rücklaufanhebung vorhanden','Return-temperature lift installed')}</span></label>`;
         }
@@ -12996,6 +13072,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const node=plan.components.find(c=>c.id===el.dataset.dhwStyle);
         if(node?.type==='dhw_tank')
           node.options={...node.options,connection_style:el.value==='branch'?'branch':'separate'};
+      });
+      fieldUpdate('[data-froeling-view]',(plan,el)=>{
+        const node=plan.components.find(n=>n.id===el.dataset.froelingView);
+        if(node?.type==='wood_gasifier')node.options={...node.options,
+          froeling_view:el.value==='classic'?'classic':'s3_turbo'};
       });
       fieldUpdate('[data-eta-view]',(plan,el)=>{
         const node=plan.components.find(c=>c.id===el.dataset.etaView);
