@@ -645,9 +645,12 @@ const HPC_NETWORK = (() => {
       }
     }
     if(edge.kind==='return_lift'){
-      const x=Math.max(p.x,q.x)+42;
+      // Fröling S3: this is a HOT bypass from the jacket supply to the
+      // return-lift mixer, not a second pipe passing behind the cabinet.
+      // The final horizontal leg is the mixed return into the boiler.
+      const x=Math.max(p.x,q.x)+95;
       const d='M'+h(p.x,p.y)+' H'+x+' V'+q.y+' H'+q.x;
-      return compactPath(avoidComponents(d,p,q,fromSide,toSide,obstacles,edge.from,edge.to,pipeObstacles));
+      return compactPath(d);
     }
     if(edge.kind==='heating_circuit_mixer_bypass'){
       const d='M'+h(p.x,p.y)+' V'+q.y;
@@ -668,10 +671,13 @@ const HPC_NETWORK = (() => {
     // socket directly. An overhead detour could run visually through its
     // fan/flue area and falsely suggest a chimney-water connection.
     if (toNode.type==='wood_gasifier' && toNode.options?.froeling_view!=='classic' &&
-        edge.to_port==='return' && fromSide==='L' && toSide==='R' &&
-        p.x>q.x+8) {
-      const mid=(p.x+q.x)/2;
-      d='M'+h(p.x,p.y)+' H'+mid+' V'+q.y+' H'+q.x;
+        edge.to_port==='return' && p.x>q.x+8) {
+      // Return from the storage system comes in on the RIGHT of the
+      // return-lift valve. Joining behind the boiler or across its heading
+      // is not a real water connection.
+      const mixerX=q.x+(toNode.options?.return_lift?95:54);
+      const inletX=Math.max(p.x-20,mixerX+35);
+      d='M'+h(p.x,p.y)+' H'+inletX+' V'+q.y+' H'+q.x;
     } else if (p.x > q.x + 8 || fromSide === 'L' || toSide === 'R') {
       const farX = p.x + (fromSide === 'L' ? -36 : 38);
       const entryX = q.x + (toSide === 'R' ? 36 : -36);
