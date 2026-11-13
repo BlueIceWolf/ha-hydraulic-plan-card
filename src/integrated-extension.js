@@ -241,6 +241,12 @@ const HPC_INTEGRATED = (() => {
       // pictogram, but never the same absolute pipe ports. Otherwise all
       // supplemental boilers accidentally connect at the first boiler.
       const x=shape.x+shape.w;
+      // The S3 artwork exposes its water ports at the actual cutaway edge.
+      // Both graph edges and the illustrated pipe share these exact coordinates.
+      if(node?.type==='wood_gasifier'&&node.options?.froeling_view!=='classic'){
+        if(key==='return')return{x,y:shape.y+182};
+        return{x,y:shape.y+101};
+      }
       if(key==='return')return{x,y:shape.y+190};
       if(key==='dhw')return{x,y:shape.y+120};
       return{x,y:shape.y+60};
@@ -542,9 +548,13 @@ const HPC_INTEGRATED = (() => {
     const value=reading=>reading&&Number.isFinite(reading.number)?safe(HPC_FREE.format(reading)):'';
     const uid='hpc-fr-'+String(node.id).replace(/[^a-zA-Z0-9_-]/g,'-');
     const rla=node.options?.return_lift===true;
+    const hotReading=HPC_FREE.state(hass,node.sensors?.flow);
+    const coldReading=HPC_FREE.state(hass,node.sensors?.return);
+    const hotColor=hotReading&&Number.isFinite(hotReading.number)?HPC_FREE.color(hotReading):'#c748aa';
+    const coldColor=coldReading&&Number.isFinite(coldReading.number)?HPC_FREE.color(coldReading):'#259ae5';
     // The fan wheel and its protective ring are separate so only the wheel
     // rotates. The flame points downward through the nozzle.
-    return '<svg x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" viewBox="0 0 540 355" preserveAspectRatio="xMidYMid meet" class="hpi-froeling'+(fire?' burning':'')+(fan?' fan-on':'')+(pump?' pump-on':'')+'" aria-label="Fröling S3 Turbo Schnittbild">'
+    return '<svg x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" viewBox="0 0 540 355" preserveAspectRatio="none" class="hpi-froeling'+(fire?' burning':'')+(fan?' fan-on':'')+(pump?' pump-on':'')+'" aria-label="Fröling S3 Turbo Schnittbild">'
       +'<defs><linearGradient id="'+uid+'-case" x2="1" y2="0"><stop stop-color="#831820"/><stop offset=".5" stop-color="#d42d3d"/><stop offset="1" stop-color="#8a1923"/></linearGradient>'
       +'<linearGradient id="'+uid+'-fire" x2="0" y2="1"><stop stop-color="#fff4b0"/><stop offset=".5" stop-color="#ffa622"/><stop offset="1" stop-color="#ef4b1e"/></linearGradient></defs>'
       +'<rect x="10" y="18" width="340" height="317" rx="12" fill="#2a343c" stroke="#657783" stroke-width="5"/>'
@@ -568,12 +578,12 @@ const HPC_INTEGRATED = (() => {
       +'<path d="M445 85 H479 V24 H532" fill="none" stroke="#8d9ca7" stroke-width="12" stroke-linecap="round"/>'
       +(value(exhaust)?'<text x="458" y="16" font-size="18" fill="#e8c19d">Abgas '+value(exhaust)+'</text>':'')
       +(value(speed)?'<text x="457" y="145" font-size="17" fill="#a6dceb">Saugzug '+value(speed)+'</text>':'')
-      +'<path d="M349 162 H489" fill="none" stroke="#e77b46" stroke-width="9" stroke-linecap="round"/>'
-      +'<path d="M349 300 H489" fill="none" stroke="#52abe8" stroke-width="9" stroke-linecap="round"/>'
-      +'<text x="464" y="151" font-size="16" fill="#f6bc96">VL</text><text x="465" y="326" font-size="16" fill="#9dd7f6">RL</text>'
-      +'<g transform="translate(406 300)"><circle r="18" fill="#253641" stroke="#8ec9df" stroke-width="4"/><g class="hpi-fr-pumpwheel" fill="#a8dbe9"><path d="M0 -13 L7 5 L-7 5Z M0 13 L-7 -5 L7 -5Z"/></g><circle r="3" fill="#f3fbff"/></g>'
-      +(rla?'<path d="M475 162 V300" fill="none" stroke="#d48b58" stroke-width="6"/><g transform="translate(475 268)"><path d="M-15 -11 L0 0 L-15 11Z M15 -11 L0 0 L15 11Z" fill="#b5c9d4" stroke="#364751" stroke-width="2"/></g>':'')
-      +(rla&&value(mixerState)?'<text x="481" y="256" font-size="14" fill="#d6e5ed">'+value(mixerState)+'</text>':'')
+      // These two illustrated stubs end exactly on the SVG's right border.
+      // The routed graph takes over there, with no floating duplicate pipes.
+      +'<path d="M349 162 H540" fill="none" stroke="'+hotColor+'" stroke-width="9" stroke-linecap="round"/>'
+      +'<path d="M349 300 H540" fill="none" stroke="'+coldColor+'" stroke-width="9" stroke-linecap="round"/>'
+      +'<text x="468" y="151" font-size="16" fill="#e3c5e8">VL</text><text x="468" y="328" font-size="16" fill="#9dd7f6">RL</text>'
+      +((node.sensors?.pump||rla)?'<g transform="translate(406 300)"><circle r="18" fill="#253641" stroke="#8ec9df" stroke-width="4"/><g class="hpi-fr-pumpwheel" fill="#a8dbe9"><path d="M0 -13 L9 0 L0 13 L-9 0Z"/></g></g>':'')
       +(value(boiler)?'<text x="42" y="24" font-size="18" font-weight="bold" fill="#fff0e4">Kessel '+value(boiler)+'</text>':'')
       +'</svg>';
   }
@@ -585,7 +595,7 @@ const HPC_INTEGRATED = (() => {
     const x=box.x+35, y=box.y+43;
     if(type==='wood_chip_boiler')return chipArt(x,y,170,89,node,on,hass);
     if(type==='wood_gasifier'&&node.options?.froeling_view!=='classic')
-      return froelingArt(box.x+12,box.y+47,216,130,node,hass);
+      return froelingArt(box.x+8,box.y+6,box.w-8,208,node,hass);
     const casing='<rect class="hpi-source-case" x="'+x+'" y="'+y+'" width="170" height="89" rx="12"/>';
     const panel='<rect class="hpi-source-panel" x="'+(x+126)+'" y="'+(y+12)+'" width="33" height="59" rx="5"/>'
       +'<rect class="hpi-source-display" x="'+(x+132)+'" y="'+(y+19)+'" width="21" height="13" rx="3"/>'
@@ -810,7 +820,7 @@ const HPC_INTEGRATED = (() => {
         edge.kind==='heating_circuit_mixer_bypass'||
         /^(return_out|coil_out|bottom_out|return)$/.test(edge.from_port)||
         /^(return|return_in|bottom_in|mixer_bypass_in|mixer_return)$/.test(edge.to_port);
-      const defaultPipeColor=returnPipe?'var(--hfc-cold,#359fe7)':'var(--hfc-hot,#f37435)';
+      const defaultPipeColor=returnPipe?'#258fdf':'#b956bd';
       const nativeCircuit=all[edge.to]?.type==='heating_circuit'&&anchored.has(edge.to)
         ?edge.to:all[edge.from]?.type==='heating_circuit'&&anchored.has(edge.from)
           ?edge.from:null;
@@ -904,7 +914,8 @@ const HPC_INTEGRATED = (() => {
         return '<g class="tap hpi-inline-pump" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.state||'')+'">'
           +'<title>'+title+'</title>'
           +'<circle class="pump" cx="'+cx+'" cy="'+cy+'" r="20"/>'
-          +'<path class="imp" d="M'+(cx-7)+' '+(cy-11)+' L'+(cx+11)+' '+cy+' L'+(cx-7)+' '+(cy+11)+'Z"/>'
+          +'<g class="impeller'+(on?' on':'')+'" style="transform-origin:'+cx+'px '+cy+'px">'
+          +'<path class="imp" d="M'+cx+' '+(cy-12)+' L'+(cx+9)+' '+cy+' L'+cx+' '+(cy+12)+' L'+(cx-9)+' '+cy+'Z"/></g>'
           +'</g>';
       }
       const isStore=isTank(node);
@@ -943,6 +954,19 @@ const HPC_INTEGRATED = (() => {
       }
       const cx=b.x+b.w/2,cy=b.y+b.h*.53;
       const type=node.type;
+      // Generators are free-standing pictograms, not cards inside the plan.
+      // The title stays outside the appliance and the water lines attach to
+      // the central graph at its real outer ports.
+      if(isSource(node)){
+        const burner=HPC_FREE.state(hass,node.sensors.state);
+        const artwork=type==='oil_boiler'
+          ?oilArt(b.x+35,b.y+44,170,96,!!burner&&HPC_FREE.active(burner),node.options?.boiler_kind)
+          :additionalSourceArt(type,b,on,node,hass);
+        return '<g class="tap hpi-component hpi-source-unit" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.state||node.sensors.flow||'')+'">'
+          +'<title>'+title+'</title>'
+          +'<text class="unit-title" x="'+cx+'" y="'+(b.y-12)+'" text-anchor="middle">'+title+'</text>'
+          +artwork+'</g>';
+      }
       if(type==='oil_boiler'){
         const burner=HPC_FREE.state(hass,node.sensors.state);
         const running=!!burner&&HPC_FREE.active(burner);
@@ -1116,14 +1140,17 @@ const HPC_INTEGRATED = (() => {
       :'';
     const primaryFroeling=firstSource?.type==='wood_gasifier'&&firstSource.options?.froeling_view!=='classic'
       ?'<g class="tap hpi-froeling-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||'')+'">'
-        +froelingArt(63,238,216,130,firstSource,hass)+'</g>':'';
+        +froelingArt(58,196,232,208,firstSource,hass)+'</g>':'';
     const primaryGas=firstSource?.type==='gas_boiler'
       ?'<g class="tap hpi-gas-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
         +additionalSourceArt('gas_boiler',{x:50,y:195},!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource)+'</g>'
       :'';
+    const primaryTitle=firstSource&&firstSource.type!=='heat_pump'
+      ?'<text class="unit-title hpi-primary-source-title" x="170" y="178" text-anchor="middle">'+HPC_FREE.esc(firstSource.name)+'</text>'
+      :'';
     const firstBuffer=HPC_NETWORK.orderedBuffers(plan)[0];
     const firstDhw=plan.components.find(c=>c.type==='dhw_tank'&&anchored.has(c.id));
-    return {defs,body:'<g id="hpc-integrated">'+links+nodes+accessories+pipeLabels+lift+primaryChip+primaryOil+primaryFroeling+primaryGas+'</g>',
+    return {defs,body:'<g id="hpc-integrated">'+links+nodes+accessories+pipeLabels+lift+primaryChip+primaryOil+primaryFroeling+primaryGas+primaryTitle+'</g>',
       nativePipes,nativeTemperatureLabels:[...nativeTemperatureLabels].filter(Boolean),
       firstBuffer:firstBuffer?.id,firstDhw:firstDhw?.id};
   }
