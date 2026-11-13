@@ -297,17 +297,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           // actual valve and the animated flow dashes.
           // The outlet is already in the correct paint layer.
         }
-        let outletFlow=group.parentElement?.querySelector('.hpi-mix-outlet-flow');
-        if(!outletFlow&&flow){
-          outletFlow=document.createElementNS('http://www.w3.org/2000/svg','path');
-          outletFlow.setAttribute('class','flow hpi-mix-outlet-flow');
-          group.parentElement?.appendChild(outletFlow);
-        }
-        if(outletFlow){
-          outletFlow.setAttribute('d','M760 360 H826');
-          outletFlow.classList.toggle('on',flow.classList.contains('on'));
-          // Avoid reparenting running dash animations on every state update.
-        }
+        // The existing native circuit dash path already owns the motion.
+        // A second animated path with an independent phase caused the
+        // apparent forward/backward jitter over the same physical pipe.
+        group.parentElement?.querySelector('.hpi-mix-outlet-flow')?.remove();
         // New compact round 3-way mixer; hot on the left, return below,
         // mixed output to the right. Only the central vane rotates.
         let visual=group.querySelector('.hpi-mix-illustration');
@@ -331,8 +324,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(rotor){
           rotor.style.transformOrigin='760px 360px';
           rotor.style.transition='transform 500ms ease';
-          rotor.style.transform=measured
-            ?'rotate('+(-45+90*hot)+'deg)':'rotate(0deg)';
+          const angle=measured?'rotate('+(-45+90*hot)+'deg)':'rotate(0deg)';
+          if(rotor.style.transform!==angle)rotor.style.transform=angle;
         }
         visual.style.opacity=measured?'1':'0.8';
         if(group.parentElement?.lastElementChild!==group)
@@ -633,6 +626,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-link .pipe{stroke:var(--pc,var(--hfc-muted));}'
           +'.hpi-link .pipe.on{stroke:var(--pc,var(--hfc-muted));}'
           +'.hpi-native-temperature{stroke:var(--pc,var(--hfc-muted))!important;}'
+          +'.hpi-mix-outlet-pipe{stroke:var(--pc,var(--hfc-muted))!important;transition:none;}'
           +'.hpi-buffer-hot{stroke:var(--hfc-hot,#f37b4e);}'
           +'.hpi-buffer-cold{stroke:var(--hfc-cold,#448cdd);}'
           +'.hpi-riser-bridge{pointer-events:none;}'
