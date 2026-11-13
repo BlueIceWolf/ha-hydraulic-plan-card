@@ -336,6 +336,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-buffer-cold{stroke:var(--hfc-cold,#448cdd);}'
           +'.hpi-riser-bridge{pointer-events:none;}'
 
+          +'.hpi-froeling .hpi-fr-flame{transform-box:fill-box;transform-origin:center top;animation:hpi-fr-burn .8s ease-in-out infinite alternate;}'
+          +'.hpi-froeling:not(.burning) .hpi-fr-flame,.hpi-froeling:not(.burning) .hpi-fr-embers{display:none;}'
+          +'.hpi-froeling .hpi-fr-fanwheel,.hpi-froeling .hpi-fr-pumpwheel{transform-box:fill-box;transform-origin:center;animation:hpi-fr-spin 1.2s linear infinite;}'
+          +'.hpi-froeling:not(.fan-on) .hpi-fr-fanwheel,.hpi-froeling:not(.pump-on) .hpi-fr-pumpwheel{animation-play-state:paused;}'
+          +'.hpi-froeling .hpi-fr-smoke{animation:hpi-fr-smoke 1.4s linear infinite;}'
+          +'.hpi-froeling:not(.fan-on) .hpi-fr-smoke{animation-play-state:paused;opacity:.15;}'
+          +'@keyframes hpi-fr-spin{to{transform:rotate(360deg)}}'
+          +'@keyframes hpi-fr-burn{from{transform:scaleX(.87) scaleY(.89);opacity:.8}to{transform:scaleX(1.06) scaleY(1.06);opacity:1}}'
+          +'@keyframes hpi-fr-smoke{to{stroke-dashoffset:-34}}'
+          +'@media (prefers-reduced-motion:reduce){.hpi-froeling .hpi-fr-flame,.hpi-froeling .hpi-fr-smoke,.hpi-froeling .hpi-fr-fanwheel,.hpi-froeling .hpi-fr-pumpwheel{animation:none!important}}'
           +'.hpi-oil-seam{fill:none;stroke:var(--divider-color,#596c7c);stroke-width:1.25;stroke-linecap:round;}'
           +'.hpi-oil-burner{fill:var(--secondary-background-color,#4d5966);stroke:var(--hfc-muted,#8795a0);stroke-width:1.7;}'
           +'.hpi-oil-burner-neck{fill:var(--secondary-background-color,#7b858d);stroke:var(--divider-color,#a6b0b9);stroke-width:1.3;}'
@@ -1019,6 +1029,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           </select></label>`;
         }
         if(node.type==='wood_gasifier'){
+          appearance+=`<label>${t('Fröling-Darstellung','Fröling artwork')}<select data-froeling-view="${esc(node.id)}">
+            <option value="s3_turbo" ${(node.options?.froeling_view||'s3_turbo')==='s3_turbo'?'selected':''}>Fröling S3 Turbo · ${t('Schnittbild','Cutaway')}</option>
+            <option value="classic" ${node.options?.froeling_view==='classic'?'selected':''}>${t('Klassisch','Classic')}</option>
+          </select></label>`;
           specialized+=`<label class="hpc-checkbox"><input type="checkbox" data-return-lift="${esc(node.id)}"
             ${node.options?.return_lift?'checked':''}/><span>${t('Rücklaufanhebung vorhanden','Return-temperature lift installed')}</span></label>`;
         }
@@ -2284,6 +2298,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const node=plan.components.find(c=>c.id===el.dataset.dhwStyle);
         if(node?.type==='dhw_tank')
           node.options={...node.options,connection_style:el.value==='branch'?'branch':'separate'};
+      });
+      fieldUpdate('[data-froeling-view]',(plan,el)=>{
+        const node=plan.components.find(n=>n.id===el.dataset.froelingView);
+        if(node?.type==='wood_gasifier')node.options={...node.options,
+          froeling_view:el.value==='classic'?'classic':'s3_turbo'};
       });
       fieldUpdate('[data-eta-view]',(plan,el)=>{
         const node=plan.components.find(c=>c.id===el.dataset.etaView);
