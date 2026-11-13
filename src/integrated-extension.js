@@ -1197,7 +1197,8 @@ const HPC_INTEGRATED = (() => {
       const node=all[edge.from],b=loc(edge.from);
       if(!node||!b)return '';
       const outlet=port(node,b,'flow'),returnPort=port(node,b,'return');
-      const valveX=Math.max(outlet.x,returnPort.x)+95;
+      const s3=node.type==='wood_gasifier'&&node.options?.froeling_view!=='classic';
+      const valveX=Math.max(outlet.x,returnPort.x)+(s3?95:42);
       const returnY=returnPort.y;
       const pumpX=returnPort.x+43;
       const pumpRunning=HPC_FREE.active(HPC_FREE.state(hass,node.sensors.pump));
