@@ -576,44 +576,75 @@ const HPC_INTEGRATED = (() => {
   // override, inherit a temperature only from its actual hydraulic upstream:
   // source flow -> feed, or through an unambiguous pump/valve/manifold.
   // The DHW tank sensor measures domestic water and must not colour the coil.
+  // Resolve optional pipe temperatures along the hydraulic upstream route.
+  // A dedicated pipe sensor takes precedence. Otherwise inherit from the
+  // actual source, but never from a domestic-water tank into its coil.
   function pipeTemperature(plan,hass,edge,nodes) {
     const read=id=>{
-      const value=HPC_FREE.state(hass,id);
-      return value&&Number.isFinite(value.number)?value:null;
+      if(!id)return null;
+      const state=HPC_FREE.state(hass,id);
+      return state&&Number.isFinite(state.number)?state:null;
     };
-    if(edge.temperature_entity) return read(edge.temperature_entity);
-    const portSensor=(node,port)=>{
+    const measured=(node,port)=>{
       if(!node)return null;
-      if(['flow','dhw'].includes(port)&&HPC_FREE.byType[node.type]?.group==='source')
-        return read(node.sensors?.flow);
-      if(port==='return'&&HPC_FREE.byType[node.type]?.group==='source')
-        return read(node.sensors?.return);
+      const sensors=node.sensors||{};
+      if(HPC_FREE.byType[node.type]?.group==='source'){
+        if(port==='flow'||port==='dhw')return read(sensors.flow);
+        if(port==='return')return read(sensors.return);
+      }
       if(node.type==='buffer'){
-        const field=port.startsWith('top')?'top':port.startsWith('mid')?'middle':
+        const key=port.startsWith('top')?'top':
+          port.startsWith('mid')?'middle':
           port.startsWith('bottom')?'bottom':null;
-        return field?read(node.sensors?.[field]):null;
+        return key?read(sensors[key]):null;
       }
       if(node.type==='heating_circuit'){
-        if(port==='return_out')return read(node.sensors?.return);
-        if(port==='flow_in')return read(node.sensors?.flow);
+        if(port==='return_out')return read(sensors.return);
+        if(port==='flow_in')return read(sensors.flow);
       }
       return null;
     };
-    const origin=nodes[edge.from],target=nodes[edge.to];
-    const direct=portSensor(origin,edge.from_port);
-    if(direct)return direct;
-    // An explicitly configured return pipe can use the consumer's return
-    // thermometer. Never substitute the DHW tank's stored-water temperature.
-    if(edge.from_port==='coil_out'&&target?.type==='buffer')return null;
-    const incoming=plan.connections.filter(item=>item.to===edge.from&&
-      item.id!==edge.id);
-    if(['pump','mixer','diverter','manifold','electric_heater'].includes(origin?.type)&&
-      incoming.length===1){
-      const inlet=incoming[0];
-      return read(inlet.temperature_entity)||
-        portSensor(nodes[inlet.from],inlet.from_port);
-    }
-    return null;
+    const upstreamPort={
+      pump:{out:'in'},
+      electric_heater:{out:'in'},
+      diverter:{a:'ab',b:'ab'},
+      mixer:{ab:null},
+      manifold:{d:null,e:null,f:null}
+    };
+    const visited=new Set();
+    const resolve=(connection,depth)=>{
+      if(!connection||depth>16||visited.has(connection.id))return null;
+      visited.add(connection.id);
+      // A configured but unavailable measurement must not be silently
+      // replaced by an estimate from another point in the system.
+      if(connection.temperature_entity)return read(connection.temperature_entity);
+      const node=nodes[connection.from];
+      const direct=measured(node,connection.from_port);
+      if(direct)return direct;
+      if(!node||node.type==='dhw_tank')return null;
+      if(!Object.hasOwn(upstreamPort,node.type))return null;
+      if(node.type==='diverter'){
+        const outlet=HPC_NETWORK.diverterActivePort(node,hass);
+        if(outlet&&connection.from_port!==outlet)return null;
+        if(!outlet&&node.sensors?.position)return null;
+        if(!['a','b'].includes(connection.from_port))return null;
+        // No valve position provided: an estimate is only safe for a
+        // topologically unambiguous single connected outlet.
+        if(!outlet&&plan.connections.filter(row=>
+          row.from===node.id&&['a','b'].includes(row.from_port)).length!==1)
+          return null;
+      }
+      const inlet=upstreamPort[node.type]?.[connection.from_port];
+      if(inlet===undefined)return null;
+      let candidates=plan.connections.filter(row=>row.to===node.id&&
+        (inlet===null||row.to_port===inlet));
+      // Two temperatures mixed into one output cannot be inferred reliably.
+      if(node.type==='mixer')candidates=candidates.filter(row=>['a','b'].includes(row.to_port));
+      if(node.type==='manifold')candidates=candidates.filter(row=>['a','b','c'].includes(row.to_port));
+      if(candidates.length!==1)return null;
+      return resolve(candidates[0],depth+1);
+    };
+    return resolve(edge,0);
   }
 
   function svg(model,hass) {
