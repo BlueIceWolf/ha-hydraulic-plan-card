@@ -189,7 +189,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
                 pipe.setAttribute('d',paths[leg]?.pipe||'');
             }
           }
-          if(flowPath)flowPath.setAttribute('d',paths[leg]?.flow||'');
+          if(flowPath&&flowPath.getAttribute('d')!==(paths[leg]?.flow||''))
+            flowPath.setAttribute('d',paths[leg]?.flow||'');
           if(flowPath)flowPath.classList.toggle('on',active&&!!paths[leg]?.flow);
         }
         const body=svg.querySelector('#f-hc-body'+suffix);
@@ -213,15 +214,33 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           // Only the upper stop gets the mixed-temperature colour.
           const head=svg.querySelector('#g-hcb'+suffix+'-a');
           if(head){
-            head.setAttribute('stop-color',feedColour);
-            emitter.style.stroke='url(#g-hcb'+suffix+')';
-          }else emitter.style.stroke=feedColour;
+            if(head.getAttribute('stop-color')!==feedColour)
+              head.setAttribute('stop-color',feedColour);
+            const middle=svg.querySelector('#g-hcb'+suffix+'-m');
+            const bottom=svg.querySelector('#g-hcb'+suffix+'-b');
+            // For the original serpentine emitter, the top is the actual
+            // mixed supply. Blend only towards the return at the bottom.
+            // Never let the legacy heat-source gradient tint it hot again.
+            const returnReading=HPC_FREE.state(this._hass,circuit.sensors?.return);
+            const returnColour=knownTemp(returnReading)
+              ?HPC_FREE.color(returnReading):feedColour;
+            if(middle&&middle.getAttribute('stop-color')!==feedColour)
+              middle.setAttribute('stop-color',feedColour);
+            if(bottom&&bottom.getAttribute('stop-color')!==returnColour)
+              bottom.setAttribute('stop-color',returnColour);
+            const gradient='url(#g-hcb'+suffix+')';
+            if(emitter.style.stroke!==gradient)
+              emitter.style.stroke=gradient;
+          }else if(emitter.style.stroke!==feedColour){
+            emitter.style.stroke=feedColour;
+          }
           const ribs=svg.querySelector('#g-rad'+suffix+'-a');
           if(ribs)ribs.setAttribute('stop-color',feedColour);
         }
         const mixer=svg.querySelector('#p-hc-mix'+suffix);
         if(mixer){
-          mixer.setAttribute('d',paths.mixer?.pipe||'');
+          if(mixer.getAttribute('d')!==(paths.mixer?.pipe||''))
+            mixer.setAttribute('d',paths.mixer?.pipe||'');
           mixer.classList.toggle('on',active);
         }
       }
@@ -270,36 +289,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           backdrop.setAttribute('r','19');
           group.insertBefore(backdrop,group.firstChild);
         }
-        // Keep the native SVG nodes mounted: reparenting resets CSS animation.
-        // Properly separated colour regions: the valve EXIT at x=760
-        // is the precise mixing boundary. A dedicated final segment keeps
-        // the colour correct even when the upstream routed path overlaps.
-        const feed=svg.querySelector('#p-hc-vl'+suffix);
-        const flow=svg.querySelector('#f-hc-vl'+suffix);
-        const actual=HPC_FREE.state(this._hass,circuit.sensors?.flow);
-        const target=HPC_FREE.state(this._hass,circuit.sensors?.target);
-        const validTemp=v=>v&&Number.isFinite(v.number)&&
-          ['°c','c','°f','k'].includes(String(v.unit||'').toLowerCase());
-        const temp=validTemp(actual)?actual:validTemp(target)?target:null;
-        const mixedColour=temp?HPC_FREE.color(temp):
-          (svg.querySelector('[data-hpi-temp-group="hpi-temp-'+circuit.id+'-flow"]')?.
-            lastElementChild?.style.getPropertyValue('--pc')||'#718096');
-        let outlet=group.parentElement?.querySelector('.hpi-mix-outlet-pipe');
-        if(!outlet&&feed){
-          outlet=document.createElementNS('http://www.w3.org/2000/svg','path');
-          outlet.setAttribute('class','pipe hpi-mix-outlet-pipe');
-          group.parentElement?.appendChild(outlet);
-        }
-        if(outlet){
-          outlet.setAttribute('d','M760 360 H826');
-          outlet.style.setProperty('--pc',mixedColour);
-          // This layer must be above routed pipe artwork but below the
-          // actual valve and the animated flow dashes.
-          // The outlet is already in the correct paint layer.
-        }
-        // The existing native circuit dash path already owns the motion.
-        // A second animated path with an independent phase caused the
-        // apparent forward/backward jitter over the same physical pipe.
+        // Never overlay an extra 760–826 pipe. The routed supply already
+        // owns this segment, while the emitter artwork begins immediately
+        // afterward. Two different layers were causing the colour block.
+        group.parentElement?.querySelector('.hpi-mix-outlet-pipe')?.remove();
         group.parentElement?.querySelector('.hpi-mix-outlet-flow')?.remove();
         // New compact round 3-way mixer; hot on the left, return below,
         // mixed output to the right. Only the central vane rotates.
@@ -425,6 +418,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       }).join('|');
       const signature=JSON.stringify(p)+'|'+tick;
       if(!force&&signature===this._integratedSig&&svg.querySelector('#hpi-root')){
+        // The upstream card repaints its own gradients on EVERY HA update.
+        // Reapply our circuit colours AFTER that update, even when our own
+        // sensor signature is unchanged. The cached pipe registry prevents
+        // a complete hydraulic rebuild and keeps animations mounted.
+        this._syncNativeCircuitFlow(svg,p,this._integratedNativePipes||{});
         this._syncNativeTemperatureLabels(svg,this._integratedNativeTemperatureLabels||[]);
         this._syncMixerIllustrations(svg,p);
         return;
@@ -499,7 +497,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const title=svg.querySelector('text.tank-title[x="580"][y="310"]');
         if(title)title.textContent=p.components.find(c=>c.id===firstBuffer)?.name||title.textContent;
       }
-      this._syncNativeCircuitFlow(svg,p,rendered.nativePipes);
+      this._integratedNativePipes=rendered.nativePipes;
+      this._syncNativeCircuitFlow(svg,p,this._integratedNativePipes);
       this._syncMixerIllustrations(svg,p);
       if(firstDhw){
         svg.querySelector('rect.tank[x="520"][y="40"]')?.setAttribute('fill','url(#hpi-'+firstDhw+')');
@@ -626,7 +625,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-link .pipe{stroke:var(--pc,var(--hfc-muted));}'
           +'.hpi-link .pipe.on{stroke:var(--pc,var(--hfc-muted));}'
           +'.hpi-native-temperature{stroke:var(--pc,var(--hfc-muted))!important;}'
-          +'.hpi-mix-outlet-pipe{stroke:var(--pc,var(--hfc-muted))!important;transition:none;}'
+          +'.hpi-native-temperature{transition:none!important;}'
           +'.hpi-buffer-hot{stroke:var(--hfc-hot,#f37b4e);}'
           +'.hpi-buffer-cold{stroke:var(--hfc-cold,#448cdd);}'
           +'.hpi-riser-bridge{pointer-events:none;}'
