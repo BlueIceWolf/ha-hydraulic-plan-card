@@ -1085,9 +1085,20 @@ const HPC_INTEGRATED = (() => {
         const artwork=type==='oil_boiler'
           ?oilArt(b.x+35,b.y+44,170,96,!!burner&&HPC_FREE.active(burner),node.options?.boiler_kind)
           :additionalSourceArt(type,b,on,node,hass);
-        return '<g class="tap hpi-component hpi-source-unit" data-hpi-node="'+HPC_FREE.esc(node.id)+'" data-entity="'+HPC_FREE.esc(node.sensors.state||node.sensors.flow||'')+'">'
+        // Deliberately remove the decorative card ONLY for the new Fröling
+        // cutaway. Other generators retain their previously familiar frame.
+        const frameless=type==='wood_gasifier'&&node.options?.froeling_view!=='classic';
+        const titleY=frameless?b.y+224:b.y+27;
+        return '<g class="tap hpi-component hpi-source-unit'+
+          (frameless?' hpi-source-frameless':'')+
+          '" data-hpi-node="'+HPC_FREE.esc(node.id)+
+          '" data-entity="'+HPC_FREE.esc(node.sensors.state||node.sensors.flow||'')+'">'
           +'<title>'+title+'</title>'
-          +'<text class="unit-title hpi-generator-title" x="'+cx+'" y="'+(b.y+224)+'" text-anchor="middle">'+title+'</text>'
+          +(frameless?'':'<rect class="unit'+(on?' on':'')+
+            '" x="'+b.x+'" y="'+b.y+'" width="'+b.w+
+            '" height="'+b.h+'" rx="20"/>')
+          +'<text class="unit-title hpi-generator-title" x="'+cx+
+            '" y="'+titleY+'" text-anchor="middle">'+title+'</text>'
           +artwork+'</g>';
       }
       if(type==='oil_boiler'){
@@ -1290,7 +1301,10 @@ const HPC_INTEGRATED = (() => {
       ?'<g class="tap hpi-gas-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
         +additionalSourceArt('gas_boiler',{x:50,y:195},!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource)+'</g>'
       :'';
-    const primaryTitle=firstSource&&firstSource.type!=='heat_pump'
+    // The native primary title/card stays intact for all other generators.
+    // Only the Fröling S3 cutaway draws its name on a freestanding picture.
+    const primaryTitle=firstSource?.type==='wood_gasifier'&&
+        firstSource.options?.froeling_view!=='classic'
       ?'<text class="unit-title hpi-primary-source-title" x="170" y="220" text-anchor="middle">'+HPC_FREE.esc(firstSource.name)+'</text>'
       :'';
     const firstBuffer=HPC_NETWORK.orderedBuffers(plan)[0];
