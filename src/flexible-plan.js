@@ -394,6 +394,69 @@ const HPC_FREE = (function makeFreeHelpers() {
     }};
     return normalize(plan);
   }
+  // Wire a three-way valve exactly as in the classic heat-pump diagram:
+  // common AB from the generator, A to DHW, B to the heating buffer.
+  // Both consumer returns join at the generator return connection.
+  // Never infer a valve position from temperatures.
+  function connectDhwBufferDiverter(input,sourceId,tankId,bufferId,controlId="") {
+    const plan=normalize(input);
+    const source=plan.components.find(n=>n.id===sourceId);
+    const tank=plan.components.find(n=>n.id===tankId&&n.type==='dhw_tank');
+    const buffer=plan.components.find(n=>n.id===bufferId&&n.type==='buffer');
+    if(!source||!tank||!buffer||new Set([sourceId,tankId,bufferId]).size!==3||
+       byType[source.type]?.group!=='source')return null;
+    // A second coil feed or a shared valve with existing plumbing is unsafe
+    // to rewrite automatically.
+    if(plan.connections.some(e=>(e.to===tankId&&e.to_port==='coil_in')||
+      (e.from===tankId&&e.from_port==='coil_out')))return null;
+    const existing=controlId
+      ?plan.components.find(n=>n.id===controlId&&n.type==='diverter'):null;
+    if(controlId&&(!existing||plan.connections.some(e=>
+      e.from===controlId||e.to===controlId)))return null;
+    // Replace only the ordinary direct generator -> chosen buffer pair.
+    // Preserve all independent heating circuit and additional generator pipes.
+    const directHot=plan.connections.filter(e=>e.from===sourceId&&
+      e.from_port==='flow'&&e.to===bufferId&&e.to_port==='top_in');
+    const directCold=plan.connections.filter(e=>e.from===bufferId&&
+      e.from_port==='bottom_out'&&e.to===sourceId&&e.to_port==='return');
+    if(directHot.length!==directCold.length||directHot.length>1)return null;
+    // Do not silently turn a parallel direct supply to another buffer or
+    // load into an unintended second path past the switching valve.
+    if(plan.connections.some(e=>e.from===sourceId&&e.from_port==='flow'&&
+      !directHot.includes(e)))return null;
+    if(directHot.some(e=>e.temperature_entity||e.flow_entity)||
+       directCold.some(e=>e.temperature_entity||e.flow_entity))return null;
+    const removed=new Set([...directHot,...directCold].map(e=>e.id));
+    plan.connections=plan.connections.filter(e=>!removed.has(e.id));
+    const valve=existing||newNode('diverter',plan);
+    if(!valve)return null;
+    if(!existing){
+      valve.name='Umschaltventil WW / Heizung';
+      valve.options={dhw_port:'a',dhw_state:'',heating_state:''};
+      // Keep a newly created valve near the flow, not in the return area.
+      valve.y=Math.max(45,source.y+12);
+      plan.components.push(valve);
+    }
+    const specs=[
+      [sourceId,'flow',valve.id,'ab'],
+      [valve.id,'a',tankId,'coil_in'],
+      [tankId,'coil_out',sourceId,'return'],
+      [valve.id,'b',bufferId,'top_in'],
+      [bufferId,'bottom_out',sourceId,'return']
+    ];
+    const ids=new Set(plan.connections.map(e=>e.id)),created=[];
+    for(const [from,fromPort,to,toPort] of specs){
+      if(!validConnection(plan,from,fromPort,to,toPort))return null;
+      const id=nextId('leitung',ids);
+      ids.add(id);created.push(id);
+      plan.connections.push({id,from,from_port:fromPort,to,to_port:toPort,
+        flow_entity:'',temperature_entity:''});
+    }
+    tank.options={...tank.options,connection_style:'branch',dhw_charge:{
+      source:sourceId,kind:'diverter',control:valve.id,edges:created.slice(0,3)
+    }};
+    return normalize(plan);
+  }
   // Avoid a lexical conflict with the public function name used by the editor.
   function HPC_FREE_NEWNODE(type,plan){return newNode(type,plan);}
 
@@ -702,7 +765,7 @@ const HPC_FREE = (function makeFreeHelpers() {
   .hpc-editor .hpc-setup-group .hpc-checkbox span{flex:1}\n\
   .hpc-editor .hpc-setup-group .hpc-checkbox input[type=number]{width:76px}\n  .hpc-ems{border:1px solid var(--primary-color,#03a9f4);border-radius:12px;padding:8px 14px 14px;margin:14px 0;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-ems h3{margin-top:5px;}\n  .hpc-connection-warning{color:var(--error-color,#e16a42)!important;font-weight:600;}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-quick-connect{margin:8px 0 4px}\n  .hpc-editor .hpc-quick-connect label{flex:1 1 260px}\n  .hpc-editor .hpc-connection-hint{margin:4px 0 14px;font-size:.82em}\n  .hpc-editor details summary{cursor:pointer;font-weight:600;padding:8px 2px}\n  .hpc-editor .hpc-advanced-pipes{border-top:1px solid var(--divider-color,rgba(127,127,127,.16));margin:13px 0}\n  .hpc-editor .hpc-pipe-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding:9px 0}\n  .hpc-editor .hpc-pipe-row>span{display:flex;flex:1 1 230px;flex-direction:column;font-weight:500;font-size:.9em;line-height:1.4}\n  .hpc-editor .hpc-pipe-row small{font-weight:400;font-size:.87em;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-pipe-row details{flex:1 1 100%;font-size:.85em}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
   return {types,byType,ports,portRole,validConnection,connectPair,connectHeatingCircuit,
-    preferredHeatingBuffer,connectDhwCharge,connectionPairs,connectBufferSeries,
+    preferredHeatingBuffer,connectDhwCharge,connectDhwBufferDiverter,connectionPairs,connectBufferSeries,
     connectBuffersParallel,dimension,display,fieldLabel,icon,esc,normalize,newNode,
     sample,state,active,format,color,portXY,draw,css,text};
 })();
