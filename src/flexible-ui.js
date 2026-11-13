@@ -812,6 +812,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             ${[["standard",t("Standardkessel","Standard boiler")],["low_temp",t("Niedertemperaturkessel","Low-temperature boiler")],["condensing",t("Brennwertkessel","Condensing boiler")]]
              .map(([id,name])=>`<option value="${id}" ${(selected.options?.boiler_kind||"standard")===id?"selected":""}>${name}</option>`).join("")}
           </select></label>`:""}
+        ${["heating_circuit","mixer","wood_gasifier"].includes(selected.type)?`<label class="hpc-checkbox">
+          <input type="checkbox" data-mixer-inverted="${esc(selected.id)}" ${selected.options?.mixer_inverted?"checked":""}/>
+          <span>${t("Mischerstellung invertieren (0 % = heiß)","Invert mixer position (0% = hot)")}</span>
+        </label>`:""}
         ${selected.type==="heating_circuit"?`<label class="hpc-checkbox">
           <input type="checkbox" data-hc-mixer="${esc(selected.id)}" ${hcMixed?'checked':''}/>
           <span>${t("Heizkreis mit Mischer","Heating circuit with mixing valve")}</span>
@@ -1059,6 +1063,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           </select></label>`;
           specialized+=`<label class="hpc-checkbox"><input type="checkbox" data-return-lift="${esc(node.id)}"
             ${node.options?.return_lift?'checked':''}/><span>${t('Rücklaufanhebung vorhanden','Return-temperature lift installed')}</span></label>`;
+        }
+        if(['wood_gasifier','heating_circuit','mixer'].includes(node.type)){
+          specialized+=`<label class="hpc-checkbox"><input type="checkbox" data-mixer-inverted="${esc(node.id)}"
+            ${node.options?.mixer_inverted?'checked':''}/><span>${t('Mischerstellung invertieren (0 % = heiß)','Invert mixer position (0% = hot)')}</span></label>`;
         }
         if(node.type==='wood_chip_boiler'){
           specialized+=`<label>${t('ETA Kesselmodell','ETA boiler model')}<select data-eta-model="${esc(node.id)}">
@@ -2235,6 +2243,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const c=plan.components.find(x=>x.id===el.dataset.returnLift);
         if(c?.type==="wood_gasifier")c.options={...c.options,return_lift:el.checked};
       })));
+      fieldUpdate('[data-mixer-inverted]',(plan,el)=>{
+        const node=plan.components.find(c=>c.id===el.dataset.mixerInverted);
+        if(node&&['wood_gasifier','heating_circuit','mixer'].includes(node.type))
+          node.options={...node.options,mixer_inverted:el.checked};
+      });
       fieldUpdate('[data-source-type]',(plan,el)=>{
         const node=plan.components.find(c=>c.id===el.dataset.sourceType);
         if(!node||node.type!=='gas_boiler'||el.value!=='oil_boiler')return;
