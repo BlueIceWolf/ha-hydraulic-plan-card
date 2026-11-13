@@ -677,7 +677,15 @@ const HPC_INTEGRATED = (() => {
         field==='top_out'?from.sensors.top:
         field==='mid_out'?from.sensors.middle:
         field==='bottom_out'?from.sensors.bottom:'';
+      // Pipe temperature is optional. When no thermometer is configured,
+      // keep the hydraulic supply/return colour instead of rendering an
+      // almost invisible grey line (notably the oil boiler -> DHW coil).
       const reading=HPC_FREE.state(hass,edge.temperature_entity||inferred);
+      const returnPipe=edge.kind==='heating_circuit_internal_return'||
+        edge.kind==='heating_circuit_mixer_bypass'||
+        /^(return_out|coil_out|bottom_out|return)$/.test(edge.from_port)||
+        /^(return|return_in|bottom_in|mixer_bypass_in|mixer_return)$/.test(edge.to_port);
+      const defaultPipeColor=returnPipe?'var(--hfc-cold,#359fe7)':'var(--hfc-hot,#f37435)';
       const nativeCircuit=all[edge.to]?.type==='heating_circuit'&&anchored.has(edge.to)
         ?edge.to:all[edge.from]?.type==='heating_circuit'&&anchored.has(edge.from)
           ?edge.from:null;
@@ -685,7 +693,7 @@ const HPC_INTEGRATED = (() => {
         edge.kind?.startsWith('heating_circuit_')?!!circuitFlowing.get(edge.from):flowing.has(edge.id),
         evidence:edge.kind==='return_lift'?(edge.active?'inferred':'stopped'):
           evidence.get(edge.id)?.state||'unknown',
-        color:reading?HPC_FREE.color(reading):null,
+        color:reading?HPC_FREE.color(reading):defaultPipeColor,
         junction:supplyTee||returnTee};
     }).filter(Boolean);
     // Resolve all route overlaps together, rather than having every boiler,
