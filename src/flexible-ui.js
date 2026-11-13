@@ -114,8 +114,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             // segment. Temperature changes at the outlet of the valve,
             // never at the next tee/radiator. Keep the true source colour
             // upstream, and the measured/target circuit colour downstream.
+            const actual=HPC_FREE.state(this._hass,circuit.sensors?.flow);
+            const target=HPC_FREE.state(this._hass,circuit.sensors?.target);
+            const validTemp=v=>v&&Number.isFinite(v.number)&&
+              ['°c','c','°f','k'].includes(String(v.unit||'').toLowerCase());
+            const mixedReading=validTemp(actual)?actual:validTemp(target)?target:null;
             const mixedColour=leg==='flow'
-              ?paths.flow?.colored?.at(-1)?.color:null;
+              ?(mixedReading?HPC_FREE.color(mixedReading):
+                paths.flow?.colored?.findLast(segment=>
+                  segment.kind==='heating_circuit_internal')?.color||
+                paths.flow?.colored?.at(-1)?.color):null;
             let clipBefore=null,clipAfter=null;
             if(mixedColour&&colors.length){
               const defs=svg.querySelector('defs');
@@ -227,6 +235,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         // Reuse the native SVG and move the complete group above the
         // temperature-coloured pipe overlays within its native circuit.
         const originalValve=group.querySelector('.mix-body');
+        // This valve has its own distinct illustration, not the old bow-tie.
+        if(originalValve)originalValve.style.display='none';
         if(!group.querySelector('.hpi-mix-backplate')){
           const backdrop=document.createElementNS('http://www.w3.org/2000/svg','circle');
           backdrop.setAttribute('class','hpi-mix-backplate');
@@ -236,37 +246,71 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           group.insertBefore(backdrop,group.firstChild);
         }
         group.parentElement?.appendChild(group);
-        if(originalValve)originalValve.setAttribute('d',
-          'M748 352 L760 360 L748 368 Z '+
-          'M772 352 L760 360 L772 368 Z '+
-          'M752 374 L760 360 L768 374 Z');
-        // Keep the original clean three-port valve symbol. A single small
-        // tick OUTSIDE the valve indicates position without covering its
-        // three triangular ports. Never layer coloured triangles over it.
+        // Properly separated colour regions: the valve EXIT at x=760
+        // is the precise mixing boundary. A dedicated final segment keeps
+        // the colour correct even when the upstream routed path overlaps.
+        const feed=svg.querySelector('#p-hc-vl'+suffix);
+        const flow=svg.querySelector('#f-hc-vl'+suffix);
+        const actual=HPC_FREE.state(this._hass,circuit.sensors?.flow);
+        const target=HPC_FREE.state(this._hass,circuit.sensors?.target);
+        const validTemp=v=>v&&Number.isFinite(v.number)&&
+          ['°c','c','°f','k'].includes(String(v.unit||'').toLowerCase());
+        const temp=validTemp(actual)?actual:validTemp(target)?target:null;
+        const mixedColour=temp?HPC_FREE.color(temp):
+          (svg.querySelector('[data-hpi-temp-group="hpi-temp-'+circuit.id+'-flow"]')?.
+            lastElementChild?.style.getPropertyValue('--pc')||'#718096');
+        let outlet=group.parentElement?.querySelector('.hpi-mix-outlet-pipe');
+        if(!outlet&&feed){
+          outlet=document.createElementNS('http://www.w3.org/2000/svg','path');
+          outlet.setAttribute('class','pipe hpi-mix-outlet-pipe');
+          group.parentElement?.appendChild(outlet);
+        }
+        if(outlet){
+          outlet.setAttribute('d','M760 360 H826');
+          outlet.style.setProperty('--pc',mixedColour);
+          // This layer must be above routed pipe artwork but below the
+          // actual valve and the animated flow dashes.
+          group.parentElement?.appendChild(outlet);
+        }
+        let outletFlow=group.parentElement?.querySelector('.hpi-mix-outlet-flow');
+        if(!outletFlow&&flow){
+          outletFlow=document.createElementNS('http://www.w3.org/2000/svg','path');
+          outletFlow.setAttribute('class','flow hpi-mix-outlet-flow');
+          group.parentElement?.appendChild(outletFlow);
+        }
+        if(outletFlow){
+          outletFlow.setAttribute('d','M760 360 H826');
+          outletFlow.classList.toggle('on',flow.classList.contains('on'));
+          group.parentElement?.appendChild(outletFlow);
+        }
+        // New compact round 3-way mixer; hot on the left, return below,
+        // mixed output to the right. Only the central vane rotates.
         let visual=group.querySelector('.hpi-mix-illustration');
         if(!visual){
           visual=document.createElementNS('http://www.w3.org/2000/svg','g');
           visual.setAttribute('class','hpi-mix-illustration');
           visual.setAttribute('aria-hidden','true');
+          visual.innerHTML=
+            '<circle cx="760" cy="360" r="17" fill="#25313b" stroke="#cbd5e1" stroke-width="2.4"/>'+
+            '<path d="M760 347 A13 13 0 0 0 747 360 L760 360 Z" fill="#ed794f"/>'+
+            '<path d="M760 373 A13 13 0 0 1 747 360 L760 360 Z" fill="#648dcd"/>'+
+            '<path d="M760 347 A13 13 0 0 1 773 360 L760 360 Z" fill="#697f95"/>'+
+            '<path d="M760 373 A13 13 0 0 0 773 360 L760 360 Z" fill="#697f95"/>'+
+            '<g class="hpi-mix-rotor">'+
+              '<path d="M760 350 L765 360 L760 370 L755 360 Z" fill="#f8fafc" stroke="#18212c" stroke-width="1.2"/>'+
+              '<circle cx="760" cy="360" r="2.4" fill="#18212c"/>'+
+            '</g>';
           group.appendChild(visual);
         }
-        // Replace any previous colourful overlay from earlier card versions.
-        visual.replaceChildren();
-        if(measured){
-          const pointer=document.createElementNS('http://www.w3.org/2000/svg','path');
-          pointer.setAttribute('class','hpi-mix-pointer');
-          pointer.setAttribute('d','M760 337 V342');
-          pointer.setAttribute('fill','none');
-          pointer.setAttribute('stroke','#f8fafc');
-          pointer.setAttribute('stroke-width','2.6');
-          pointer.setAttribute('stroke-linecap','round');
-          // Tick moves around the valve's exterior: fully cold at -45°,
-          // fully hot at +45°. It must not mask the native valve icon.
-          pointer.style.transformOrigin='760px 360px';
-          pointer.style.transition='transform 450ms ease';
-          pointer.style.transform='rotate('+(-45+90*hot)+'deg)';
-          visual.appendChild(pointer);
+        const rotor=visual.querySelector('.hpi-mix-rotor');
+        if(rotor){
+          rotor.style.transformOrigin='760px 360px';
+          rotor.style.transition='transform 500ms ease';
+          rotor.style.transform=measured
+            ?'rotate('+(-45+90*hot)+'deg)':'rotate(0deg)';
         }
+        visual.style.opacity=measured?'1':'0.8';
+        group.parentElement?.appendChild(group);
         const flows=plan.connections.filter(edge=>edge.to===circuit.id&&edge.to_port==='flow_in');
         const returns=plan.connections.filter(edge=>edge.from===circuit.id&&edge.from_port==='return_out');
         const active=flows.some(edge=>evidence.get(edge.id)?.active)&&
