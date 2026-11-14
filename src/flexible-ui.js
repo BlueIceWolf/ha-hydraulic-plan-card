@@ -495,7 +495,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const st=this._hass?.states?.[id];
         return id+':'+(st?.state??'unavailable')+':'+(st?.attributes?.unit_of_measurement??'');
       }).join('|');
-      const signature=JSON.stringify(p)+'|'+tick;
+      const signature=JSON.stringify(p)+'|'+tick+'|'+JSON.stringify(colorRange);
       if(!force&&signature===this._integratedSig&&svg.querySelector('#hpi-root')){
         // The upstream card repaints its own gradients on EVERY HA update.
         // Reapply our circuit colours AFTER that update, even when our own
