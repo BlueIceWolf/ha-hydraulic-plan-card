@@ -484,18 +484,19 @@ const HPC_NETWORK = (() => {
       ...pipeObstacles.flatMap(pipe=>[Math.min(pipe.y,pipe.ny)]))-60;
     const maxY=Math.max(a.y,b.y,...blockers.map(box=>box.y+box.h),
       ...pipeObstacles.flatMap(pipe=>[Math.max(pipe.y,pipe.ny)]))+60;
-    const unique=values=>[...new Set(values.map(value=>Number(value.toFixed(3))))]
-      .sort((x,y)=>x-y);
+    // Keep exact port coordinates: rounding the routing grid to millimetres
+    // leaves the SVG pipe a fraction of a pixel short of a physical socket.
+    const unique=values=>[...new Set(values)].sort((x,y)=>x-y);
     const xs=unique([a.x,b.x,minX,maxX,...blockers.flatMap(box=>
       [box.x-10,box.x+box.w+10]),...pipeObstacles.flatMap(pipe=>
       [pipe.x-10,pipe.x+10,pipe.nx-10,pipe.nx+10])]);
     const ys=unique([a.y,b.y,minY,maxY,...blockers.flatMap(box=>
       [box.y-10,box.y+box.h+10]),...pipeObstacles.flatMap(pipe=>
       [pipe.y-10,pipe.y+10,pipe.ny-10,pipe.ny+10])]);
-    const xIndex=xs.indexOf(Number(a.x.toFixed(3)));
-    const yIndex=ys.indexOf(Number(a.y.toFixed(3)));
-    const endX=xs.indexOf(Number(b.x.toFixed(3)));
-    const endY=ys.indexOf(Number(b.y.toFixed(3)));
+    const xIndex=xs.indexOf(a.x);
+    const yIndex=ys.indexOf(a.y);
+    const endX=xs.indexOf(b.x);
+    const endY=ys.indexOf(b.y);
     const pointBlocked=(x,y)=>blockers.some(box=>{
       const padding=box.endpoint?0:9;
       return x>box.x-padding&&x<box.x+box.w+padding&&
