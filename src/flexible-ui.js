@@ -1785,8 +1785,9 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const legacyForm=HeatpumpFlowCard._formSchema(this._config,null,{
         fits:legacyFits,all:this._allEntities===true,shown:legacyShown
       });
+      const legacyPresetSchema=legacyForm.schema.filter(field=>field.name==='preset');
       const legacySchema=legacyForm.schema.filter(field=>
-        field.name==='preset'||field.name==='entities'||field.name==='advanced');
+        field.name==='entities'||field.name==='advanced');
       const html=`<style>${HPC_FREE.css}
         .hpc-category,.hpc-component-card{border:1px solid var(--divider-color,rgba(127,127,127,.25));margin:0;padding:0;background:var(--card-background-color,transparent)}
         .hpc-component-section{margin:14px 0 20px}
@@ -1844,6 +1845,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <details class="hpc-category" data-panel="general" open>
             <summary><strong>${t('Allgemein','General')}</strong></summary>
             <div class="hpc-category-body">
+          <div class="hpc-native-form">
+            <ha-form id="hpc-native-preset"></ha-form>
+          </div>
+          ${heatPumpInfo}
           ${useNativeForm?'<ha-form id="hpc-native-settings"></ha-form>':
              `<div class="hpc-row"><label>${t("Name der Anlage","System name")}<input id="hpc-free-title"
              value="${esc(this._config.title||"")}" placeholder="Hydraulic Plan Card"/></label></div>`}
@@ -1937,9 +1942,6 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             </details>
             </div>
           </details>
-          ${heatPumpInfo}${emsInfo}${emsCircuitInfo}${emsDhwInfo}${etaInfo}${etaPartInfo}
-          ${chosenEta||chosenEtaPart?`<button type="button" class="hpc-primary" data-action="eta-scan-all">
-            ${t("ETA-Anlage automatisch erkennen","Detect ETA system automatically")}</button>`:''}
           <p>${t("Die Leitungen werden nur bei bestätigtem Pumpen- oder Flusssignal animiert. Die Vorschau bleibt Teil des ursprünglichen Hydraulikplans.","Pipes animate only with confirmed pump or flow signals. The preview remains part of the original hydraulic schematic.")}</p>
           <p>${t("Die Vorschau verwendet weiterhin den originalen Hydraulikplan und dessen Heizkreisgrafiken.","The preview continues to use the original hydraulic schematic and its heating-circuit artwork.")}</p>`}
         ${dataList}
@@ -2041,10 +2043,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           if(Object.keys(changed).length)this._save({...this._config,...changed},{repaint:false});
         });
       }
-      const legacySettingsForm=root.querySelector('#hpc-native-legacy');
-      if(legacySettingsForm){
+      // The original preset selector is a first-class General setting again.
+      // Both native forms write to the same classic configuration.
+      for(const legacySettingsForm of root.querySelectorAll(
+        '#hpc-native-preset, #hpc-native-legacy')){
         legacySettingsForm.hass=this._hass;
-        legacySettingsForm.schema=legacySchema;
+        legacySettingsForm.schema=legacySettingsForm.id==='hpc-native-preset'
+          ?legacyPresetSchema:legacySchema;
         legacySettingsForm.computeLabel=legacyForm.computeLabel;
         legacySettingsForm.data={...this._config,entities:legacyShown};
         legacySettingsForm.addEventListener('value-changed',event=>{
