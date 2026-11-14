@@ -1102,8 +1102,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           </select></label>
         <button type="button" data-action="original-wp-apply">${t('Wärmepumpe erkennen und Werte übernehmen','Import detected heat pump measurements')}</button>
       </section>`:''; 
-      const emsInfo=chosenEms?`<section class="hpc-ems">
-        <h3>${t("Heizung über EMS-ESP erkannt","Heating device detected via EMS-ESP")}</h3>
+      const emsInfo=chosenEms?`<div class="hpc-ems-block">
+        <h4>${t("Wärmeerzeuger","Heat source")}</h4>
         <p class="hpc-row">${HPC_FREE.icon(chosenEms.type==="unknown"?"manifold":chosenEms.type)}<strong>${esc(chosenEms.name)}</strong> · ${esc(chosenEms.source)}</p>
         <label class="hpc-field">${t("Wärmeerzeuger auswählen","Select heating appliance")}
           <select id="hpc-ems-type">
@@ -1117,18 +1117,25 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         ${chosenEms.count===0?`<p>${t("Das Gerät ist erkannt, stellt aber noch keine passenden Messwerte bereit. Bitte die EMS-ESP-Veröffentlichung prüfen.","Device recognized, but no matching measured values are available yet. Check EMS-ESP publishing settings.")}</p>`:""}
         ${chosenEms.type==="unknown"?`<p>${t("Die Geräteart ist nicht eindeutig erkennbar. Bitte den Wärmeerzeuger selbst auswählen. Eine Modellliste ist kein Nachweis des installierten Geräts.","The appliance type is unclear. Select it yourself; a list of supported models does not identify the installed device.")}</p>`:""}
         <button type="button" data-action="ems-apply" ${chosenEms.type==="unknown"?"disabled":""}>${chosenEms.count?t("Wärmeerzeuger übernehmen und Werte zuordnen","Add appliance and assign values"):t("Wärmeerzeuger hinzufügen","Add detected appliance")}</button>
-      </section>`:"";
-      const emsCircuitInfo=pendingEmsCircuits.length?`<section class="hpc-ems">
-        <h3>${t("EMS-ESP-Heizkreise erkannt","EMS-ESP heating circuits found")}</h3>
+      </div>`:"";
+      const emsCircuitInfo=pendingEmsCircuits.length?`<div class="hpc-ems-block">
+        <h4>${t("Heizkreise","Heating circuits")}</h4>
         <p>${pendingEmsCircuits.map(c=>esc(c.name)+" ("+c.count+" "+t("Messwerte","values")+")").join(" · ")}</p>
         <p>${t("Erkannte Sensoren werden ergänzt. Eigene Namen und Zuordnungen bleiben erhalten. Rohrleitungen werden nicht automatisch verbunden.","Detected values will be added without changing existing names or mappings. Pipework is never inferred.")}</p>
         <button type="button" data-action="ems-circuits-apply">${t("Heizkreise übernehmen","Add heating circuits")}</button>
-      </section>`:'';
-      const emsDhwInfo=pendingEmsDhw.length?`<section class="hpc-ems">
-        <h3>${t("EMS-ESP-Warmwasser erkannt","EMS-ESP hot-water storage found")}</h3>
+      </div>`:'';
+      const emsDhwInfo=pendingEmsDhw.length?`<div class="hpc-ems-block">
+        <h4>${t("Warmwasser","Hot water")}</h4>
         <p>${t("Speichertemperatur gefunden. Bestehende Messwerte und Rohrverbindungen bleiben erhalten.","Storage temperature found. Existing sensor choices and pipework will be preserved.")}</p>
         <button type="button" data-action="ems-dhw-apply">${t("Warmwasserspeicher übernehmen","Add hot-water tank")}</button>
-      </section>`:'';
+      </div>`:'';
+      // Present one EMS-ESP recognition panel, with independent optional
+      // device actions. Never infer or modify hydraulic pipe connections.
+      const emsDiscoveryInfo=(emsInfo||emsCircuitInfo||emsDhwInfo)
+        ?`<section class="hpc-ems" data-discovery="ems-esp">
+          <h3>${t("EMS-ESP-Erkennung","EMS-ESP detection")}</h3>
+          ${emsInfo}${emsCircuitInfo}${emsDhwInfo}
+        </section>`:'';
       const etaLabel=chosenEta?({ehack:'ETA eHACK',hack:'ETA HACK',hack_vr:'ETA HACK VR'}[chosenEta.model]||'ETA Hackschnitzelkessel'):'';
       const etaInfo=chosenEta?`<section class="hpc-ems">
         <h3>${t("ETA Hackschnitzelkessel automatisch erkannt","ETA wood-chip boiler detected")}</h3>
@@ -1911,6 +1918,9 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         .hpc-form-fields>section,.hpc-form-fields>details,.hpc-form-fields>.hpc-row{grid-column:1/-1}
         .hpc-component-actions{margin-top:12px}
         .hpc-setup-hint{color:var(--secondary-text-color);line-height:1.45;margin:14px 0}
+         .hpc-ems-block{padding:9px 0}
+         .hpc-ems-block+.hpc-ems-block{border-top:1px solid var(--divider-color,rgba(127,127,127,.25));margin-top:8px;padding-top:16px}
+         .hpc-ems-block h4{margin:0 0 10px;font-size:.96rem}
         .hpc-editor .hpc-component-card>summary:before{order:2;margin-left:auto;flex-shrink:0}
         .hpc-category:first-of-type,.hpc-component-card:first-of-type{border-radius:8px 8px 0 0}
         .hpc-category:last-of-type,.hpc-component-card:last-of-type{border-radius:0 0 8px 8px}
@@ -1954,9 +1964,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <p>${t("Lege die Anzahl fest. Typ und Sensoren ordnest du danach jedem Bauteil einzeln zu.","Choose the counts first. Then set the type and sensors for each component individually.")}</p>
           <div class="hpc-native-form"><ha-form id="hpc-native-preset"></ha-form></div>
           ${heatPumpInfo}
-          ${emsInfo}
-          ${emsCircuitInfo}
-          ${emsDhwInfo}
+          ${emsDiscoveryInfo}
           ${etaInfo}
           ${etaPartInfo}
           ${chosenEta||chosenEtaPart?`<div class="hpc-actions"><button type="button" class="hpc-primary" data-action="eta-scan-all">${t("ETA-Anlage automatisch erkennen","Detect ETA system automatically")}</button></div>`:""}
@@ -2005,9 +2013,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               ${this._config.hpc_migration_review?`<button type="button" data-action="migration-ack">${t("Hydraulik geprüft","Hydraulics reviewed")}</button>`:""}
             </div>`:""}
           </details>
-          ${emsInfo}
-          ${emsCircuitInfo}
-          ${emsDhwInfo}
+          ${emsDiscoveryInfo}
           ${etaInfo}
           ${etaPartInfo}
           ${chosenEta||chosenEtaPart?`<div class="hpc-actions"><button type="button" class="hpc-primary" data-action="eta-scan-all">${t("ETA-Anlage automatisch erkennen","Detect ETA system automatically")}</button></div>`:""}
