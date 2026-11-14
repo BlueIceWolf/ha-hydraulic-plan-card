@@ -13,8 +13,9 @@ const HPC_MIGRATION = (() => {
     pump:'boiler_pump',power:'boiler_power',starts:'boiler_burner_starts'
   };
   const isId=id=>typeof id==='string'&&/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(id);
-  const validEntity=id=>typeof id==='string'&&
-    /^(sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/.test(id);
+  // Match the canonical entity syntax used by the editor, including
+  // domains supplied by current and future Home Assistant integrations.
+  const validEntity=id=>HPC_FREE.validEntity(id);
   function check(plan) {
     const warnings=[],ids=new Set(),edges=new Set(),connectionKeys=new Set();
     const components=plan?.components,connections=plan?.connections;
@@ -57,13 +58,7 @@ const HPC_MIGRATION = (() => {
       if(n.name&&String(n.name).length>75)
         warnings.push('Bauteilname an '+n.id+' ist länger als unterstützt.');
       if(n.options&&typeof n.options==='object'){
-        const supported={dhw_tank:['connection_style','dhw_charge'],
-          wood_gasifier:['return_lift','froeling_view','mixer_inverted'],wood_chip_boiler:['eta_model','particle_separator','silo'],
-          diverter:['dhw_port','dhw_state','heating_state'],
-          mixer:['a_closed_state','b_closed_state','a_closed_at','b_closed_at','closed_ports','mixer_inverted'],
-          heating_circuit:['emitter','mixed','hydraulic_auto','mixer_inverted'],pellet_boiler:['boiler_kind','silo'],
-          oil_boiler:['boiler_kind'],gas_boiler:['boiler_kind'],
-          heat_pump:['unit_style','unit_size','source_type']}[n.type]||[];
+        const supported=HPC_FREE.optionKeys[n.type]||[];
         if(Object.keys(n.options).some(key=>!supported.includes(key)))
           warnings.push('Unbekannte Einstellungen an '+n.id+'; keine automatische Änderung.');
         if(n.type==='dhw_tank'&&n.options.dhw_charge!==undefined){
