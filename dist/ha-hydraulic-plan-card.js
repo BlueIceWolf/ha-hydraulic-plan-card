@@ -8139,9 +8139,18 @@ const HPC_FREE = (function makeFreeHelpers() {
   const format=s=>s?(s.number!==null?
     s.number.toLocaleString("de-DE",{maximumFractionDigits:1})+(s.unit?" "+s.unit:""):
     s.text.slice(0,16)):"–";
+  // Colour scale is selected per card before its synchronous SVG render.
+  // Invalid or missing bounds keep the historical temperature palette.
   function color(s) {
     if(!s||s.number===null||!["°c","c","°f","k"].includes(s.unit.toLowerCase()))return "#718096";
-    const t=s.unit==="°F"?(s.number-32)*5/9:s.unit==="K"?s.number-273.15:s.number;
+    const measured=s.unit==="°F"?(s.number-32)*5/9:s.unit==="K"?s.number-273.15:s.number;
+    const bounds=HPC_FREE.colorRange;
+    const min=Number(bounds?.min),max=Number(bounds?.max);
+    // Preserve the existing  -10…90 °C palette as the default. For a custom
+    // range, map the configured lower/upper limits to its endpoints.
+    const t=bounds&&Number.isFinite(min)&&Number.isFinite(max)&&max>min
+      ?-10+100*Math.max(0,Math.min(1,(measured-min)/(max-min)))
+      :measured;
     // Shared palette for ALL water circuits, storage and heat sources.
     // The 30–50 °C range is deliberately resolved more finely so a
     // typical heat-pump 40/35 °C circuit has a visible supply/return gradient.
@@ -10705,8 +10714,9 @@ const HPC_INTEGRATED = (() => {
       // other physical hydraulic segments.
       return '<g class="hpi-rla-marker" data-hpi-rla-marker="'+HPC_FREE.esc(node.id)+'">'
         +'<title>'+HPC_FREE.esc('Rücklaufanhebung / Return-temperature lift – '+node.name)+'</title>'
-        +(s3?'<circle class="hpi-rla-pump" cx="'+pumpX+'" cy="'+returnY+'" r="11"/>'
-          +'<path class="hpi-rla-pump-symbol'+(pumpRunning?' on':'')+'" d="M'+pumpX+' '+(returnY-7)+' L'+(pumpX+7)+' '+returnY+' L'+pumpX+' '+(returnY+7)+' L'+(pumpX-7)+' '+returnY+' Z"/>':'')
+        +(s3?'<circle class="pump" cx="'+pumpX+'" cy="'+returnY+'" r="11"/>'
+          +'<g class="impeller'+(pumpRunning?' on':'')+'" style="transform-origin:'+pumpX+'px '+returnY+'px">'
+          +'<path class="imp" d="M'+pumpX+' '+(returnY-7)+' L'+(pumpX+7)+' '+returnY+' L'+pumpX+' '+(returnY+7)+' L'+(pumpX-7)+' '+returnY+'Z"/></g>':'')
         +'<circle class="hpi-rla-valve" cx="'+valveX+'" cy="'+returnY+'" r="14"/>'
         +'<path class="hpi-rla-symbol" d="M'+(valveX-8)+' '+(returnY-7)+' L'+valveX+' '+returnY+' L'+(valveX+8)+' '+(returnY-7)+' M'+valveX+' '+returnY+' v10"/>'
         +'<text class="hpi-rla-label" x="'+(valveX+20)+'" y="'+(returnY-10)+'">'+HPC_FREE.esc(label+percentage)+'</text>'
@@ -11589,6 +11599,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       return p;
     }
     _syncAdditional(force=false) {
+      const colorMin=Number(this._config?.temperature_color_min);
+      const colorMax=Number(this._config?.temperature_color_max);
+      HPC_FREE.colorRange=Number.isFinite(colorMin)&&Number.isFinite(colorMax)&&
+        colorMax>colorMin?{min:colorMin,max:colorMax}:null;
       const p=this._effectiveHydraulicPlan();
       if(!this._hass||!p?.components.length)return;
       const svg=this._$('svg');if(!svg)return;
@@ -11879,9 +11893,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           +'.hpi-rla-flow{fill:none;stroke:#fff;stroke-width:2;stroke-dasharray:4 10;animation:hpc-rla-motion 1.4s linear infinite;pointer-events:none;}'
           +'@keyframes hpc-rla-motion{to{stroke-dashoffset:-28}}'
           +'@media (prefers-reduced-motion:reduce){.hpi-rla-flow{animation:none;}}'
-          +'.hpi-rla-pump{fill:var(--card-background-color,#202124);stroke:var(--hfc-return,#4c9ed9);stroke-width:2.5;}'
-          +'.hpi-rla-pump-symbol{fill:none;stroke:var(--primary-text-color,#d5dce8);stroke-width:1.8;stroke-linejoin:round;}'
-          +'.hpi-rla-pump-symbol.on{fill:var(--hfc-return,#4c9ed9);}'
+          +'.hpi-rla-marker .pump{fill:var(--card-background-color,#202124);stroke:var(--primary-text-color,#d5dce8);stroke-width:2.5;}'
           +'.hpi-rla-valve{fill:var(--card-background-color,#202124);stroke:var(--hfc-heat,#e7853d);stroke-width:3;}'
           +'.hpi-rla-symbol{fill:none;stroke:var(--hfc-muted,#9ca3af);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;}'
           +'.hpi-rla-label{font-size:12px;font-weight:700;fill:var(--primary-text-color);}';
@@ -12165,17 +12177,28 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // An imported or manually configured boiler must not keep appearing as
       // "new". A second, genuinely different device is offered next.
       const originalHeatPumps=this._originalHeatPumpCandidates();
+      // A successful import should disappear from the discovery panel.
+      // Show a recognised preset again only when it has usable, as-yet
+      // unassigned readings; never duplicate an already imported heat pump.
+      const pendingOriginalHeatPumps=originalHeatPumps.filter(candidate=>{
+        const linked=p.components.find(node=>node.type==='heat_pump'&&(
+          node.discovery?.provider==='original-heatpump'&&node.discovery.id===candidate.id||
+          Object.values(node.sensors||{}).some(id=>
+            Object.values(candidate.entities).includes(id))));
+        return !linked||Object.entries(candidate.entities).some(([role,id])=>
+          id&&!linked.sensors?.[role]);
+      });
       const chosenEms=emsCandidates.find(c=>!HPC_DISCOVERY.matchedNode(p,c,'ems-esp',emsCandidates));
       const chosenEta=etaCandidates.find(c=>!HPC_DISCOVERY.matchedNode(p,c,'eta',etaCandidates));
       const emsTypeLabel=(type)=>type==="oil_boiler"?t("Ölkessel","Oil boiler"):
         type==="gas_boiler"?t("Gaskessel","Gas boiler"):
         type==="heat_pump"?t("Wärmepumpe","Heat pump"):t("Heizgerät (Typ prüfen)","Heating device (verify type)");
-      const heatPumpInfo=originalHeatPumps.length?`<section class="hpc-ems">
+      const heatPumpInfo=pendingOriginalHeatPumps.length?`<section class="hpc-ems">
         <h3>${t('Wärmepumpe mit Original-Erkennung gefunden','Heat pump found with original detection')}</h3>
         <p>${t('Die bewährten Integrations-Presets der ursprünglichen Karte werden verwendet. Bestehende Sensoren bleiben erhalten. Rohrleitungen werden nicht automatisch verändert.','Uses the original card integration presets. Existing sensor mappings and pipe connections remain unchanged.')}</p>
         <label class="hpc-field">${t('Erkannte Integration','Detected integration')}
           <select id="hpc-original-wp">
-            ${originalHeatPumps.map(c=>`<option value="${esc(c.id)}">${esc(c.name)} · ${c.count} ${t('Messwerte','measurements')}</option>`).join('')}
+            ${pendingOriginalHeatPumps.map(c=>`<option value="${esc(c.id)}">${esc(c.name)} · ${c.count} ${t('Messwerte','measurements')}</option>`).join('')}
           </select></label>
         <button type="button" data-action="original-wp-apply">${t('Wärmepumpe erkennen und Werte übernehmen','Import detected heat pump measurements')}</button>
       </section>`:''; 
@@ -12969,7 +12992,16 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           ${useNativeForm?'<ha-form id="hpc-native-settings"></ha-form>':
              `<div class="hpc-row"><label>${t("Name der Anlage","System name")}<input id="hpc-free-title"
              value="${esc(this._config.title||"")}" placeholder="Hydraulic Plan Card"/></label></div>`}
-          <div class="hpc-actions"><button type="button" data-action="example">${t("Beispielanlage laden (ersetzt Plan)","Load example (replaces plan)")}</button></div>
+          <div class="hpc-row hpc-temperature-colors">
+             <label>${t('Farbskala ab (°C)','Colour scale minimum (°C)')}
+               <input type="number" data-color-bound="min" min="-100" max="199" step="1"
+                 value="${esc(this._config.temperature_color_min??-10)}"/></label>
+             <label>${t('Farbskala bis (°C)','Colour scale maximum (°C)')}
+               <input type="number" data-color-bound="max" min="-99" max="200" step="1"
+                 value="${esc(this._config.temperature_color_max??90)}"/></label>
+           </div>
+           <p class="hpc-field-hint">${t('Gemeinsame Temperaturskala für Vorlauf, Rücklauf, Puffer, Warmwasser und Wärmeerzeuger. Werte außerhalb verwenden die Endfarben.','Shared temperature scale for flow, return, buffers, hot water and heat sources. Outside values use endpoint colours.')}</p>
+           <div class="hpc-actions"><button type="button" data-action="example">${t("Beispielanlage laden (ersetzt Plan)","Load example (replaces plan)")}</button></div>
           <details class="hpc-advanced-pipes" ${this._config.hpc_migration_review||this._migrationWarnings?.length?'open':''}>
             <summary>${t("Migration & Konfiguration","Migration & configuration")} · v${esc(this._config.hpc_schema_version||1)}</summary>
             <p>${t("Die ursprüngliche Konfiguration bleibt bei der ersten Migration als Sicherung erhalten. Vorhandene Sensoren und bestätigte Leitungen werden nicht neu geraten.","The original configuration is backed up on first migration. Sensor mappings and confirmed connections are not guessed.")}</p>
@@ -13073,6 +13105,20 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           focusTarget.setSelectionRange(...selection);
       }
       const root=this._freeUi;
+      root.querySelectorAll('[data-color-bound]').forEach(input=>
+        input.addEventListener('change',()=>{
+          const minimum=Number(root.querySelector('[data-color-bound="min"]')?.value);
+          const maximum=Number(root.querySelector('[data-color-bound="max"]')?.value);
+          if(!Number.isFinite(minimum)||!Number.isFinite(maximum)||
+             minimum < -100||maximum > 200||maximum<=minimum){
+            input.setCustomValidity('Minimum muss kleiner als Maximum sein (−100 bis 200 °C).');
+            input.reportValidity();
+            return;
+          }
+          root.querySelectorAll('[data-color-bound]').forEach(field=>field.setCustomValidity(''));
+          this._save({...this._config,
+            temperature_color_min:minimum,temperature_color_max:maximum},{repaint:false});
+        }));
       // Always edit the latest plan, not the snapshot used to render this form.
       // Multiple sensor selections can otherwise overwrite each other when
       // the form intentionally stays mounted between changes.
