@@ -108,6 +108,24 @@ pass=check(mixedMigrated.config.plan.extensions?.futureRouter?.grouping==='kept'
   HPC_MIGRATION.restore(mixedMigrated.config).plan.extensions?.futureRouter?.grouping==='kept',
   'future plan-level metadata survives upgrade and restore')&&pass;
 
+// ETA eHACK cutaway is a first-party editor option, not an unknown extension.
+const etaCutaway=structuredClone(original);
+etaCutaway.plan.components.push({
+  id:'eta_hackgut_1',type:'wood_chip_boiler',name:'ETA eHACK',
+  options:{eta_model:'ehack',eta_view:'cutaway',particle_separator:true,silo:true},
+  sensors:{flow:'sensor.eta_vorlauf'}
+});
+const etaUpgrade=HPC_MIGRATION.upgrade(etaCutaway);
+pass=check(etaUpgrade.changed&&!etaUpgrade.blocked&&
+  etaUpgrade.config.plan.components.at(-1).options.eta_view==='cutaway',
+  'ETA cutaway editor option can migrate without falsely blocking')&&pass;
+pass=check(!HPC_MIGRATION.upgrade(etaUpgrade.config).changed,
+  'ETA cutaway remains unchanged after saved migration')&&pass;
+const alternativeDomain=structuredClone(original);
+alternativeDomain.plan.components[0].sensors.top='climate.buffer_temperature';
+pass=check(HPC_MIGRATION.upgrade(alternativeDomain).changed,
+  'migration accepts the same Home Assistant entity syntax as the editor')&&pass;
+
 for(const fixture of HPC_MIGRATION_CASES){
   const before=JSON.stringify(fixture.config);
   const result=HPC_MIGRATION.upgrade(fixture.config,{classic:fixture.classic===true});
