@@ -207,7 +207,7 @@ const preciseRoute=HPC_NETWORK.route({
     {id:'s2',x:50,y:475,w:240,h:235}
   ]
 });
-const preciseTokens=preciseRoute.match(/[MHV]|-?\\d+(?:\\.\\d+)?/g)||[];
+const preciseTokens=preciseRoute.match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
 let preciseX=0,preciseY=0;
 for(let i=0;i<preciseTokens.length;){
   const command=preciseTokens[i++];
