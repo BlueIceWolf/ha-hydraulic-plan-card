@@ -1910,6 +1910,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           `<p class="hpc-connection-warning" role="status">${esc(warning)}</p>`).join('')||''}
         ${!configured?`<h3>${t("Allgemein · Komponentenanzahl","General · component counts")}</h3>
           <p>${t("Lege die Anzahl fest. Typ und Sensoren ordnest du danach jedem Bauteil einzeln zu.","Choose the counts first. Then set the type and sensors for each component individually.")}</p>
+          <div class="hpc-native-form"><ha-form id="hpc-native-preset"></ha-form></div>
+          ${heatPumpInfo}
           ${emsInfo}
           ${emsCircuitInfo}
           ${emsDhwInfo}
@@ -2146,7 +2148,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           }
           if(values.entities&&typeof values.entities==='object')
             next.entities={...(this._config.entities||{}),...values.entities};
-          this._save(next,{repaint:false});
+          // Switching integration affects suggested readings and available
+          // detail options. Ordinary sensor edits should keep their focus.
+          this._save(next,{repaint:values.preset!==undefined&&
+            values.preset!==this._config.preset});
         });
       }
       const chosenForm=root.querySelector('#hpc-native-sensors');
