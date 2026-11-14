@@ -4,6 +4,11 @@ Eine übersichtliche Heizungsanzeige für Home Assistant – von der Wärmepumpe
 
 Die Karte basiert auf der [Heat Pump Hydraulic Card von Sturmi77](https://github.com/Sturmi77/heatpump-hydraulic-card) und erweitert sie um weitere Wärmeerzeuger und frei kombinierbare Anlagenteile.
 
+![Beispiel einer Heizungsanlage in der Hydraulic Plan Card](test/visual-acceptance.spec.mjs-snapshots/plant-b-wide-chromium-linux.png)
+
+Die Vorschau zeigt eine der automatisiert geprüften Beispielanlagen. Je nach angeschlossenen
+Wärmeerzeugern, Speichern und Heizkreisen sieht die Darstellung unterschiedlich aus.
+
 ## Was kann die Karte?
 
 - **Wärmeerzeuger:** Wärmepumpen, Öl-, Gas-, Pellet-, Holzvergaser- und Hackschnitzelkessel

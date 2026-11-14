@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="de"><meta charset="utf-8"><title>Card temperature colour isolation</title>
+<pre id="result">RUNNING</pre><pre id="log"></pre>
+<script>
+const HFC_EMITTERS=['radiator','underfloor','column'];
+const HFC_UNIT_STYLES=['auto'];const HFC_UNIT_SIZES=['small','medium','large'];
+</script>
+<script src="../src/flexible-plan.js"></script>
+<script src="../src/hydraulic-network.js"></script>
+<script src="../src/integrated-extension.js"></script>
+<script>
+const notes=[];
+let pass=true;
+const check=(ok,label)=>{
+  notes.push((ok?'OK ':'FAIL ')+label);
+  if(!ok)pass=false;
+};
+const a=HPC_FREE.temperatureColorRange({temperature_color_min:20,temperature_color_max:60});
+const b=HPC_FREE.temperatureColorRange({temperature_color_min:30,temperature_color_max:95});
+const reading={number:40,unit:'°C'};
+const firstColor=HPC_FREE.color(reading,a);
+const secondColor=HPC_FREE.color(reading,b);
+check(firstColor!==secondColor,'two cards have independent temperature colours');
+check(HPC_FREE.color(reading,a)===firstColor,
+  'rendering another card does not change the first colour');
+check(HPC_FREE.temperatureColorRange({temperature_color_min:'',temperature_color_max:60})===null,
+  'empty minimum is not silently interpreted as zero');
+check(HPC_FREE.temperatureColorRange({temperature_color_min:20,temperature_color_max:''})===null,
+  'empty maximum is not silently interpreted as zero');
+check(HPC_FREE.temperatureColorRange({temperature_color_min:60,temperature_color_max:20})===null,
+  'reversed scale is rejected');
+check(!Object.prototype.hasOwnProperty.call(HPC_FREE,'colorRange'),
+  'no mutable global colour range is exported');
+check(HPC_FREE.color(null,a)==='#718096',
+  'missing temperature always has a neutral colour');
+const source={id:'source_1',type:'heat_pump',name:'Wärmepumpe',sensors:{flow:'sensor.top'}};
+const tank={id:'tank_1',type:'buffer',name:'Puffer',sensors:{top:'sensor.top'}};
+const plan=HPC_FREE.normalize({components:[source,tank],connections:[
+  {id:'source_flow',from:'source_1',from_port:'flow',to:'tank_1',to_port:'top_in'},
+  {id:'source_return',from:'tank_1',from_port:'bottom_out',to:'source_1',to_port:'return'}
+]});
+const model=HPC_INTEGRATED.layout(plan,1);
+const hass={states:{'sensor.top':{state:'40',attributes:{unit_of_measurement:'°C'}}},
+  locale:{language:'de'}};
+const svgA=HPC_INTEGRATED.svg(model,hass,a);
+const svgB=HPC_INTEGRATED.svg(model,hass,b);
+check(svgA.defs.includes(firstColor)&&svgB.defs.includes(secondColor),
+  'tank gradients respect individual card settings');
+check(HPC_INTEGRATED.svg(model,hass,a).defs===svgA.defs,
+  'a first card remains unchanged after rendering another card');
+document.querySelector('#result').textContent=pass?'PASS':'FAIL';
+document.querySelector('#log').textContent=notes.join('\n');
+</script></html>

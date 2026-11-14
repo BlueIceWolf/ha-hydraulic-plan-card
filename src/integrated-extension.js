@@ -439,13 +439,13 @@ const HPC_INTEGRATED = (() => {
       return s && s.number!==null && ['°c','c','°f','k'].includes(s.unit.toLowerCase());
     }).sort((a,b)=>a.position-b.position);
   }
-  function stops(node,hass) {
+  function stops(node,hass,colorRange) {
     const values=tankPoints(node,hass);
     if(!values.length)return '<stop offset="0%" stop-color="#7e8a95"/><stop offset="100%" stop-color="#7e8a95"/>';
     const a=[];
     if(values[0].position>0)a.push('<stop offset="0%" stop-color="#7e8a95"/>');
     for(const point of values){
-      const col=HPC_FREE.color(HPC_FREE.state(hass,point.entity));
+      const col=HPC_FREE.color(HPC_FREE.state(hass,point.entity),colorRange);
       a.push('<stop offset="'+point.position+'%" stop-color="'+col+'"/>');
     }
     if(values.at(-1).position<100)a.push('<stop offset="100%" stop-color="#7e8a95"/>');
@@ -572,7 +572,7 @@ const HPC_INTEGRATED = (() => {
   // Fröling S3 Turbo cutaway, adapted from the approved V3 preview.
   // All water-side components here are pictograms only; actual pipe paths
   // and circulation belong to HPC_NETWORK. No extra hydraulic edges.
-  function froelingArt(x,y,w,h,node,hass) {
+  function froelingArt(x,y,w,h,node,hass,colorRange) {
     const state=HPC_FREE.state(hass,node.sensors?.state);
     const fire=!!state&&HPC_FREE.active(state);
     const speed=HPC_FREE.state(hass,node.sensors?.fan);
@@ -584,8 +584,8 @@ const HPC_INTEGRATED = (() => {
     const uid='hpc-fr-'+String(node.id).replace(/[^a-zA-Z0-9_-]/g,'-');
     const hotReading=HPC_FREE.state(hass,node.sensors?.flow);
     const coldReading=HPC_FREE.state(hass,node.sensors?.return);
-    const hotColor=hotReading&&Number.isFinite(hotReading.number)?HPC_FREE.color(hotReading):'#c748aa';
-    const coldColor=coldReading&&Number.isFinite(coldReading.number)?HPC_FREE.color(coldReading):'#259ae5';
+    const hotColor=hotReading&&Number.isFinite(hotReading.number)?HPC_FREE.color(hotReading,colorRange):'#c748aa';
+    const coldColor=coldReading&&Number.isFinite(coldReading.number)?HPC_FREE.color(coldReading,colorRange):'#259ae5';
     // The fan wheel and its protective ring are separate so only the wheel
     // rotates. The flame points downward through the nozzle.
     return '<svg x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" viewBox="0 0 540 355" preserveAspectRatio="xMidYMid meet" class="hpi-froeling'+(fire?' burning':'')+(fan?' fan-on':'')+'" aria-label="Fröling S3 Turbo Schnittbild">'
@@ -632,11 +632,11 @@ const HPC_INTEGRATED = (() => {
   // The existing heat pump, hot-water and buffer drawings remain in the upstream
   // SVG. These original-style outlines extend its vocabulary for further
   // heating sources instead of displaying a generic flame in an empty box.
-  function additionalSourceArt(type, box, on, node, hass) {
+  function additionalSourceArt(type, box, on, node, hass, colorRange) {
     const x=box.x+35, y=box.y+43;
     if(type==='wood_chip_boiler')return chipArt(x,y,170,89,node,on,hass);
     if(type==='wood_gasifier'&&node.options?.froeling_view!=='classic')
-      return froelingArt(box.x+2,box.y+45,box.w-2,156,node,hass);
+      return froelingArt(box.x+2,box.y+45,box.w-2,156,node,hass,colorRange);
     const casing='<rect class="hpi-source-case" x="'+x+'" y="'+y+'" width="170" height="89" rx="12"/>';
     const panel='<rect class="hpi-source-panel" x="'+(x+126)+'" y="'+(y+12)+'" width="33" height="59" rx="5"/>'
       +'<rect class="hpi-source-display" x="'+(x+132)+'" y="'+(y+19)+'" width="21" height="13" rx="3"/>'
@@ -769,11 +769,11 @@ const HPC_INTEGRATED = (() => {
     return resolve(edge,0);
   }
 
-  function svg(model,hass) {
+  function svg(model,hass,colorRange=null) {
     const {plan,anchored,points,extras}=model;
     const all=Object.fromEntries(plan.components.map(c=>[c.id,c]));
     const loc=id=>anchored.get(id)||points.get(id);
-    const defs=plan.components.filter(isTank).map(c=>'<linearGradient id="hpi-'+c.id+'" x1="0" y1="0" x2="0" y2="1">'+stops(c,hass)+'</linearGradient>').join('');
+    const defs=plan.components.filter(isTank).map(c=>'<linearGradient id="hpi-'+c.id+'" x1="0" y1="0" x2="0" y2="1">'+stops(c,hass,colorRange)+'</linearGradient>').join('');
     const evidence=HPC_NETWORK.flowEvidence(plan,hass);
     const flowing=new Set([...evidence].filter(([,reading])=>reading.active)
       .map(([edgeId])=>edgeId));
@@ -955,7 +955,7 @@ const HPC_INTEGRATED = (() => {
         edge.kind?.startsWith('heating_circuit_')?!!circuitFlowing.get(edge.from):flowing.has(edge.id),
         evidence:edge.kind==='return_lift'?(edge.active?'inferred':'stopped'):
           evidence.get(edge.id)?.state||'unknown',
-        color:reading?HPC_FREE.color(reading):defaultPipeColor,
+        color:reading?HPC_FREE.color(reading,colorRange):defaultPipeColor,
         junction:supplyTee||returnTee};
     }).filter(Boolean);
     // Resolve all route overlaps together, rather than having every boiler,
@@ -1004,7 +1004,7 @@ const HPC_INTEGRATED = (() => {
       const returnTemp=heatingReturnTemperature(circuit,hass);
       leg.colored=[{pipe:elbow,
         color:returnTemp&&Number.isFinite(returnTemp.number)?
-          HPC_FREE.color(returnTemp):'#718096',
+          HPC_FREE.color(returnTemp,colorRange):'#718096',
         kind:'heating_circuit_internal_return'},...(leg.colored||[])];
     }
     const links=routeRecords.filter(r=>!r.nativeCircuit)
@@ -1025,7 +1025,7 @@ const HPC_INTEGRATED = (() => {
         const valveX=socket?.x+(receiver.options?.froeling_view!=='classic'?95:42);
         const mixed=HPC_FREE.state(hass,receiver.sensors?.return);
         const mixedColor=mixed&&Number.isFinite(mixed.number)?
-          HPC_FREE.color(mixed):'#718096';
+          HPC_FREE.color(mixed,colorRange):'#718096';
         pipeMarkup=pipeSegments(paths.pipe).map(part=>{
           const mixedLeg=socket&&Math.abs(part.y1-socket.y)<.1&&
             Math.abs(part.y2-socket.y)<.1&&
@@ -1128,7 +1128,7 @@ const HPC_INTEGRATED = (() => {
         const burner=HPC_FREE.state(hass,node.sensors.state);
         const artwork=type==='oil_boiler'
           ?oilArt(b.x+35,b.y+44,170,96,!!burner&&HPC_FREE.active(burner),node.options?.boiler_kind)
-          :additionalSourceArt(type,b,on,node,hass);
+          :additionalSourceArt(type,b,on,node,hass,colorRange);
         const frameless=type==='wood_gasifier'&&node.options?.froeling_view!=='classic';
         return '<g class="tap hpi-component hpi-source-unit'+
           (frameless?' hpi-source-frameless':'')+
@@ -1168,7 +1168,7 @@ const HPC_INTEGRATED = (() => {
           +(temps?'<text class="unit-val hpi-oil-reading" x="'+cx+'" y="'+(b.y+205)+'" text-anchor="middle">'+temps+'</text>':'')
           +'</g>';
       }
-      const icon=isSource(node)?additionalSourceArt(type,b,on,node,hass):
+      const icon=isSource(node)?additionalSourceArt(type,b,on,node,hass,colorRange):
         type==='pump'?'<circle class="pump" cx="'+cx+'" cy="'+cy+'" r="23"/><g class="impeller'+(on?' on':'')+'" style="transform-origin:'+cx+'px '+cy+'px"><path class="imp" d="M'+cx+' '+(cy-12)+' L'+(cx+9)+' '+cy+' L'+cx+' '+(cy+12)+' L'+(cx-9)+' '+cy+'Z"/></g>':
         type==='mixer'||type==='diverter'?'<circle class="valve" cx="'+cx+'" cy="'+cy+'" r="21"/><path class="valve-arrow" d="M'+(cx-13)+' '+(cy-9)+' L'+cx+' '+(cy+7)+' L'+(cx+13)+' '+(cy-9)+'"/>':
         type==='electric_heater'?'<path class="heater" d="M'+(cx-26)+' '+cy+' h12 l10 -15 l11 30 l10 -15 h12"/>':
@@ -1368,10 +1368,10 @@ const HPC_INTEGRATED = (() => {
       :'';
     const primaryFroeling=firstSource?.type==='wood_gasifier'&&firstSource.options?.froeling_view!=='classic'
       ?'<g class="tap hpi-froeling-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||'')+'">'
-        +froelingArt(52,235,238,156,firstSource,hass)+'</g>':'';
+        +froelingArt(52,235,238,156,firstSource,hass,colorRange)+'</g>':'';
     const primaryGas=firstSource?.type==='gas_boiler'
       ?'<g class="tap hpi-gas-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
-        +additionalSourceArt('gas_boiler',{x:50,y:195},!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource)+'</g>'
+        +additionalSourceArt('gas_boiler',{x:50,y:195},!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource,hass,colorRange)+'</g>'
       :'';
     const primaryTitle=firstSource?.type==='wood_gasifier'&&
       firstSource.options?.froeling_view!=='classic'

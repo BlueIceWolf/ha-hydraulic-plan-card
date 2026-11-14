@@ -187,6 +187,36 @@ for(let i=0;i<routeSegments.length;){
   routeX=nextX;routeY=nextY;
 }
 check(routeAvoidsPump,'Heating-circuit return routes avoid intervening components');
+
+// The return socket of the illustrated Fröling boiler has a fractional
+// coordinate. The collision router must preserve its exact endpoint instead
+// of snapping the terminal leg to three decimal places.
+const preciseReturn={x:206.25925925925927,y:366.830985915493};
+const preciseFrom={x:826,y:455};
+const preciseEdge=e('precise_return','h1','return_out','s1','return');
+const preciseRoute=HPC_NETWORK.route({
+  edge:preciseEdge,
+  fromNode:n('h1','heating_circuit'),
+  toNode:n('s1','wood_gasifier'),
+  fromShape:{x:815,y:330,w:155,h:140,type:'heating_circuit'},
+  toShape:{x:50,y:190,w:240,h:235,type:'source'},
+  p:preciseFrom,q:preciseReturn,fromSide:'L',toSide:'R',
+  obstacles:[
+    {id:'h1',x:815,y:330,w:155,h:140},
+    {id:'s1',x:50,y:190,w:240,h:235},
+    {id:'s2',x:50,y:475,w:240,h:235}
+  ]
+});
+const preciseTokens=preciseRoute.match(/[MHV]|-?\d+(?:\.\d+)?/g)||[];
+let preciseX=0,preciseY=0;
+for(let i=0;i<preciseTokens.length;){
+  const command=preciseTokens[i++];
+  if(command==='M'){preciseX=Number(preciseTokens[i++]);preciseY=Number(preciseTokens[i++]);}
+  else if(command==='H')preciseX=Number(preciseTokens[i++]);
+  else if(command==='V')preciseY=Number(preciseTokens[i++]);
+}
+check(preciseX===preciseReturn.x&&preciseY===preciseReturn.y,
+  'Orthogonal routing preserves exact fractional return-socket coordinates');
 const d=HPC_INTEGRATED.layout(HPC_FREE.normalize(scenarios[3]),1);
 check(d.points.get('ww').x>d.anchored.get('puffer').x+400&&
   d.points.get('ladepumpe').inline===true,
