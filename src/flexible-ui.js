@@ -418,7 +418,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // Only fill missing heat-pump fields for hydraulic pipe colouring.
       const p=HPC_FREE.normalize(this._integratedPlan);
       const hp=p.components.find(node=>node.type==='heat_pump');
-      if(!hp||!this._e)return p;
+      if(!this._e)return p;
       const original=this._e;
       const roles={
         state:'mode',compressor:'compressor',
@@ -427,10 +427,12 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         flow:'flow',return:'return',power:'power',
         pump:'primary_pump',volume:'volume'
       };
-      for(const [field,role] of Object.entries(roles)){
-        const id=original[role];
-        if(!hp.sensors[field]&&typeof id==='string'&&
-          this._hass?.states?.[id])hp.sensors[field]=id;
+      if(hp){
+        for(const [field,role] of Object.entries(roles)){
+          const id=original[role];
+          if(!hp.sensors[field]&&typeof id==='string'&&
+            this._hass?.states?.[id])hp.sensors[field]=id;
+        }
       }
       // Preserve the original automatic preset mapping for the first DHW tank.
       // This changes only the live drawing copy, never the saved sensor choices.
