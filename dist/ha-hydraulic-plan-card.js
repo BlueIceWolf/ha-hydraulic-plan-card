@@ -7572,9 +7572,24 @@ const HPC_FREE = (function makeFreeHelpers() {
     particle_current:["Partikelabscheider Strom","Particle separator current"],
   };
   const byType = Object.fromEntries(types.map(t=>[t.type,t]));
+  // One option registry is used by the editor, migration and future schema checks.
+  // Unknown extension options are deliberately retained by normalization.
+  const optionKeys = Object.freeze({
+    wood_gasifier: ['return_lift','froeling_view','mixer_inverted'],
+    oil_boiler: ['boiler_kind'],
+    gas_boiler: ['boiler_kind'],
+    pellet_boiler: ['boiler_kind','silo'],
+    wood_chip_boiler: ['eta_model','eta_view','particle_separator','silo'],
+    heat_pump: ['unit_style','unit_size','source_type'],
+    dhw_tank: ['connection_style','dhw_charge'],
+    heating_circuit: ['emitter','mixed','hydraulic_auto','mixer_inverted'],
+    diverter: ['dhw_port','dhw_state','heating_state'],
+    mixer: ['a_closed_state','b_closed_state','a_closed_at','b_closed_at','closed_ports','mixer_inverted'],
+  });
   // Entity IDs are validated syntactically; all measurements remain optional.
   // A meaningful entity may come from an integration, helper or template domain.
   const entityRx = /^[a-z][a-z0-9_]*\.[a-z0-9_]+$/;
+  const validEntity = id => typeof id==='string' && entityRx.test(id);
   const isId = id => typeof id==="string" && /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(id);
   const esc = v => String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const text = (de,en,lang) => lang==="en"?en:de;
@@ -8139,12 +8154,19 @@ const HPC_FREE = (function makeFreeHelpers() {
   const format=s=>s?(s.number!==null?
     s.number.toLocaleString("de-DE",{maximumFractionDigits:1})+(s.unit?" "+s.unit:""):
     s.text.slice(0,16)):"–";
-  // Colour scale is selected per card before its synchronous SVG render.
-  // Invalid or missing bounds keep the historical temperature palette.
-  function color(s) {
+  // Temperature colours are a pure function of the reading and explicit
+  // per-card range. Never store the range on the shared HPC_FREE object.
+  function temperatureColorRange(config) {
+    const rawMin=config?.temperature_color_min,rawMax=config?.temperature_color_max;
+    if(rawMin==null||rawMax==null||
+      String(rawMin).trim()===''||String(rawMax).trim()==='')return null;
+    const min=Number(rawMin),max=Number(rawMax);
+    return Number.isFinite(min)&&Number.isFinite(max)&&
+      min>=-100&&max<=200&&max>min?{min,max}:null;
+  }
+  function color(s,bounds=null) {
     if(!s||s.number===null||!["°c","c","°f","k"].includes(s.unit.toLowerCase()))return "#718096";
     const measured=s.unit==="°F"?(s.number-32)*5/9:s.unit==="K"?s.number-273.15:s.number;
-    const bounds=HPC_FREE.colorRange;
     const min=Number(bounds?.min),max=Number(bounds?.max);
     // Preserve the existing  -10…90 °C palette as the default. For a custom
     // range, map the configured lower/upper limits to its endpoints.
@@ -8207,13 +8229,13 @@ const HPC_FREE = (function makeFreeHelpers() {
     else {
       const first=points[0],last=points.at(-1);
       if(first.position>0){add(0,"#718096");add(Math.max(0,first.position-.4),"#718096");}
-      points.forEach(p=>add(p.position,color(validTemp(p.entity))));
+      points.forEach(p=>add(p.position,color(validTemp(p.entity),options.colorRange)));
       if(last.position<100){add(Math.min(100,last.position+.4),"#718096");add(100,"#718096");}
     }
     return `<linearGradient id="hpc-${esc(c.id)}" x1="0" y1="0" x2="0" y2="1">${stops.join("")}</linearGradient>`;
   }).join("");
   const names=Object.fromEntries(plan.components.map(c=>[c.id,c]));
-  const connectorColor=(e)=>color(validTemp(e.temperature_entity));
+  const connectorColor=(e)=>color(validTemp(e.temperature_entity),options.colorRange);
   const routes=plan.connections.map(e=>{
     const start=portXY(names[e.from],e.from_port),end=portXY(names[e.to],e.to_port);
     const mid=(start.x+end.x)/2;
@@ -8316,7 +8338,7 @@ const HPC_FREE = (function makeFreeHelpers() {
   .hpc-editor .hpc-setup-group .hpc-checkbox{margin:5px 0}\n\
   .hpc-editor .hpc-setup-group .hpc-checkbox span{flex:1}\n\
   .hpc-editor .hpc-setup-group .hpc-checkbox input[type=number]{width:76px}\n  .hpc-ems{border:1px solid var(--primary-color,#03a9f4);border-radius:12px;padding:8px 14px 14px;margin:14px 0;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-ems h3{margin-top:5px;}\n  .hpc-connection-warning{color:var(--error-color,#e16a42)!important;font-weight:600;}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-quick-connect{margin:8px 0 4px}\n  .hpc-editor .hpc-quick-connect label{flex:1 1 260px}\n  .hpc-editor .hpc-connection-hint{margin:4px 0 14px;font-size:.82em}\n  .hpc-editor details summary{cursor:pointer;font-weight:600;padding:8px 2px}\n  .hpc-editor .hpc-advanced-pipes{border-top:1px solid var(--divider-color,rgba(127,127,127,.16));margin:13px 0}\n  .hpc-editor .hpc-pipe-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding:9px 0}\n  .hpc-editor .hpc-pipe-row>span{display:flex;flex:1 1 230px;flex-direction:column;font-weight:500;font-size:.9em;line-height:1.4}\n  .hpc-editor .hpc-pipe-row small{font-weight:400;font-size:.87em;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-pipe-row details{flex:1 1 100%;font-size:.85em}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
-  return {types,byType,ports,portRole,validConnection,connectPair,connectHeatingCircuit,
+  return {types,byType,optionKeys,validEntity,temperatureColorRange,ports,portRole,validConnection,connectPair,connectHeatingCircuit,
     preferredHeatingBuffer,connectDhwCharge,connectDhwBufferDiverter,connectionPairs,connectBufferSeries,
     connectBuffersParallel,dimension,display,fieldLabel,icon,esc,normalize,newNode,
     sample,state,active,format,color,portXY,draw,css,text};
@@ -8340,8 +8362,9 @@ const HPC_MIGRATION = (() => {
     pump:'boiler_pump',power:'boiler_power',starts:'boiler_burner_starts'
   };
   const isId=id=>typeof id==='string'&&/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(id);
-  const validEntity=id=>typeof id==='string'&&
-    /^(sensor|binary_sensor|switch|number|select|input_boolean|input_number)\.[a-zA-Z0-9_]+$/.test(id);
+  // Match the canonical entity syntax used by the editor, including
+  // domains supplied by current and future Home Assistant integrations.
+  const validEntity=id=>HPC_FREE.validEntity(id);
   function check(plan) {
     const warnings=[],ids=new Set(),edges=new Set(),connectionKeys=new Set();
     const components=plan?.components,connections=plan?.connections;
@@ -8384,13 +8407,7 @@ const HPC_MIGRATION = (() => {
       if(n.name&&String(n.name).length>75)
         warnings.push('Bauteilname an '+n.id+' ist länger als unterstützt.');
       if(n.options&&typeof n.options==='object'){
-        const supported={dhw_tank:['connection_style','dhw_charge'],
-          wood_gasifier:['return_lift','froeling_view','mixer_inverted'],wood_chip_boiler:['eta_model','particle_separator','silo'],
-          diverter:['dhw_port','dhw_state','heating_state'],
-          mixer:['a_closed_state','b_closed_state','a_closed_at','b_closed_at','closed_ports','mixer_inverted'],
-          heating_circuit:['emitter','mixed','hydraulic_auto','mixer_inverted'],pellet_boiler:['boiler_kind','silo'],
-          oil_boiler:['boiler_kind'],gas_boiler:['boiler_kind'],
-          heat_pump:['unit_style','unit_size','source_type']}[n.type]||[];
+        const supported=HPC_FREE.optionKeys[n.type]||[];
         if(Object.keys(n.options).some(key=>!supported.includes(key)))
           warnings.push('Unbekannte Einstellungen an '+n.id+'; keine automatische Änderung.');
         if(n.type==='dhw_tank'&&n.options.dhw_charge!==undefined){
@@ -9807,13 +9824,13 @@ const HPC_INTEGRATED = (() => {
       return s && s.number!==null && ['°c','c','°f','k'].includes(s.unit.toLowerCase());
     }).sort((a,b)=>a.position-b.position);
   }
-  function stops(node,hass) {
+  function stops(node,hass,colorRange) {
     const values=tankPoints(node,hass);
     if(!values.length)return '<stop offset="0%" stop-color="#7e8a95"/><stop offset="100%" stop-color="#7e8a95"/>';
     const a=[];
     if(values[0].position>0)a.push('<stop offset="0%" stop-color="#7e8a95"/>');
     for(const point of values){
-      const col=HPC_FREE.color(HPC_FREE.state(hass,point.entity));
+      const col=HPC_FREE.color(HPC_FREE.state(hass,point.entity),colorRange);
       a.push('<stop offset="'+point.position+'%" stop-color="'+col+'"/>');
     }
     if(values.at(-1).position<100)a.push('<stop offset="100%" stop-color="#7e8a95"/>');
@@ -9940,7 +9957,7 @@ const HPC_INTEGRATED = (() => {
   // Fröling S3 Turbo cutaway, adapted from the approved V3 preview.
   // All water-side components here are pictograms only; actual pipe paths
   // and circulation belong to HPC_NETWORK. No extra hydraulic edges.
-  function froelingArt(x,y,w,h,node,hass) {
+  function froelingArt(x,y,w,h,node,hass,colorRange) {
     const state=HPC_FREE.state(hass,node.sensors?.state);
     const fire=!!state&&HPC_FREE.active(state);
     const speed=HPC_FREE.state(hass,node.sensors?.fan);
@@ -9952,8 +9969,8 @@ const HPC_INTEGRATED = (() => {
     const uid='hpc-fr-'+String(node.id).replace(/[^a-zA-Z0-9_-]/g,'-');
     const hotReading=HPC_FREE.state(hass,node.sensors?.flow);
     const coldReading=HPC_FREE.state(hass,node.sensors?.return);
-    const hotColor=hotReading&&Number.isFinite(hotReading.number)?HPC_FREE.color(hotReading):'#c748aa';
-    const coldColor=coldReading&&Number.isFinite(coldReading.number)?HPC_FREE.color(coldReading):'#259ae5';
+    const hotColor=hotReading&&Number.isFinite(hotReading.number)?HPC_FREE.color(hotReading,colorRange):'#c748aa';
+    const coldColor=coldReading&&Number.isFinite(coldReading.number)?HPC_FREE.color(coldReading,colorRange):'#259ae5';
     // The fan wheel and its protective ring are separate so only the wheel
     // rotates. The flame points downward through the nozzle.
     return '<svg x="'+x+'" y="'+y+'" width="'+w+'" height="'+h+'" viewBox="0 0 540 355" preserveAspectRatio="xMidYMid meet" class="hpi-froeling'+(fire?' burning':'')+(fan?' fan-on':'')+'" aria-label="Fröling S3 Turbo Schnittbild">'
@@ -10000,11 +10017,11 @@ const HPC_INTEGRATED = (() => {
   // The existing heat pump, hot-water and buffer drawings remain in the upstream
   // SVG. These original-style outlines extend its vocabulary for further
   // heating sources instead of displaying a generic flame in an empty box.
-  function additionalSourceArt(type, box, on, node, hass) {
+  function additionalSourceArt(type, box, on, node, hass, colorRange) {
     const x=box.x+35, y=box.y+43;
     if(type==='wood_chip_boiler')return chipArt(x,y,170,89,node,on,hass);
     if(type==='wood_gasifier'&&node.options?.froeling_view!=='classic')
-      return froelingArt(box.x+2,box.y+45,box.w-2,156,node,hass);
+      return froelingArt(box.x+2,box.y+45,box.w-2,156,node,hass,colorRange);
     const casing='<rect class="hpi-source-case" x="'+x+'" y="'+y+'" width="170" height="89" rx="12"/>';
     const panel='<rect class="hpi-source-panel" x="'+(x+126)+'" y="'+(y+12)+'" width="33" height="59" rx="5"/>'
       +'<rect class="hpi-source-display" x="'+(x+132)+'" y="'+(y+19)+'" width="21" height="13" rx="3"/>'
@@ -10137,11 +10154,11 @@ const HPC_INTEGRATED = (() => {
     return resolve(edge,0);
   }
 
-  function svg(model,hass) {
+  function svg(model,hass,colorRange=null) {
     const {plan,anchored,points,extras}=model;
     const all=Object.fromEntries(plan.components.map(c=>[c.id,c]));
     const loc=id=>anchored.get(id)||points.get(id);
-    const defs=plan.components.filter(isTank).map(c=>'<linearGradient id="hpi-'+c.id+'" x1="0" y1="0" x2="0" y2="1">'+stops(c,hass)+'</linearGradient>').join('');
+    const defs=plan.components.filter(isTank).map(c=>'<linearGradient id="hpi-'+c.id+'" x1="0" y1="0" x2="0" y2="1">'+stops(c,hass,colorRange)+'</linearGradient>').join('');
     const evidence=HPC_NETWORK.flowEvidence(plan,hass);
     const flowing=new Set([...evidence].filter(([,reading])=>reading.active)
       .map(([edgeId])=>edgeId));
@@ -10323,7 +10340,7 @@ const HPC_INTEGRATED = (() => {
         edge.kind?.startsWith('heating_circuit_')?!!circuitFlowing.get(edge.from):flowing.has(edge.id),
         evidence:edge.kind==='return_lift'?(edge.active?'inferred':'stopped'):
           evidence.get(edge.id)?.state||'unknown',
-        color:reading?HPC_FREE.color(reading):defaultPipeColor,
+        color:reading?HPC_FREE.color(reading,colorRange):defaultPipeColor,
         junction:supplyTee||returnTee};
     }).filter(Boolean);
     // Resolve all route overlaps together, rather than having every boiler,
@@ -10372,7 +10389,7 @@ const HPC_INTEGRATED = (() => {
       const returnTemp=heatingReturnTemperature(circuit,hass);
       leg.colored=[{pipe:elbow,
         color:returnTemp&&Number.isFinite(returnTemp.number)?
-          HPC_FREE.color(returnTemp):'#718096',
+          HPC_FREE.color(returnTemp,colorRange):'#718096',
         kind:'heating_circuit_internal_return'},...(leg.colored||[])];
     }
     const links=routeRecords.filter(r=>!r.nativeCircuit)
@@ -10393,7 +10410,7 @@ const HPC_INTEGRATED = (() => {
         const valveX=socket?.x+(receiver.options?.froeling_view!=='classic'?95:42);
         const mixed=HPC_FREE.state(hass,receiver.sensors?.return);
         const mixedColor=mixed&&Number.isFinite(mixed.number)?
-          HPC_FREE.color(mixed):'#718096';
+          HPC_FREE.color(mixed,colorRange):'#718096';
         pipeMarkup=pipeSegments(paths.pipe).map(part=>{
           const mixedLeg=socket&&Math.abs(part.y1-socket.y)<.1&&
             Math.abs(part.y2-socket.y)<.1&&
@@ -10496,7 +10513,7 @@ const HPC_INTEGRATED = (() => {
         const burner=HPC_FREE.state(hass,node.sensors.state);
         const artwork=type==='oil_boiler'
           ?oilArt(b.x+35,b.y+44,170,96,!!burner&&HPC_FREE.active(burner),node.options?.boiler_kind)
-          :additionalSourceArt(type,b,on,node,hass);
+          :additionalSourceArt(type,b,on,node,hass,colorRange);
         const frameless=type==='wood_gasifier'&&node.options?.froeling_view!=='classic';
         return '<g class="tap hpi-component hpi-source-unit'+
           (frameless?' hpi-source-frameless':'')+
@@ -10536,7 +10553,7 @@ const HPC_INTEGRATED = (() => {
           +(temps?'<text class="unit-val hpi-oil-reading" x="'+cx+'" y="'+(b.y+205)+'" text-anchor="middle">'+temps+'</text>':'')
           +'</g>';
       }
-      const icon=isSource(node)?additionalSourceArt(type,b,on,node,hass):
+      const icon=isSource(node)?additionalSourceArt(type,b,on,node,hass,colorRange):
         type==='pump'?'<circle class="pump" cx="'+cx+'" cy="'+cy+'" r="23"/><g class="impeller'+(on?' on':'')+'" style="transform-origin:'+cx+'px '+cy+'px"><path class="imp" d="M'+cx+' '+(cy-12)+' L'+(cx+9)+' '+cy+' L'+cx+' '+(cy+12)+' L'+(cx-9)+' '+cy+'Z"/></g>':
         type==='mixer'||type==='diverter'?'<circle class="valve" cx="'+cx+'" cy="'+cy+'" r="21"/><path class="valve-arrow" d="M'+(cx-13)+' '+(cy-9)+' L'+cx+' '+(cy+7)+' L'+(cx+13)+' '+(cy-9)+'"/>':
         type==='electric_heater'?'<path class="heater" d="M'+(cx-26)+' '+cy+' h12 l10 -15 l11 30 l10 -15 h12"/>':
@@ -10736,10 +10753,10 @@ const HPC_INTEGRATED = (() => {
       :'';
     const primaryFroeling=firstSource?.type==='wood_gasifier'&&firstSource.options?.froeling_view!=='classic'
       ?'<g class="tap hpi-froeling-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||'')+'">'
-        +froelingArt(52,235,238,156,firstSource,hass)+'</g>':'';
+        +froelingArt(52,235,238,156,firstSource,hass,colorRange)+'</g>':'';
     const primaryGas=firstSource?.type==='gas_boiler'
       ?'<g class="tap hpi-gas-primary" data-hpi-node="'+HPC_FREE.esc(firstSource.id)+'" data-entity="'+HPC_FREE.esc(firstSource.sensors.state||firstSource.sensors.flow||'')+'">'
-        +additionalSourceArt('gas_boiler',{x:50,y:195},!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource)+'</g>'
+        +additionalSourceArt('gas_boiler',{x:50,y:195},!!sourceStatus&&HPC_FREE.active(sourceStatus),firstSource,hass,colorRange)+'</g>'
       :'';
     const primaryTitle=firstSource?.type==='wood_gasifier'&&
       firstSource.options?.froeling_view!=='classic'
@@ -11268,7 +11285,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               ['°c','c','°f','k'].includes(String(v.unit||'').toLowerCase());
             const mixedReading=validTemp(actual)?actual:validTemp(target)?target:null;
             const mixedColour=leg==='flow'
-              ?(mixedReading?HPC_FREE.color(mixedReading):
+              ?(mixedReading?HPC_FREE.color(mixedReading,this._temperatureColorRange()):
                 paths.flow?.colored?.findLast(segment=>
                   segment.kind==='heating_circuit_internal')?.color||
                 paths.flow?.colored?.at(-1)?.color):null;
@@ -11348,8 +11365,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const targetReading=HPC_FREE.state(this._hass,circuit.sensors?.target);
         const knownTemp=value=>value&&Number.isFinite(value.number)&&
           ['°c','c','°f','k'].includes(String(value.unit||'').toLowerCase());
-        const feedColour=knownTemp(flowReading)?HPC_FREE.color(flowReading):
-          knownTemp(targetReading)?HPC_FREE.color(targetReading):
+        const feedColour=knownTemp(flowReading)?HPC_FREE.color(flowReading,this._temperatureColorRange()):
+          knownTemp(targetReading)?HPC_FREE.color(targetReading,this._temperatureColorRange()):
           paths.flow?.colored?.findLast(segment=>
             segment.kind==='heating_circuit_internal')?.color||
           paths.flow?.colored?.at(-1)?.color;
@@ -11378,8 +11395,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               ?{number:(knownTemp(flowReading)?flowReading:targetReading).number-delta,
                 unit:'°C'}:null;
             const returnColour=routedReturn||
-              (knownTemp(returnReading)?HPC_FREE.color(returnReading):
-                estimatedReturn?HPC_FREE.color(estimatedReturn):feedColour);
+              (knownTemp(returnReading)?HPC_FREE.color(returnReading,this._temperatureColorRange()):
+                estimatedReturn?HPC_FREE.color(estimatedReturn,this._temperatureColorRange()):feedColour);
             // In the upstream card the middle stop was set equal to the
             // supply. That held the first half of the floor loop at one
             // colour. Use the halfway water temperature instead, keeping
@@ -11388,7 +11405,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               knownTemp(targetReading)?targetReading:null;
             const returnValue=knownTemp(returnReading)?returnReading:estimatedReturn;
             const middleColour=supplyValue&&returnValue
-              ?HPC_FREE.color({number:(supplyValue.number+returnValue.number)/2,unit:'°C'})
+              ?HPC_FREE.color({number:(supplyValue.number+returnValue.number)/2,unit:'°C'},this._temperatureColorRange())
               :'color-mix(in srgb, '+feedColour+' 50%, '+returnColour+')';
             if(middle&&middle.getAttribute('stop-color')!==middleColour)
               middle.setAttribute('stop-color',middleColour);
@@ -11598,11 +11615,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       }
       return p;
     }
+    _temperatureColorRange() {
+      return HPC_FREE.temperatureColorRange(this._config);
+    }
     _syncAdditional(force=false) {
-      const colorMin=Number(this._config?.temperature_color_min);
-      const colorMax=Number(this._config?.temperature_color_max);
-      HPC_FREE.colorRange=Number.isFinite(colorMin)&&Number.isFinite(colorMax)&&
-        colorMax>colorMin?{min:colorMin,max:colorMax}:null;
+      const colorRange=this._temperatureColorRange();
       const p=this._effectiveHydraulicPlan();
       if(!this._hass||!p?.components.length)return;
       const svg=this._$('svg');if(!svg)return;
@@ -11640,7 +11657,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const st=this._hass?.states?.[id];
         return id+':'+(st?.state??'unavailable')+':'+(st?.attributes?.unit_of_measurement??'');
       }).join('|');
-      const signature=JSON.stringify(p)+'|'+tick;
+      const signature=JSON.stringify(p)+'|'+tick+'|'+JSON.stringify(colorRange);
       if(!force&&signature===this._integratedSig&&svg.querySelector('#hpi-root')){
         // The upstream card repaints its own gradients on EVERY HA update.
         // Reapply our circuit colours AFTER that update, even when our own
@@ -11651,7 +11668,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         this._syncMixerIllustrations(svg,p);
         return;
       }
-      const rendered=HPC_INTEGRATED.svg(model,this._hass);
+      const rendered=HPC_INTEGRATED.svg(model,this._hass,colorRange);
       // Preserve the original hydraulic anchors and labels. Oil and ETA use
       // their own recognizable boiler artwork in exactly the same SVG.
       const originalBoilerArt=svg.querySelector('#primary-boiler-art');
@@ -13000,6 +13017,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
                <input type="number" data-color-bound="max" min="-99" max="200" step="1"
                  value="${esc(this._config.temperature_color_max??90)}"/></label>
            </div>
+           <div class="hpc-row hpc-color-preview">
+             <span class="hpc-color-gradient" role="img"
+               aria-label="${t('Vorschau Temperaturfarben','Temperature colour preview')}"
+               style="background:linear-gradient(90deg,${Array.from({length:11},(_,i)=>
+                 HPC_FREE.color({number:-10+i*10,unit:'°C'})).join(',')})"></span>
+             <button type="button" data-color-reset>${t('Standardfarben wiederherstellen','Restore default colours')}</button>
+           </div>
            <p class="hpc-field-hint">${t('Gemeinsame Temperaturskala für Vorlauf, Rücklauf, Puffer, Warmwasser und Wärmeerzeuger. Werte außerhalb verwenden die Endfarben.','Shared temperature scale for flow, return, buffers, hot water and heat sources. Outside values use endpoint colours.')}</p>
            <div class="hpc-actions"><button type="button" data-action="example">${t("Beispielanlage laden (ersetzt Plan)","Load example (replaces plan)")}</button></div>
           <details class="hpc-advanced-pipes" ${this._config.hpc_migration_review||this._migrationWarnings?.length?'open':''}>
@@ -13107,8 +13131,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const root=this._freeUi;
       root.querySelectorAll('[data-color-bound]').forEach(input=>
         input.addEventListener('change',()=>{
-          const minimum=Number(root.querySelector('[data-color-bound="min"]')?.value);
-          const maximum=Number(root.querySelector('[data-color-bound="max"]')?.value);
+          const rawMinimum=root.querySelector('[data-color-bound="min"]')?.value.trim();
+          const rawMaximum=root.querySelector('[data-color-bound="max"]')?.value.trim();
+          const minimum=rawMinimum===''?NaN:Number(rawMinimum);
+          const maximum=rawMaximum===''?NaN:Number(rawMaximum);
           if(!Number.isFinite(minimum)||!Number.isFinite(maximum)||
              minimum < -100||maximum > 200||maximum<=minimum){
             input.setCustomValidity('Minimum muss kleiner als Maximum sein (−100 bis 200 °C).');
@@ -13119,6 +13145,14 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           this._save({...this._config,
             temperature_color_min:minimum,temperature_color_max:maximum},{repaint:false});
         }));
+      root.querySelector('[data-color-reset]')?.addEventListener('click',()=>{
+        const minField=root.querySelector('[data-color-bound="min"]');
+        const maxField=root.querySelector('[data-color-bound="max"]');
+        if(minField){minField.value='-10';minField.setCustomValidity('');}
+        if(maxField){maxField.value='90';maxField.setCustomValidity('');}
+        this._save({...this._config,
+          temperature_color_min:-10,temperature_color_max:90},{repaint:false});
+      });
       // Always edit the latest plan, not the snapshot used to render this form.
       // Multiple sensor selections can otherwise overwrite each other when
       // the form intentionally stays mounted between changes.
