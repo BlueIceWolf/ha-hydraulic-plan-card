@@ -1,31 +1,80 @@
 name: Validate Hydraulic Plan Card
 
+# Small automatic checks; browser and 1,200-topology suites run only on demand.
+# PR commits should not launch four expensive jobs on every push.
 on:
-  push:
-    branches: [main, feature/boiler-generators]
   pull_request:
+    types: [opened, reopened, ready_for_review]
+    paths:
+      - 'src/**'
+      - 'dist/**'
+      - 'test/**'
+      - 'demo/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'hacs.json'
+      - '.github/workflows/validate.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'dist/**'
+      - 'test/**'
+      - 'demo/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'hacs.json'
+      - '.github/workflows/validate.yml'
   workflow_dispatch:
+    inputs:
+      full_suite:
+        description: 'Zusätzlich Chromium, Firefox und 1.200 Hydraulikvarianten prüfen'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
 
+# A newer run on the same branch supersedes older runs.
+concurrency:
+  group: hydraulic-validate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  quick:
+    name: Syntax, HACS bundle and consistency
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: git diff --exit-code -- dist/ha-hydraulic-plan-card.js
+      - run: npm run syntax
+
+  # HACS repository validation does not need to be repeated for every PR edit.
   hacs:
     name: HACS repository validation
+    if: github.event_name == 'workflow_dispatch' && inputs.full_suite
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Validate dashboard repository
-        uses: hacs/action@main
+      - uses: hacs/action@main
         with:
           category: plugin
-          # Repository description/topics must be configured under GitHub → About by the owner.
-          # They are not code checks and can be enabled once the metadata is filled in.
-          ignore: "description topics"
+          ignore: 'description topics'
 
   browser:
-    name: Syntax and ${{ matrix.browser }} smoke tests
+    name: Full ${{ matrix.browser }} browser tests
+    if: github.event_name == 'workflow_dispatch' && inputs.full_suite
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
@@ -56,6 +105,7 @@ jobs:
 
   topologies:
     name: 1,200 seeded hydraulic topologies
+    if: github.event_name == 'workflow_dispatch' && inputs.full_suite
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
