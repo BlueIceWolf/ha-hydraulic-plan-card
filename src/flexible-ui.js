@@ -123,7 +123,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               ['°c','c','°f','k'].includes(String(v.unit||'').toLowerCase());
             const mixedReading=validTemp(actual)?actual:validTemp(target)?target:null;
             const mixedColour=leg==='flow'
-              ?(mixedReading?HPC_FREE.color(mixedReading):
+              ?(mixedReading?HPC_FREE.color(mixedReading,this._temperatureColorRange()):
                 paths.flow?.colored?.findLast(segment=>
                   segment.kind==='heating_circuit_internal')?.color||
                 paths.flow?.colored?.at(-1)?.color):null;
@@ -203,8 +203,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         const targetReading=HPC_FREE.state(this._hass,circuit.sensors?.target);
         const knownTemp=value=>value&&Number.isFinite(value.number)&&
           ['°c','c','°f','k'].includes(String(value.unit||'').toLowerCase());
-        const feedColour=knownTemp(flowReading)?HPC_FREE.color(flowReading):
-          knownTemp(targetReading)?HPC_FREE.color(targetReading):
+        const feedColour=knownTemp(flowReading)?HPC_FREE.color(flowReading,this._temperatureColorRange()):
+          knownTemp(targetReading)?HPC_FREE.color(targetReading,this._temperatureColorRange()):
           paths.flow?.colored?.findLast(segment=>
             segment.kind==='heating_circuit_internal')?.color||
           paths.flow?.colored?.at(-1)?.color;
@@ -233,8 +233,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               ?{number:(knownTemp(flowReading)?flowReading:targetReading).number-delta,
                 unit:'°C'}:null;
             const returnColour=routedReturn||
-              (knownTemp(returnReading)?HPC_FREE.color(returnReading):
-                estimatedReturn?HPC_FREE.color(estimatedReturn):feedColour);
+              (knownTemp(returnReading)?HPC_FREE.color(returnReading,this._temperatureColorRange()):
+                estimatedReturn?HPC_FREE.color(estimatedReturn,this._temperatureColorRange()):feedColour);
             // In the upstream card the middle stop was set equal to the
             // supply. That held the first half of the floor loop at one
             // colour. Use the halfway water temperature instead, keeping
@@ -243,7 +243,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               knownTemp(targetReading)?targetReading:null;
             const returnValue=knownTemp(returnReading)?returnReading:estimatedReturn;
             const middleColour=supplyValue&&returnValue
-              ?HPC_FREE.color({number:(supplyValue.number+returnValue.number)/2,unit:'°C'})
+              ?HPC_FREE.color({number:(supplyValue.number+returnValue.number)/2,unit:'°C'},this._temperatureColorRange())
               :'color-mix(in srgb, '+feedColour+' 50%, '+returnColour+')';
             if(middle&&middle.getAttribute('stop-color')!==middleColour)
               middle.setAttribute('stop-color',middleColour);
@@ -453,11 +453,11 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       }
       return p;
     }
+    _temperatureColorRange() {
+      return HPC_FREE.temperatureColorRange(this._config);
+    }
     _syncAdditional(force=false) {
-      const colorMin=Number(this._config?.temperature_color_min);
-      const colorMax=Number(this._config?.temperature_color_max);
-      HPC_FREE.colorRange=Number.isFinite(colorMin)&&Number.isFinite(colorMax)&&
-        colorMax>colorMin?{min:colorMin,max:colorMax}:null;
+      const colorRange=this._temperatureColorRange();
       const p=this._effectiveHydraulicPlan();
       if(!this._hass||!p?.components.length)return;
       const svg=this._$('svg');if(!svg)return;
@@ -506,7 +506,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         this._syncMixerIllustrations(svg,p);
         return;
       }
-      const rendered=HPC_INTEGRATED.svg(model,this._hass);
+      const rendered=HPC_INTEGRATED.svg(model,this._hass,colorRange);
       // Preserve the original hydraulic anchors and labels. Oil and ETA use
       // their own recognizable boiler artwork in exactly the same SVG.
       const originalBoilerArt=svg.querySelector('#primary-boiler-art');
@@ -1855,6 +1855,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
                <input type="number" data-color-bound="max" min="-99" max="200" step="1"
                  value="${esc(this._config.temperature_color_max??90)}"/></label>
            </div>
+           <div class="hpc-row hpc-color-preview">
+             <span class="hpc-color-gradient" role="img"
+               aria-label="${t('Vorschau Temperaturfarben','Temperature colour preview')}"
+               style="background:linear-gradient(90deg,${Array.from({length:11},(_,i)=>
+                 HPC_FREE.color({number:-10+i*10,unit:'°C'})).join(',')})"></span>
+             <button type="button" data-color-reset>${t('Standardfarben wiederherstellen','Restore default colours')}</button>
+           </div>
            <p class="hpc-field-hint">${t('Gemeinsame Temperaturskala für Vorlauf, Rücklauf, Puffer, Warmwasser und Wärmeerzeuger. Werte außerhalb verwenden die Endfarben.','Shared temperature scale for flow, return, buffers, hot water and heat sources. Outside values use endpoint colours.')}</p>
            <div class="hpc-actions"><button type="button" data-action="example">${t("Beispielanlage laden (ersetzt Plan)","Load example (replaces plan)")}</button></div>
           <details class="hpc-advanced-pipes" ${this._config.hpc_migration_review||this._migrationWarnings?.length?'open':''}>
@@ -1962,8 +1969,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const root=this._freeUi;
       root.querySelectorAll('[data-color-bound]').forEach(input=>
         input.addEventListener('change',()=>{
-          const minimum=Number(root.querySelector('[data-color-bound="min"]')?.value);
-          const maximum=Number(root.querySelector('[data-color-bound="max"]')?.value);
+          const rawMinimum=root.querySelector('[data-color-bound="min"]')?.value.trim();
+          const rawMaximum=root.querySelector('[data-color-bound="max"]')?.value.trim();
+          const minimum=rawMinimum===''?NaN:Number(rawMinimum);
+          const maximum=rawMaximum===''?NaN:Number(rawMaximum);
           if(!Number.isFinite(minimum)||!Number.isFinite(maximum)||
              minimum < -100||maximum > 200||maximum<=minimum){
             input.setCustomValidity('Minimum muss kleiner als Maximum sein (−100 bis 200 °C).');
@@ -1974,6 +1983,14 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           this._save({...this._config,
             temperature_color_min:minimum,temperature_color_max:maximum},{repaint:false});
         }));
+      root.querySelector('[data-color-reset]')?.addEventListener('click',()=>{
+        const minField=root.querySelector('[data-color-bound="min"]');
+        const maxField=root.querySelector('[data-color-bound="max"]');
+        if(minField){minField.value='-10';minField.setCustomValidity('');}
+        if(maxField){maxField.value='90';maxField.setCustomValidity('');}
+        this._save({...this._config,
+          temperature_color_min:-10,temperature_color_max:90},{repaint:false});
+      });
       // Always edit the latest plan, not the snapshot used to render this form.
       // Multiple sensor selections can otherwise overwrite each other when
       // the form intentionally stays mounted between changes.
