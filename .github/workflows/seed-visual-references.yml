@@ -1,8 +1,8 @@
 name: Seed visual references (temporary)
 
+# Screenshot baselines are expensive and must be explicitly requested.
 on:
-  push:
-    branches: [qa/close-remaining-acceptance-20261109]
+  workflow_dispatch:
 
 permissions:
   contents: write
