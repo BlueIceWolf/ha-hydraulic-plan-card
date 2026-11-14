@@ -8,7 +8,7 @@
  *
  * https://github.com/Sturmi77/heatpump-hydraulic-card · MIT License
  */
-const HFC_VERSION = '0.2.0-alpha.17';
+const HFC_VERSION = '0.2.0-alpha.18';
 // Derivative of Heat Pump Hydraulic Card (MIT, Sturmi77). Keep its engine reusable.
 const HPC_GENERATORS = ['heat_pump', 'wood_gasifier', 'oil', 'pellet', 'gas', 'electric'];
 const HPC_BOILERS = HPC_GENERATORS.slice(1);
@@ -11581,7 +11581,7 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // Only fill missing heat-pump fields for hydraulic pipe colouring.
       const p=HPC_FREE.normalize(this._integratedPlan);
       const hp=p.components.find(node=>node.type==='heat_pump');
-      if(!hp||!this._e)return p;
+      if(!this._e)return p;
       const original=this._e;
       const roles={
         state:'mode',compressor:'compressor',
@@ -11590,10 +11590,24 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         flow:'flow',return:'return',power:'power',
         pump:'primary_pump',volume:'volume'
       };
-      for(const [field,role] of Object.entries(roles)){
-        const id=original[role];
-        if(!hp.sensors[field]&&typeof id==='string'&&
-          this._hass?.states?.[id])hp.sensors[field]=id;
+      if(hp){
+        for(const [field,role] of Object.entries(roles)){
+          const id=original[role];
+          if(!hp.sensors[field]&&typeof id==='string'&&
+            this._hass?.states?.[id])hp.sensors[field]=id;
+        }
+      }
+      // Preserve the original automatic preset mapping for the first DHW tank.
+      // This changes only the live drawing copy, never the saved sensor choices.
+      // A manually assigned DHW sensor always wins over the preset.
+      const firstDhw=p.components.find(node=>node.type==='dhw_tank');
+      if(firstDhw){
+        firstDhw.sensors||={};
+        for(const key of ['top','middle','bottom']){
+          const id=original['dhw_'+key];
+          if(!firstDhw.sensors[key]&&typeof id==='string'&&
+            this._hass?.states?.[id])firstDhw.sensors[key]=id;
+        }
       }
       // EMS-ESP's "hp3way" / DHW valve flag is the same switch already
       // used by the classic card: ON = DHW, OFF = heating. Only borrow
@@ -11619,9 +11633,37 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     _temperatureColorRange() {
       return HPC_FREE.temperatureColorRange(this._config);
     }
+    _displayHydraulicPlan(input) {
+      // The original card did not draw an empty DHW tank. Only a configured
+      // temperature reading (manual, preset or additional height sensor)
+      // activates its artwork. Do NOT remove the component from the saved
+      // graph: the editor must retain the tank and all of its connections.
+      const plan=HPC_FREE.normalize(input);
+      const mapped=id=>typeof id==='string'&&id.trim()!==''&&id!=='none';
+      const hidden=new Set(plan.components.filter(node=>
+        node.type==='dhw_tank'&&
+        !['top','middle','bottom'].some(key=>mapped(node.sensors?.[key]))&&
+        !(node.level_sensors||[]).some(point=>mapped(point.entity))
+      ).map(node=>node.id));
+      if(!hidden.size)return plan;
+      // A dedicated WW charging pump/valve with no other consumers is
+      // likewise not useful in the *drawing*. Shared 3-way valves feeding
+      // the heating buffer stay visible with their real heating branch.
+      for(const control of plan.components.filter(node=>
+        node.type==='pump'||node.type==='diverter')){
+        const outputs=plan.connections.filter(edge=>edge.from===control.id);
+        if(outputs.length&&outputs.every(edge=>hidden.has(edge.to)))
+          hidden.add(control.id);
+      }
+      return HPC_FREE.normalize({
+        components:plan.components.filter(node=>!hidden.has(node.id)),
+        connections:plan.connections.filter(edge=>
+          !hidden.has(edge.from)&&!hidden.has(edge.to))
+      });
+    }
     _syncAdditional(force=false) {
       const colorRange=this._temperatureColorRange();
-      const p=this._effectiveHydraulicPlan();
+      const p=this._displayHydraulicPlan(this._effectiveHydraulicPlan());
       if(!this._hass||!p?.components.length)return;
       const svg=this._$('svg');if(!svg)return;
       const model=HPC_INTEGRATED.layout(p,this._hcCount||1,
@@ -11977,6 +12019,9 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const newConfig=result.changed?result.config:incoming;
       this._migrationWarnings=result.warnings||[];
       const changed=JSON.stringify(this._config)!==JSON.stringify(newConfig);
+      // An external graph replacement invalidates only unsaved wizard choices.
+      if(JSON.stringify(this._config?.plan)!==JSON.stringify(newConfig?.plan))
+        this._dhwDrafts?.clear();
       this._config=newConfig;
       // Versioned, non-destructive plan upgrades are committed once.
       // Calling setConfig again with the migrated config is idempotent.
@@ -12730,11 +12775,18 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           const sources=p.components.filter(item=>item.type==='buffer'||
             HPC_FREE.byType[item.type]?.group==='source');
           const availableBuffers=p.components.filter(item=>item.type==='buffer');
-          const chargingSource= status.source?.id||
-            sources.find(item=>item.id===p.connections.find(edge=>edge.to===node.id&&edge.to_port==='coil_in')?.from)?.id||'';
+          const draft=this._dhwDrafts?.get(node.id)||{};
+          const generators=sources.filter(item=>HPC_FREE.byType[item.type]?.group==='source');
+          const chargingSource=draft.source||status.source?.id||
+            node.options?.dhw_charge?.source||
+            sources.find(item=>item.id===p.connections.find(edge=>edge.to===node.id&&edge.to_port==='coil_in')?.from)?.id||
+            (generators.length===1?generators[0].id:'')||
+            (sources.length===1?sources[0].id:'');
           const hasCoilConnection=p.connections.some(edge=>
             edge.to===node.id&&edge.to_port==='coil_in'||edge.from===node.id&&edge.from_port==='coil_out');
-          const kind=node.options?.dhw_charge?.kind||'pump';
+          const kind=draft.kind||node.options?.dhw_charge?.kind||
+            (availableBuffers.length===1&&generators.length===1?'diverter':'pump');
+          const bufferChoice=draft.buffer||(availableBuffers.length===1?availableBuffers[0].id:'');
           const routeControlIds=[...(Array.isArray(status.flow)?status.flow:[]),
             ...(Array.isArray(status.back)?status.back:[])].flatMap(edgeId=>{
               const edge=p.connections.find(item=>item.id===edgeId);
@@ -12761,37 +12813,93 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               value="${esc(chargeControl.options?.dhw_state||'')}"/></label>
             <label>${t('Ventilwert für Heizen','Valve value for heating')}<input data-diverter-heating="${esc(chargeControl.id)}"
               value="${esc(chargeControl.options?.heating_state||'')}"/></label>`:'';
-          specialized+=`<details data-panel="dhw-setup:${esc(node.id)}" open><summary>${t('Warmwasserbereitung','Hot-water charging')}</summary>
-            <p class="${status.complete?'':'hpc-connection-warning'}">${status.complete
-              ?`${t('Warmwasserbereitung angeschlossen','Hot-water charging connected')}: ${esc(status.source.name)} · ${t('Vorlauf und Rücklauf vorhanden','Supply and return connected')}`
-              :status.flow?t('Vorlauf vorhanden, Rücklauf fehlt.','Supply connected, return missing.'):
-                status.back?t('Rücklauf vorhanden, Vorlauf fehlt.','Return connected, supply missing.'):
-                hasCoilConnection?t('Warmwasserverbindung unvollständig; bitte die Einzelverbindungen prüfen.','DHW circuit is incomplete; review individual connections.'):
-                t('Warmwasserspeicher noch nicht angeschlossen.','Hot-water tank is not connected yet.')}</p>
-            <div class="hpc-row"><label>${t('Wärmequelle','Heat source')}<select data-dhw-source="${esc(node.id)}">
-              ${sources.map(source=>`<option value="${esc(source.id)}" ${source.id===chargingSource?'selected':''}>${esc(source.name)}</option>`).join('')}
-            </select></label><label>${t('Ladeart','Charging method')}<select data-dhw-kind="${esc(node.id)}">
-              ${[['pump',t('Über Ladepumpe','Via charging pump')],['diverter',t('Über Umschaltventil','Via diverter valve')],['direct',t('Direkt angeschlossen','Direct')]]
-                .map(([value,label])=>`<option value="${value}" ${kind===value?'selected':''}>${label}</option>`).join('')}
-            </select></label></div>
-            ${availableBuffers.length?`<label data-dhw-buffer-wrap ${kind==='diverter'?'':'hidden'}>${t('Heizung / Puffer laden','Heat / charge buffer')}
-              <select data-dhw-buffer="${esc(node.id)}">
-                <option value="">${t('Ohne Pufferumschaltung','Without buffer switching')}</option>
-                ${availableBuffers.map(buffer=>`<option value="${esc(buffer.id)}">${esc(buffer.name)}</option>`).join('')}
-              </select></label>`:''}
-            <label>${t('Leitungsführung','Pipe routing')}<select data-dhw-style="${esc(node.id)}">
-              <option value="branch" ${node.options?.connection_style==='branch'?'selected':''}>${t('Gemeinsamer Vorlauf und Rücklauf','Shared supply and return')}</option>
-              <option value="separate" ${node.options?.connection_style!=='branch'?'selected':''}>${t('Eigener Ladekreis','Separate charging circuit')}</option>
-            </select></label>
-            <label data-dhw-control-wrap ${kind==='direct'?'hidden':''}>${kind==='diverter'?t('Vorhandenes Umschaltventil','Existing changeover valve'):t('Vorhandene Ladepumpe','Existing charging pump')}
-              <select data-dhw-control="${esc(node.id)}"><option value="">${t('Automatisch neu anlegen','Create automatically')}</option>
-                ${chargeControls.map(control=>`<option value="${esc(control.id)}" ${control.id===chargeControlId?'selected':''}>${esc(control.name)}</option>`).join('')}
+          specialized+=`<details data-panel="dhw-setup:${esc(node.id)}" open>
+            <summary>${t('Warmwasserbereitung','Hot-water charging')}</summary>
+            <p class="${hasCoilConnection&&!status.complete?'hpc-connection-warning':'hpc-setup-hint'}">
+              ${status.complete
+                ?`${t('Warmwasserbereitung angeschlossen','Hot-water charging connected')}: ${esc(status.source.name)} · ${t('Vorlauf und Rücklauf vorhanden','Supply and return connected')}`
+                :status.flow?t('Vorlauf vorhanden, Rücklauf fehlt.','Supply connected, return missing.'):
+                  status.back?t('Rücklauf vorhanden, Vorlauf fehlt.','Return connected, supply missing.'):
+                  hasCoilConnection?t('Warmwasserverbindung unvollständig. Bitte die Anschlüsse prüfen.','DHW connection incomplete. Check the pipework.'):
+                  t('Warmwasser noch nicht eingerichtet.','Hot water is not set up yet.')}</p>
+            <strong>${t('1. Art der Warmwasserbereitung','1. Choose charging method')}</strong>
+            <div class="hpc-dhw-methods" role="group" aria-label="${t('Art der Warmwasserbereitung','Charging method')}">
+              ${[
+                ['diverter',t('3-Wege-Umschaltventil','Three-way changeover valve'),
+                  t('Zwischen Warmwasser und Heizung umschalten','Switch between hot water and heating')],
+                ['pump',t('Ladepumpe','Charging pump'),
+                  t('Warmwasser über eine eigene Pumpe laden','Charge hot water with a dedicated pump')],
+                ['direct',t('Direkt angeschlossen','Direct connection'),
+                  t('Ohne Pumpe oder Umschaltventil','Without pump or changeover valve')]
+              ].map(([value,label,help])=>`<button type="button" data-action="dhw-method"
+                  data-method="${value}" data-component="${esc(node.id)}"
+                  aria-pressed="${kind===value}">
+                  <strong>${label}</strong><small>${help}</small>
+                </button>`).join('')}
+            </div>
+            <input type="hidden" data-dhw-kind="${esc(node.id)}" value="${esc(kind)}"/>
+            <strong>${t('2. Anschlüsse zuordnen','2. Assign connections')}</strong>
+            <div class="hpc-row">
+              <label>${t('Wärmeerzeuger','Heat source')}
+                <select data-dhw-source="${esc(node.id)}">
+                  <option value="" ${!chargingSource?'selected':''}>${t('Bitte wählen','Choose a source')}</option>
+                  ${sources.map(source=>`<option value="${esc(source.id)}" ${source.id===chargingSource?'selected':''}>${esc(source.name)}</option>`).join('')}
+                </select>
+              </label>
+              ${availableBuffers.length?`<label data-dhw-buffer-wrap ${kind==='diverter'?'':'hidden'}>
+                ${t('Heizungsanschluss / Pufferspeicher','Heating outlet / buffer tank')}
+                <select data-dhw-buffer="${esc(node.id)}">
+                  <option value="" ${!bufferChoice?'selected':''}>${t('Bitte wählen','Choose a buffer tank')}</option>
+                  ${availableBuffers.map(buffer=>`<option value="${esc(buffer.id)}" ${buffer.id===bufferChoice?'selected':''}>${esc(buffer.name)}</option>`).join('')}
+                </select></label>`:`${kind==='diverter'?`<p class="hpc-setup-hint">${t('Ohne Pufferspeicher wird nur der Warmwasserzweig angeschlossen.','Without a buffer tank only the hot-water branch is connected.')}</p>`:''}`}
+            </div>
+            <div class="hpc-dhw-preview">
+              <strong>${t('3. So wird verbunden','3. Connection preview')}</strong>
+              ${kind==='diverter'?`<svg viewBox="0 0 480 158" aria-hidden="true" role="presentation">
+                <rect x="9" y="40" width="96" height="42" rx="8" class="hpc-dhw-box"/>
+                <text x="57" y="65" text-anchor="middle">${t('Erzeuger','Generator')}</text>
+                <path d="M105 59 H168" class="hpc-dhw-hot"/>
+                <circle cx="187" cy="59" r="19" class="hpc-dhw-valve"/>
+                <text x="187" y="63" text-anchor="middle">3V</text>
+                <path d="M206 51 H283 V27 H336" class="hpc-dhw-hot"/>
+                <path d="M206 67 H283 V91 H336" class="hpc-dhw-hot"/>
+                <rect x="336" y="7" width="130" height="40" rx="8" class="hpc-dhw-box"/>
+                <rect x="336" y="71" width="130" height="40" rx="8" class="hpc-dhw-box"/>
+                <text x="401" y="32" text-anchor="middle">${t('Warmwasser','Hot water')} (A)</text>
+                <text x="401" y="96" text-anchor="middle">${t('Puffer','Buffer')} (B)</text>
+                <path d="M401 47 V135 H57 V82 M401 111 V135" class="hpc-dhw-cold"/>
+                <text x="240" y="152" text-anchor="middle">${t('Gemeinsamer Rücklauf','Shared return')}</text>
+              </svg>`:`<div class="hpc-dhw-flow">
+                <span>${t('Wärmeerzeuger','Heat generator')}</span>
+                <span aria-hidden="true">→</span>
+                <span>${kind==='pump'?t('Ladepumpe','Charging pump'):t('Direkt','Direct')}</span>
+                <span aria-hidden="true">→</span>
+                <span>${t('Warmwasserspeicher','Hot-water tank')}</span>
+              </div><small>${t('Vorlauf und Rücklauf werden verbunden.','Both supply and return are connected.')}</small>`}
+            </div>
+            <details data-panel="dhw-advanced:${esc(node.id)}" class="hpc-advanced-pipes">
+              <summary>${t('Weitere Einstellungen','Additional settings')}</summary>
+              <label>${t('Leitungsführung','Pipe routing')}<select data-dhw-style="${esc(node.id)}">
+                <option value="branch" ${(draft.style||node.options?.connection_style)==='branch'?'selected':''}>${t('Gemeinsamer Vorlauf und Rücklauf','Shared supply and return')}</option>
+                <option value="separate" ${(draft.style||node.options?.connection_style)!=='branch'?'selected':''}>${t('Eigener Ladekreis','Separate charging circuit')}</option>
               </select></label>
-            ${chargeControl?`<details data-panel="charge-control:${esc(node.id)}"><summary>${t('Ladegerät-Einstellungen','Charging device settings')} · ${esc(chargeControl.name)}</summary>
-              <div class="hpc-component-sensors">${managedControlFields}</div>${diverterSettings}</details>`:''}
-            ${hasCoilConnection?`<p>${t('Bestehende Leitungen werden nicht automatisch ersetzt. Technische Änderungen findest du unter Erweiterte Einstellungen.','Existing pipes are not replaced automatically. Use Advanced settings for manual changes.')}</p>`:
-              `<button type="button" class="hpc-primary" data-action="dhw-route" data-component="${esc(node.id)}">
-                ${t('Warmwasserbereitung einrichten','Set up hot-water charging')}</button>`}
+              <label data-dhw-control-wrap ${kind==='direct'?'hidden':''}>
+                ${kind==='diverter'?t('Vorhandenes Umschaltventil','Existing changeover valve'):t('Vorhandene Ladepumpe','Existing charging pump')}
+                <select data-dhw-control="${esc(node.id)}">
+                  <option value="">${t('Automatisch neu anlegen','Create automatically')}</option>
+                  ${chargeControls.map(control=>`<option value="${esc(control.id)}"
+                    ${control.id===(draft.control||chargeControlId)?'selected':''}>${esc(control.name)}</option>`).join('')}
+                </select></label>
+              ${chargeControl?`<details data-panel="charge-control:${esc(node.id)}">
+                <summary>${t('Pumpen- und Ventilzustände','Pump and valve states')} · ${esc(chargeControl.name)}</summary>
+                <div class="hpc-component-sensors">${managedControlFields}</div>
+                ${diverterSettings}
+              </details>`:''}
+            </details>
+            ${hasCoilConnection
+              ?`<p class="hpc-setup-hint">${t('Bestehende Rohrverbindungen bleiben unverändert. Einzelverbindungen können in den erweiterten Einstellungen bearbeitet werden.','Existing pipework is preserved. Individual connections can be edited in advanced settings.')}</p>`
+              :`<button type="button" class="hpc-primary" data-action="dhw-route" data-component="${esc(node.id)}">
+                ${t('Warmwasseranschluss erstellen','Create hot-water connection')}</button>`}
           </details>`;
         }
         const sourceLinks=group==='source'?HPC_FREE.connectionPairs(p).filter(pair=>
@@ -12948,8 +13056,9 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const legacyForm=HeatpumpFlowCard._formSchema(this._config,null,{
         fits:legacyFits,all:this._allEntities===true,shown:legacyShown
       });
+      const legacyPresetSchema=legacyForm.schema.filter(field=>field.name==='preset');
       const legacySchema=legacyForm.schema.filter(field=>
-        field.name==='preset'||field.name==='entities'||field.name==='advanced');
+        field.name==='entities'||field.name==='advanced');
       const html=`<style>${HPC_FREE.css}
         .hpc-category,.hpc-component-card{border:1px solid var(--divider-color,rgba(127,127,127,.25));margin:0;padding:0;background:var(--card-background-color,transparent)}
         .hpc-component-section{margin:14px 0 20px}
@@ -12980,6 +13089,23 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         .hpc-component-sensors{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}
         .hpc-graph-summary{display:grid;gap:6px}
         .hpc-inline-section{border-top:1px solid var(--divider-color);margin:12px 0;padding-top:8px}
+        .hpc-dhw-methods{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0 16px}
+        .hpc-editor .hpc-dhw-methods button{text-align:left;display:flex;flex-direction:column;gap:5px;min-height:76px;padding:12px}
+        .hpc-dhw-methods button[aria-pressed="true"]{border-color:var(--primary-color,#03a9f4);
+          background:var(--secondary-background-color,rgba(127,127,127,.14));outline:1px solid var(--primary-color,#03a9f4)}
+        .hpc-dhw-methods small{font-size:.79em;color:var(--secondary-text-color);font-weight:400;line-height:1.3}
+        .hpc-dhw-preview{padding:12px;margin:12px 0;border-radius:10px;border:1px solid var(--divider-color);
+          background:var(--secondary-background-color,rgba(127,127,127,.05))}
+        .hpc-dhw-preview svg{display:block;max-width:480px;width:100%;height:auto;margin:8px auto}
+        .hpc-dhw-preview svg text{fill:var(--primary-text-color);font:12px var(--ha-font-family-body,system-ui,sans-serif)}
+        .hpc-dhw-box{stroke:var(--divider-color,#8795a2);fill:var(--card-background-color,#fff);stroke-width:1.5}
+        .hpc-dhw-valve{stroke:var(--primary-color,#03a9f4);fill:var(--card-background-color,#fff);stroke-width:2.5}
+        .hpc-dhw-hot,.hpc-dhw-cold{fill:none;stroke-width:4;stroke-linejoin:round}
+        .hpc-dhw-hot{stroke:var(--hfc-heat,#bb6845)}
+        .hpc-dhw-cold{stroke:var(--hfc-cold,#628cb6)}
+        .hpc-dhw-flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0}
+        .hpc-dhw-flow span:not([aria-hidden]){border:1px solid var(--divider-color);border-radius:8px;padding:8px}
+        @media(max-width:560px){.hpc-dhw-methods{grid-template-columns:1fr}}
       </style><div class="hpc-editor">
         <label class="hpc-checkbox">
           <input type="checkbox" data-all-entities ${this._allEntities===true?'checked':''}/>
@@ -12989,6 +13115,8 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           `<p class="hpc-connection-warning" role="status">${esc(warning)}</p>`).join('')||''}
         ${!configured?`<h3>${t("Allgemein · Komponentenanzahl","General · component counts")}</h3>
           <p>${t("Lege die Anzahl fest. Typ und Sensoren ordnest du danach jedem Bauteil einzeln zu.","Choose the counts first. Then set the type and sensors for each component individually.")}</p>
+          <div class="hpc-native-form"><ha-form id="hpc-native-preset"></ha-form></div>
+          ${heatPumpInfo}
           ${emsInfo}
           ${emsCircuitInfo}
           ${emsDhwInfo}
@@ -13007,6 +13135,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           <details class="hpc-category" data-panel="general" open>
             <summary><strong>${t('Allgemein','General')}</strong></summary>
             <div class="hpc-category-body">
+          <div class="hpc-native-form">
+            <ha-form id="hpc-native-preset"></ha-form>
+          </div>
+          ${heatPumpInfo}
           ${useNativeForm?'<ha-form id="hpc-native-settings"></ha-form>':
              `<div class="hpc-row"><label>${t("Name der Anlage","System name")}<input id="hpc-free-title"
              value="${esc(this._config.title||"")}" placeholder="Hydraulic Plan Card"/></label></div>`}
@@ -13100,9 +13232,6 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
             </details>
             </div>
           </details>
-          ${heatPumpInfo}${emsInfo}${emsCircuitInfo}${emsDhwInfo}${etaInfo}${etaPartInfo}
-          ${chosenEta||chosenEtaPart?`<button type="button" class="hpc-primary" data-action="eta-scan-all">
-            ${t("ETA-Anlage automatisch erkennen","Detect ETA system automatically")}</button>`:''}
           <p>${t("Die Leitungen werden nur bei bestätigtem Pumpen- oder Flusssignal animiert. Die Vorschau bleibt Teil des ursprünglichen Hydraulikplans.","Pipes animate only with confirmed pump or flow signals. The preview remains part of the original hydraulic schematic.")}</p>
           <p>${t("Die Vorschau verwendet weiterhin den originalen Hydraulikplan und dessen Heizkreisgrafiken.","The preview continues to use the original hydraulic schematic and its heating-circuit artwork.")}</p>`}
         ${dataList}
@@ -13204,10 +13333,13 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           if(Object.keys(changed).length)this._save({...this._config,...changed},{repaint:false});
         });
       }
-      const legacySettingsForm=root.querySelector('#hpc-native-legacy');
-      if(legacySettingsForm){
+      // The original preset selector is a first-class General setting again.
+      // Both native forms write to the same classic configuration.
+      for(const legacySettingsForm of root.querySelectorAll(
+        '#hpc-native-preset, #hpc-native-legacy')){
         legacySettingsForm.hass=this._hass;
-        legacySettingsForm.schema=legacySchema;
+        legacySettingsForm.schema=legacySettingsForm.id==='hpc-native-preset'
+          ?legacyPresetSchema:legacySchema;
         legacySettingsForm.computeLabel=legacyForm.computeLabel;
         legacySettingsForm.data={...this._config,entities:legacyShown};
         legacySettingsForm.addEventListener('value-changed',event=>{
@@ -13221,7 +13353,10 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           }
           if(values.entities&&typeof values.entities==='object')
             next.entities={...(this._config.entities||{}),...values.entities};
-          this._save(next,{repaint:false});
+          // Switching integration affects suggested readings and available
+          // detail options. Ordinary sensor edits should keep their focus.
+          this._save(next,{repaint:values.preset!==undefined&&
+            values.preset!==this._config.preset});
         });
       }
       const chosenForm=root.querySelector('#hpc-native-sensors');
@@ -13752,6 +13887,22 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           return this._applyPlan({components:p.components.filter(c=>c.id!==id),
             connections:p.connections.filter(c=>c.from!==id&&c.to!==id)});
         }
+        if(action==="dhw-method"){
+          const tank=button.dataset.component;
+          const kind=button.dataset.method;
+          if(!['diverter','pump','direct'].includes(kind))return;
+          // These are unsaved choices, not edits to the hydraulic graph.
+          // Re-render only to show the matching connections and controls.
+          const readChoice=name=>root.querySelector(
+            `[data-dhw-${name}="${CSS.escape(tank)}"]`)?.value||'';
+          this._dhwDrafts ||=new Map();
+          this._dhwDrafts.set(tank,{
+            kind,source:readChoice('source'),buffer:readChoice('buffer'),
+            style:readChoice('style'),control:''
+          });
+          this._renderFlex();
+          return;
+        }
         if(action==="dhw-route"){
           const tank=button.dataset.component;
           const source=root.querySelector(`[data-dhw-source="${CSS.escape(tank)}"]`)?.value;
@@ -13759,10 +13910,32 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           const style=root.querySelector(`[data-dhw-style="${CSS.escape(tank)}"]`)?.value||'branch';
           const control=root.querySelector(`[data-dhw-control="${CSS.escape(tank)}"]`)?.value||'';
           const buffer=root.querySelector(`[data-dhw-buffer="${CSS.escape(tank)}"]`)?.value||'';
+          if(!source){
+            window.alert(t('Bitte zuerst den Wärmeerzeuger auswählen.',
+              'Choose a heat source first.'));
+            return;
+          }
+          if(kind==='diverter'&&buffer){
+            // A configured generator/buffer pair will be replaced only after
+            // its two exact pipe connections have been shown to the user.
+            const directHot=p.connections.filter(edge=>edge.from===source&&
+              edge.from_port==='flow'&&edge.to===buffer&&edge.to_port==='top_in');
+            const directCold=p.connections.filter(edge=>edge.from===buffer&&
+              edge.from_port==='bottom_out'&&edge.to===source&&edge.to_port==='return');
+            if((directHot.length||directCold.length)&&!window.confirm(t(
+              'Die direkte Verbindung Wärmeerzeuger ↔ Puffer (Vorlauf und Rücklauf) wird durch das 3-Wege-Umschaltventil ersetzt. Andere Leitungen bleiben erhalten. Fortfahren?',
+              'The direct generator ↔ buffer supply and return will be replaced by the three-way valve. Other pipes remain unchanged. Continue?')))return;
+          }
           const next=kind==='diverter'&&buffer
             ?HPC_FREE.connectDhwBufferDiverter(p,source,tank,buffer,control)
             :HPC_FREE.connectDhwCharge(p,source,tank,kind,style,control);
-          if(!next)return;
+          if(!next){
+            window.alert(t(
+              'Der Anschluss wurde nicht verändert. Bestehende Leitungen oder ausgewählte Bauteile passen nicht zu dieser Anschlussart. Bitte die Einzelverbindungen prüfen.',
+              'Nothing changed. Existing pipes or selected components are incompatible. Review the individual connections.'));
+            return;
+          }
+          this._dhwDrafts?.delete(tank);
           return this._applyPlan(next);
         }
         if(action==="connect-pair"){
