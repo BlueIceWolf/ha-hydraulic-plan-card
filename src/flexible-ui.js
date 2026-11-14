@@ -432,6 +432,18 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         if(!hp.sensors[field]&&typeof id==='string'&&
           this._hass?.states?.[id])hp.sensors[field]=id;
       }
+      // Preserve the original automatic preset mapping for the first DHW tank.
+      // This changes only the live drawing copy, never the saved sensor choices.
+      // A manually assigned DHW sensor always wins over the preset.
+      const firstDhw=p.components.find(node=>node.type==='dhw_tank');
+      if(firstDhw){
+        firstDhw.sensors||={};
+        for(const key of ['top','middle','bottom']){
+          const id=original['dhw_'+key];
+          if(!firstDhw.sensors[key]&&typeof id==='string'&&
+            this._hass?.states?.[id])firstDhw.sensors[key]=id;
+        }
+      }
       // EMS-ESP's "hp3way" / DHW valve flag is the same switch already
       // used by the classic card: ON = DHW, OFF = heating. Only borrow
       // that documented EMS mapping for the matching WW/buffer valve and
@@ -456,9 +468,37 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
     _temperatureColorRange() {
       return HPC_FREE.temperatureColorRange(this._config);
     }
+    _displayHydraulicPlan(input) {
+      // The original card did not draw an empty DHW tank. Only a configured
+      // temperature reading (manual, preset or additional height sensor)
+      // activates its artwork. Do NOT remove the component from the saved
+      // graph: the editor must retain the tank and all of its connections.
+      const plan=HPC_FREE.normalize(input);
+      const mapped=id=>typeof id==='string'&&id.trim()!==''&&id!=='none';
+      const hidden=new Set(plan.components.filter(node=>
+        node.type==='dhw_tank'&&
+        !['top','middle','bottom'].some(key=>mapped(node.sensors?.[key]))&&
+        !(node.level_sensors||[]).some(point=>mapped(point.entity))
+      ).map(node=>node.id));
+      if(!hidden.size)return plan;
+      // A dedicated WW charging pump/valve with no other consumers is
+      // likewise not useful in the *drawing*. Shared 3-way valves feeding
+      // the heating buffer stay visible with their real heating branch.
+      for(const control of plan.components.filter(node=>
+        node.type==='pump'||node.type==='diverter')){
+        const outputs=plan.connections.filter(edge=>edge.from===control.id);
+        if(outputs.length&&outputs.every(edge=>hidden.has(edge.to)))
+          hidden.add(control.id);
+      }
+      return HPC_FREE.normalize({
+        components:plan.components.filter(node=>!hidden.has(node.id)),
+        connections:plan.connections.filter(edge=>
+          !hidden.has(edge.from)&&!hidden.has(edge.to))
+      });
+    }
     _syncAdditional(force=false) {
       const colorRange=this._temperatureColorRange();
-      const p=this._effectiveHydraulicPlan();
+      const p=this._displayHydraulicPlan(this._effectiveHydraulicPlan());
       if(!this._hass||!p?.components.length)return;
       const svg=this._$('svg');if(!svg)return;
       const model=HPC_INTEGRATED.layout(p,this._hcCount||1,
