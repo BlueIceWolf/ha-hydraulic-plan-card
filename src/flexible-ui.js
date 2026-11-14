@@ -2677,6 +2677,22 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           return this._applyPlan({components:p.components.filter(c=>c.id!==id),
             connections:p.connections.filter(c=>c.from!==id&&c.to!==id)});
         }
+        if(action==="dhw-method"){
+          const tank=button.dataset.component;
+          const kind=button.dataset.method;
+          if(!['diverter','pump','direct'].includes(kind))return;
+          // These are unsaved choices, not edits to the hydraulic graph.
+          // Re-render only to show the matching connections and controls.
+          const readChoice=name=>root.querySelector(
+            `[data-dhw-${name}="${CSS.escape(tank)}"]`)?.value||'';
+          this._dhwDrafts ||=new Map();
+          this._dhwDrafts.set(tank,{
+            kind,source:readChoice('source'),buffer:readChoice('buffer'),
+            style:readChoice('style'),control:''
+          });
+          this._renderFlex();
+          return;
+        }
         if(action==="dhw-route"){
           const tank=button.dataset.component;
           const source=root.querySelector(`[data-dhw-source="${CSS.escape(tank)}"]`)?.value;
@@ -2684,10 +2700,32 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           const style=root.querySelector(`[data-dhw-style="${CSS.escape(tank)}"]`)?.value||'branch';
           const control=root.querySelector(`[data-dhw-control="${CSS.escape(tank)}"]`)?.value||'';
           const buffer=root.querySelector(`[data-dhw-buffer="${CSS.escape(tank)}"]`)?.value||'';
+          if(!source){
+            window.alert(t('Bitte zuerst den Wärmeerzeuger auswählen.',
+              'Choose a heat source first.'));
+            return;
+          }
+          if(kind==='diverter'&&buffer){
+            // A configured generator/buffer pair will be replaced only after
+            // its two exact pipe connections have been shown to the user.
+            const directHot=p.connections.filter(edge=>edge.from===source&&
+              edge.from_port==='flow'&&edge.to===buffer&&edge.to_port==='top_in');
+            const directCold=p.connections.filter(edge=>edge.from===buffer&&
+              edge.from_port==='bottom_out'&&edge.to===source&&edge.to_port==='return');
+            if((directHot.length||directCold.length)&&!window.confirm(t(
+              'Die direkte Verbindung Wärmeerzeuger ↔ Puffer (Vorlauf und Rücklauf) wird durch das 3-Wege-Umschaltventil ersetzt. Andere Leitungen bleiben erhalten. Fortfahren?',
+              'The direct generator ↔ buffer supply and return will be replaced by the three-way valve. Other pipes remain unchanged. Continue?')))return;
+          }
           const next=kind==='diverter'&&buffer
             ?HPC_FREE.connectDhwBufferDiverter(p,source,tank,buffer,control)
             :HPC_FREE.connectDhwCharge(p,source,tank,kind,style,control);
-          if(!next)return;
+          if(!next){
+            window.alert(t(
+              'Der Anschluss wurde nicht verändert. Bestehende Leitungen oder ausgewählte Bauteile passen nicht zu dieser Anschlussart. Bitte die Einzelverbindungen prüfen.',
+              'Nothing changed. Existing pipes or selected components are incompatible. Review the individual connections.'));
+            return;
+          }
+          this._dhwDrafts?.delete(tank);
           return this._applyPlan(next);
         }
         if(action==="connect-pair"){
