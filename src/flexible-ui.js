@@ -814,6 +814,9 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       const newConfig=result.changed?result.config:incoming;
       this._migrationWarnings=result.warnings||[];
       const changed=JSON.stringify(this._config)!==JSON.stringify(newConfig);
+      // An external graph replacement invalidates only unsaved wizard choices.
+      if(JSON.stringify(this._config?.plan)!==JSON.stringify(newConfig?.plan))
+        this._dhwDrafts?.clear();
       this._config=newConfig;
       // Versioned, non-destructive plan upgrades are committed once.
       // Calling setConfig again with the migrated config is idempotent.
@@ -1567,11 +1570,18 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
           const sources=p.components.filter(item=>item.type==='buffer'||
             HPC_FREE.byType[item.type]?.group==='source');
           const availableBuffers=p.components.filter(item=>item.type==='buffer');
-          const chargingSource= status.source?.id||
-            sources.find(item=>item.id===p.connections.find(edge=>edge.to===node.id&&edge.to_port==='coil_in')?.from)?.id||'';
+          const draft=this._dhwDrafts?.get(node.id)||{};
+          const generators=sources.filter(item=>HPC_FREE.byType[item.type]?.group==='source');
+          const chargingSource=draft.source||status.source?.id||
+            node.options?.dhw_charge?.source||
+            sources.find(item=>item.id===p.connections.find(edge=>edge.to===node.id&&edge.to_port==='coil_in')?.from)?.id||
+            (generators.length===1?generators[0].id:'')||
+            (sources.length===1?sources[0].id:'');
           const hasCoilConnection=p.connections.some(edge=>
             edge.to===node.id&&edge.to_port==='coil_in'||edge.from===node.id&&edge.from_port==='coil_out');
-          const kind=node.options?.dhw_charge?.kind||'pump';
+          const kind=draft.kind||node.options?.dhw_charge?.kind||
+            (availableBuffers.length===1&&generators.length===1?'diverter':'pump');
+          const bufferChoice=draft.buffer||(availableBuffers.length===1?availableBuffers[0].id:'');
           const routeControlIds=[...(Array.isArray(status.flow)?status.flow:[]),
             ...(Array.isArray(status.back)?status.back:[])].flatMap(edgeId=>{
               const edge=p.connections.find(item=>item.id===edgeId);
