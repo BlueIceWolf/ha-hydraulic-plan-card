@@ -1,6 +1,6 @@
 {
   "name": "ha-hydraulic-plan-card",
-  "version": "0.2.0-alpha.18",
+  "version": "0.2.0-alpha.19",
   "private": true,
   "description": "A flexible heating system diagram for Home Assistant",
   "type": "module",
