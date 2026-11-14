@@ -1608,37 +1608,93 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
               value="${esc(chargeControl.options?.dhw_state||'')}"/></label>
             <label>${t('Ventilwert für Heizen','Valve value for heating')}<input data-diverter-heating="${esc(chargeControl.id)}"
               value="${esc(chargeControl.options?.heating_state||'')}"/></label>`:'';
-          specialized+=`<details data-panel="dhw-setup:${esc(node.id)}" open><summary>${t('Warmwasserbereitung','Hot-water charging')}</summary>
-            <p class="${status.complete?'':'hpc-connection-warning'}">${status.complete
-              ?`${t('Warmwasserbereitung angeschlossen','Hot-water charging connected')}: ${esc(status.source.name)} · ${t('Vorlauf und Rücklauf vorhanden','Supply and return connected')}`
-              :status.flow?t('Vorlauf vorhanden, Rücklauf fehlt.','Supply connected, return missing.'):
-                status.back?t('Rücklauf vorhanden, Vorlauf fehlt.','Return connected, supply missing.'):
-                hasCoilConnection?t('Warmwasserverbindung unvollständig; bitte die Einzelverbindungen prüfen.','DHW circuit is incomplete; review individual connections.'):
-                t('Warmwasserspeicher noch nicht angeschlossen.','Hot-water tank is not connected yet.')}</p>
-            <div class="hpc-row"><label>${t('Wärmequelle','Heat source')}<select data-dhw-source="${esc(node.id)}">
-              ${sources.map(source=>`<option value="${esc(source.id)}" ${source.id===chargingSource?'selected':''}>${esc(source.name)}</option>`).join('')}
-            </select></label><label>${t('Ladeart','Charging method')}<select data-dhw-kind="${esc(node.id)}">
-              ${[['pump',t('Über Ladepumpe','Via charging pump')],['diverter',t('Über Umschaltventil','Via diverter valve')],['direct',t('Direkt angeschlossen','Direct')]]
-                .map(([value,label])=>`<option value="${value}" ${kind===value?'selected':''}>${label}</option>`).join('')}
-            </select></label></div>
-            ${availableBuffers.length?`<label data-dhw-buffer-wrap ${kind==='diverter'?'':'hidden'}>${t('Heizung / Puffer laden','Heat / charge buffer')}
-              <select data-dhw-buffer="${esc(node.id)}">
-                <option value="">${t('Ohne Pufferumschaltung','Without buffer switching')}</option>
-                ${availableBuffers.map(buffer=>`<option value="${esc(buffer.id)}">${esc(buffer.name)}</option>`).join('')}
-              </select></label>`:''}
-            <label>${t('Leitungsführung','Pipe routing')}<select data-dhw-style="${esc(node.id)}">
-              <option value="branch" ${node.options?.connection_style==='branch'?'selected':''}>${t('Gemeinsamer Vorlauf und Rücklauf','Shared supply and return')}</option>
-              <option value="separate" ${node.options?.connection_style!=='branch'?'selected':''}>${t('Eigener Ladekreis','Separate charging circuit')}</option>
-            </select></label>
-            <label data-dhw-control-wrap ${kind==='direct'?'hidden':''}>${kind==='diverter'?t('Vorhandenes Umschaltventil','Existing changeover valve'):t('Vorhandene Ladepumpe','Existing charging pump')}
-              <select data-dhw-control="${esc(node.id)}"><option value="">${t('Automatisch neu anlegen','Create automatically')}</option>
-                ${chargeControls.map(control=>`<option value="${esc(control.id)}" ${control.id===chargeControlId?'selected':''}>${esc(control.name)}</option>`).join('')}
+          specialized+=`<details data-panel="dhw-setup:${esc(node.id)}" open>
+            <summary>${t('Warmwasserbereitung','Hot-water charging')}</summary>
+            <p class="${hasCoilConnection&&!status.complete?'hpc-connection-warning':'hpc-setup-hint'}">
+              ${status.complete
+                ?`${t('Warmwasserbereitung angeschlossen','Hot-water charging connected')}: ${esc(status.source.name)} · ${t('Vorlauf und Rücklauf vorhanden','Supply and return connected')}`
+                :status.flow?t('Vorlauf vorhanden, Rücklauf fehlt.','Supply connected, return missing.'):
+                  status.back?t('Rücklauf vorhanden, Vorlauf fehlt.','Return connected, supply missing.'):
+                  hasCoilConnection?t('Warmwasserverbindung unvollständig. Bitte die Anschlüsse prüfen.','DHW connection incomplete. Check the pipework.'):
+                  t('Warmwasser noch nicht eingerichtet.','Hot water is not set up yet.')}</p>
+            <strong>${t('1. Art der Warmwasserbereitung','1. Choose charging method')}</strong>
+            <div class="hpc-dhw-methods" role="group" aria-label="${t('Art der Warmwasserbereitung','Charging method')}">
+              ${[
+                ['diverter',t('3-Wege-Umschaltventil','Three-way changeover valve'),
+                  t('Zwischen Warmwasser und Heizung umschalten','Switch between hot water and heating')],
+                ['pump',t('Ladepumpe','Charging pump'),
+                  t('Warmwasser über eine eigene Pumpe laden','Charge hot water with a dedicated pump')],
+                ['direct',t('Direkt angeschlossen','Direct connection'),
+                  t('Ohne Pumpe oder Umschaltventil','Without pump or changeover valve')]
+              ].map(([value,label,help])=>`<button type="button" data-action="dhw-method"
+                  data-method="${value}" data-component="${esc(node.id)}"
+                  aria-pressed="${kind===value}">
+                  <strong>${label}</strong><small>${help}</small>
+                </button>`).join('')}
+            </div>
+            <input type="hidden" data-dhw-kind="${esc(node.id)}" value="${esc(kind)}"/>
+            <strong>${t('2. Anschlüsse zuordnen','2. Assign connections')}</strong>
+            <div class="hpc-row">
+              <label>${t('Wärmeerzeuger','Heat source')}
+                <select data-dhw-source="${esc(node.id)}">
+                  <option value="" ${!chargingSource?'selected':''}>${t('Bitte wählen','Choose a source')}</option>
+                  ${sources.map(source=>`<option value="${esc(source.id)}" ${source.id===chargingSource?'selected':''}>${esc(source.name)}</option>`).join('')}
+                </select>
+              </label>
+              ${availableBuffers.length?`<label data-dhw-buffer-wrap ${kind==='diverter'?'':'hidden'}>
+                ${t('Heizungsanschluss / Pufferspeicher','Heating outlet / buffer tank')}
+                <select data-dhw-buffer="${esc(node.id)}">
+                  <option value="" ${!bufferChoice?'selected':''}>${t('Bitte wählen','Choose a buffer tank')}</option>
+                  ${availableBuffers.map(buffer=>`<option value="${esc(buffer.id)}" ${buffer.id===bufferChoice?'selected':''}>${esc(buffer.name)}</option>`).join('')}
+                </select></label>`:`${kind==='diverter'?`<p class="hpc-setup-hint">${t('Ohne Pufferspeicher wird nur der Warmwasserzweig angeschlossen.','Without a buffer tank only the hot-water branch is connected.')}</p>`:''}`}
+            </div>
+            <div class="hpc-dhw-preview">
+              <strong>${t('3. So wird verbunden','3. Connection preview')}</strong>
+              ${kind==='diverter'?`<svg viewBox="0 0 480 158" aria-hidden="true" role="presentation">
+                <rect x="9" y="40" width="96" height="42" rx="8" class="hpc-dhw-box"/>
+                <text x="57" y="65" text-anchor="middle">${t('Erzeuger','Generator')}</text>
+                <path d="M105 59 H168" class="hpc-dhw-hot"/>
+                <circle cx="187" cy="59" r="19" class="hpc-dhw-valve"/>
+                <text x="187" y="63" text-anchor="middle">3V</text>
+                <path d="M206 51 H283 V27 H336" class="hpc-dhw-hot"/>
+                <path d="M206 67 H283 V91 H336" class="hpc-dhw-hot"/>
+                <rect x="336" y="7" width="130" height="40" rx="8" class="hpc-dhw-box"/>
+                <rect x="336" y="71" width="130" height="40" rx="8" class="hpc-dhw-box"/>
+                <text x="401" y="32" text-anchor="middle">${t('Warmwasser','Hot water')} (A)</text>
+                <text x="401" y="96" text-anchor="middle">${t('Puffer','Buffer')} (B)</text>
+                <path d="M401 47 V135 H57 V82 M401 111 V135" class="hpc-dhw-cold"/>
+                <text x="240" y="152" text-anchor="middle">${t('Gemeinsamer Rücklauf','Shared return')}</text>
+              </svg>`:`<div class="hpc-dhw-flow">
+                <span>${t('Wärmeerzeuger','Heat generator')}</span>
+                <span aria-hidden="true">→</span>
+                <span>${kind==='pump'?t('Ladepumpe','Charging pump'):t('Direkt','Direct')}</span>
+                <span aria-hidden="true">→</span>
+                <span>${t('Warmwasserspeicher','Hot-water tank')}</span>
+              </div><small>${t('Vorlauf und Rücklauf werden verbunden.','Both supply and return are connected.')}</small>`}
+            </div>
+            <details data-panel="dhw-advanced:${esc(node.id)}" class="hpc-advanced-pipes">
+              <summary>${t('Weitere Einstellungen','Additional settings')}</summary>
+              <label>${t('Leitungsführung','Pipe routing')}<select data-dhw-style="${esc(node.id)}">
+                <option value="branch" ${(draft.style||node.options?.connection_style)==='branch'?'selected':''}>${t('Gemeinsamer Vorlauf und Rücklauf','Shared supply and return')}</option>
+                <option value="separate" ${(draft.style||node.options?.connection_style)!=='branch'?'selected':''}>${t('Eigener Ladekreis','Separate charging circuit')}</option>
               </select></label>
-            ${chargeControl?`<details data-panel="charge-control:${esc(node.id)}"><summary>${t('Ladegerät-Einstellungen','Charging device settings')} · ${esc(chargeControl.name)}</summary>
-              <div class="hpc-component-sensors">${managedControlFields}</div>${diverterSettings}</details>`:''}
-            ${hasCoilConnection?`<p>${t('Bestehende Leitungen werden nicht automatisch ersetzt. Technische Änderungen findest du unter Erweiterte Einstellungen.','Existing pipes are not replaced automatically. Use Advanced settings for manual changes.')}</p>`:
-              `<button type="button" class="hpc-primary" data-action="dhw-route" data-component="${esc(node.id)}">
-                ${t('Warmwasserbereitung einrichten','Set up hot-water charging')}</button>`}
+              <label data-dhw-control-wrap ${kind==='direct'?'hidden':''}>
+                ${kind==='diverter'?t('Vorhandenes Umschaltventil','Existing changeover valve'):t('Vorhandene Ladepumpe','Existing charging pump')}
+                <select data-dhw-control="${esc(node.id)}">
+                  <option value="">${t('Automatisch neu anlegen','Create automatically')}</option>
+                  ${chargeControls.map(control=>`<option value="${esc(control.id)}"
+                    ${control.id===(draft.control||chargeControlId)?'selected':''}>${esc(control.name)}</option>`).join('')}
+                </select></label>
+              ${chargeControl?`<details data-panel="charge-control:${esc(node.id)}">
+                <summary>${t('Pumpen- und Ventilzustände','Pump and valve states')} · ${esc(chargeControl.name)}</summary>
+                <div class="hpc-component-sensors">${managedControlFields}</div>
+                ${diverterSettings}
+              </details>`:''}
+            </details>
+            ${hasCoilConnection
+              ?`<p class="hpc-setup-hint">${t('Bestehende Rohrverbindungen bleiben unverändert. Einzelverbindungen können in den erweiterten Einstellungen bearbeitet werden.','Existing pipework is preserved. Individual connections can be edited in advanced settings.')}</p>`
+              :`<button type="button" class="hpc-primary" data-action="dhw-route" data-component="${esc(node.id)}">
+                ${t('Warmwasseranschluss erstellen','Create hot-water connection')}</button>`}
           </details>`;
         }
         const sourceLinks=group==='source'?HPC_FREE.connectionPairs(p).filter(pair=>
@@ -1828,6 +1884,23 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
         .hpc-component-sensors{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px}
         .hpc-graph-summary{display:grid;gap:6px}
         .hpc-inline-section{border-top:1px solid var(--divider-color);margin:12px 0;padding-top:8px}
+        .hpc-dhw-methods{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0 16px}
+        .hpc-editor .hpc-dhw-methods button{text-align:left;display:flex;flex-direction:column;gap:5px;min-height:76px;padding:12px}
+        .hpc-dhw-methods button[aria-pressed="true"]{border-color:var(--primary-color,#03a9f4);
+          background:var(--secondary-background-color,rgba(127,127,127,.14));outline:1px solid var(--primary-color,#03a9f4)}
+        .hpc-dhw-methods small{font-size:.79em;color:var(--secondary-text-color);font-weight:400;line-height:1.3}
+        .hpc-dhw-preview{padding:12px;margin:12px 0;border-radius:10px;border:1px solid var(--divider-color);
+          background:var(--secondary-background-color,rgba(127,127,127,.05))}
+        .hpc-dhw-preview svg{display:block;max-width:480px;width:100%;height:auto;margin:8px auto}
+        .hpc-dhw-preview svg text{fill:var(--primary-text-color);font:12px var(--ha-font-family-body,system-ui,sans-serif)}
+        .hpc-dhw-box{stroke:var(--divider-color,#8795a2);fill:var(--card-background-color,#fff);stroke-width:1.5}
+        .hpc-dhw-valve{stroke:var(--primary-color,#03a9f4);fill:var(--card-background-color,#fff);stroke-width:2.5}
+        .hpc-dhw-hot,.hpc-dhw-cold{fill:none;stroke-width:4;stroke-linejoin:round}
+        .hpc-dhw-hot{stroke:var(--hfc-heat,#bb6845)}
+        .hpc-dhw-cold{stroke:var(--hfc-cold,#628cb6)}
+        .hpc-dhw-flow{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:12px 0}
+        .hpc-dhw-flow span:not([aria-hidden]){border:1px solid var(--divider-color);border-radius:8px;padding:8px}
+        @media(max-width:560px){.hpc-dhw-methods{grid-template-columns:1fr}}
       </style><div class="hpc-editor">
         <label class="hpc-checkbox">
           <input type="checkbox" data-all-entities ${this._allEntities===true?'checked':''}/>
