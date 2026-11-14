@@ -140,7 +140,12 @@ const HPC_EMS = (() => {
       // Once selected by the user, this mapping never overwrites a value.
       if(!candidate.entities[role])candidate.entities[role]=id;
     }
+    // A thermostat can reveal its circuit number while exposing only
+    // room temperatures or target selections. Such a group has zero
+    // usable hydraulic measurements and must not be offered as an
+    // "identified heating circuit" or create an empty plan component.
     return [...groups.values()].map(c=>({...c,count:Object.keys(c.entities).length}))
+      .filter(c=>c.count>0)
       .sort((a,b)=>a.number-b.number||a.id.localeCompare(b.id));
   }
 
