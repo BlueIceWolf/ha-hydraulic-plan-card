@@ -33,9 +33,24 @@ const HPC_FREE = (function makeFreeHelpers() {
     particle_current:["Partikelabscheider Strom","Particle separator current"],
   };
   const byType = Object.fromEntries(types.map(t=>[t.type,t]));
+  // One option registry is used by the editor, migration and future schema checks.
+  // Unknown extension options are deliberately retained by normalization.
+  const optionKeys = Object.freeze({
+    wood_gasifier: ['return_lift','froeling_view','mixer_inverted'],
+    oil_boiler: ['boiler_kind'],
+    gas_boiler: ['boiler_kind'],
+    pellet_boiler: ['boiler_kind','silo'],
+    wood_chip_boiler: ['eta_model','eta_view','particle_separator','silo'],
+    heat_pump: ['unit_style','unit_size','source_type'],
+    dhw_tank: ['connection_style','dhw_charge'],
+    heating_circuit: ['emitter','mixed','hydraulic_auto','mixer_inverted'],
+    diverter: ['dhw_port','dhw_state','heating_state'],
+    mixer: ['a_closed_state','b_closed_state','a_closed_at','b_closed_at','closed_ports','mixer_inverted'],
+  });
   // Entity IDs are validated syntactically; all measurements remain optional.
   // A meaningful entity may come from an integration, helper or template domain.
   const entityRx = /^[a-z][a-z0-9_]*\.[a-z0-9_]+$/;
+  const validEntity = id => typeof id==='string' && entityRx.test(id);
   const isId = id => typeof id==="string" && /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(id);
   const esc = v => String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   const text = (de,en,lang) => lang==="en"?en:de;
@@ -600,12 +615,19 @@ const HPC_FREE = (function makeFreeHelpers() {
   const format=s=>s?(s.number!==null?
     s.number.toLocaleString("de-DE",{maximumFractionDigits:1})+(s.unit?" "+s.unit:""):
     s.text.slice(0,16)):"–";
-  // Colour scale is selected per card before its synchronous SVG render.
-  // Invalid or missing bounds keep the historical temperature palette.
-  function color(s) {
+  // Temperature colours are a pure function of the reading and explicit
+  // per-card range. Never store the range on the shared HPC_FREE object.
+  function temperatureColorRange(config) {
+    const rawMin=config?.temperature_color_min,rawMax=config?.temperature_color_max;
+    if(rawMin==null||rawMax==null||
+      String(rawMin).trim()===''||String(rawMax).trim()==='')return null;
+    const min=Number(rawMin),max=Number(rawMax);
+    return Number.isFinite(min)&&Number.isFinite(max)&&
+      min>=-100&&max<=200&&max>min?{min,max}:null;
+  }
+  function color(s,bounds=null) {
     if(!s||s.number===null||!["°c","c","°f","k"].includes(s.unit.toLowerCase()))return "#718096";
     const measured=s.unit==="°F"?(s.number-32)*5/9:s.unit==="K"?s.number-273.15:s.number;
-    const bounds=HPC_FREE.colorRange;
     const min=Number(bounds?.min),max=Number(bounds?.max);
     // Preserve the existing  -10…90 °C palette as the default. For a custom
     // range, map the configured lower/upper limits to its endpoints.
@@ -668,13 +690,13 @@ const HPC_FREE = (function makeFreeHelpers() {
     else {
       const first=points[0],last=points.at(-1);
       if(first.position>0){add(0,"#718096");add(Math.max(0,first.position-.4),"#718096");}
-      points.forEach(p=>add(p.position,color(validTemp(p.entity))));
+      points.forEach(p=>add(p.position,color(validTemp(p.entity),options.colorRange)));
       if(last.position<100){add(Math.min(100,last.position+.4),"#718096");add(100,"#718096");}
     }
     return `<linearGradient id="hpc-${esc(c.id)}" x1="0" y1="0" x2="0" y2="1">${stops.join("")}</linearGradient>`;
   }).join("");
   const names=Object.fromEntries(plan.components.map(c=>[c.id,c]));
-  const connectorColor=(e)=>color(validTemp(e.temperature_entity));
+  const connectorColor=(e)=>color(validTemp(e.temperature_entity),options.colorRange);
   const routes=plan.connections.map(e=>{
     const start=portXY(names[e.from],e.from_port),end=portXY(names[e.to],e.to_port);
     const mid=(start.x+end.x)/2;
@@ -777,7 +799,7 @@ const HPC_FREE = (function makeFreeHelpers() {
   .hpc-editor .hpc-setup-group .hpc-checkbox{margin:5px 0}\n\
   .hpc-editor .hpc-setup-group .hpc-checkbox span{flex:1}\n\
   .hpc-editor .hpc-setup-group .hpc-checkbox input[type=number]{width:76px}\n  .hpc-ems{border:1px solid var(--primary-color,#03a9f4);border-radius:12px;padding:8px 14px 14px;margin:14px 0;background:var(--secondary-background-color,rgba(127,127,127,.08));}\n  .hpc-ems h3{margin-top:5px;}\n  .hpc-connection-warning{color:var(--error-color,#e16a42)!important;font-weight:600;}\n  .hpc-editor .hpc-component-list button[aria-pressed=true]{\n    border-color:var(--primary-color,#03a9f4);background:var(--secondary-background-color,rgba(127,127,127,.14));}\n  .hpc-editor .hpc-quick-connect{margin:8px 0 4px}\n  .hpc-editor .hpc-quick-connect label{flex:1 1 260px}\n  .hpc-editor .hpc-connection-hint{margin:4px 0 14px;font-size:.82em}\n  .hpc-editor details summary{cursor:pointer;font-weight:600;padding:8px 2px}\n  .hpc-editor .hpc-advanced-pipes{border-top:1px solid var(--divider-color,rgba(127,127,127,.16));margin:13px 0}\n  .hpc-editor .hpc-pipe-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--divider-color,rgba(127,127,127,.16));padding:9px 0}\n  .hpc-editor .hpc-pipe-row>span{display:flex;flex:1 1 230px;flex-direction:column;font-weight:500;font-size:.9em;line-height:1.4}\n  .hpc-editor .hpc-pipe-row small{font-weight:400;font-size:.87em;color:var(--secondary-text-color,#7b8798)}\n  .hpc-editor .hpc-pipe-row details{flex:1 1 100%;font-size:.85em}\n  .hpc-editor .hpc-board{margin:8px 0;min-height:160px;}\n";
-  return {types,byType,ports,portRole,validConnection,connectPair,connectHeatingCircuit,
+  return {types,byType,optionKeys,validEntity,temperatureColorRange,ports,portRole,validConnection,connectPair,connectHeatingCircuit,
     preferredHeatingBuffer,connectDhwCharge,connectDhwBufferDiverter,connectionPairs,connectBufferSeries,
     connectBuffersParallel,dimension,display,fieldLabel,icon,esc,normalize,newNode,
     sample,state,active,format,color,portXY,draw,css,text};
