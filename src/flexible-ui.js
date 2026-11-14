@@ -1032,17 +1032,28 @@ const { HydraulicPlanCard, HydraulicPlanCardEditor } = (function hpcUI() {
       // An imported or manually configured boiler must not keep appearing as
       // "new". A second, genuinely different device is offered next.
       const originalHeatPumps=this._originalHeatPumpCandidates();
+      // A successful import should disappear from the discovery panel.
+      // Show a recognised preset again only when it has usable, as-yet
+      // unassigned readings; never duplicate an already imported heat pump.
+      const pendingOriginalHeatPumps=originalHeatPumps.filter(candidate=>{
+        const linked=p.components.find(node=>node.type==='heat_pump'&&(
+          node.discovery?.provider==='original-heatpump'&&node.discovery.id===candidate.id||
+          Object.values(node.sensors||{}).some(id=>
+            Object.values(candidate.entities).includes(id))));
+        return !linked||Object.entries(candidate.entities).some(([role,id])=>
+          id&&!linked.sensors?.[role]);
+      });
       const chosenEms=emsCandidates.find(c=>!HPC_DISCOVERY.matchedNode(p,c,'ems-esp',emsCandidates));
       const chosenEta=etaCandidates.find(c=>!HPC_DISCOVERY.matchedNode(p,c,'eta',etaCandidates));
       const emsTypeLabel=(type)=>type==="oil_boiler"?t("Ölkessel","Oil boiler"):
         type==="gas_boiler"?t("Gaskessel","Gas boiler"):
         type==="heat_pump"?t("Wärmepumpe","Heat pump"):t("Heizgerät (Typ prüfen)","Heating device (verify type)");
-      const heatPumpInfo=originalHeatPumps.length?`<section class="hpc-ems">
+      const heatPumpInfo=pendingOriginalHeatPumps.length?`<section class="hpc-ems">
         <h3>${t('Wärmepumpe mit Original-Erkennung gefunden','Heat pump found with original detection')}</h3>
         <p>${t('Die bewährten Integrations-Presets der ursprünglichen Karte werden verwendet. Bestehende Sensoren bleiben erhalten. Rohrleitungen werden nicht automatisch verändert.','Uses the original card integration presets. Existing sensor mappings and pipe connections remain unchanged.')}</p>
         <label class="hpc-field">${t('Erkannte Integration','Detected integration')}
           <select id="hpc-original-wp">
-            ${originalHeatPumps.map(c=>`<option value="${esc(c.id)}">${esc(c.name)} · ${c.count} ${t('Messwerte','measurements')}</option>`).join('')}
+            ${pendingOriginalHeatPumps.map(c=>`<option value="${esc(c.id)}">${esc(c.name)} · ${c.count} ${t('Messwerte','measurements')}</option>`).join('')}
           </select></label>
         <button type="button" data-action="original-wp-apply">${t('Wärmepumpe erkennen und Werte übernehmen','Import detected heat pump measurements')}</button>
       </section>`:''; 
