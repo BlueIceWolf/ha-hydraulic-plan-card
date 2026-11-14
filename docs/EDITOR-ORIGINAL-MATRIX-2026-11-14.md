@@ -60,3 +60,25 @@ Heizkreis- und Pufferfälle, Browsertests in Home Assistant, grafische
 Dreiwegeventil-Abnahme und alle hydraulischen Abnahmekriterien stehen
 noch aus. Kein Merge auf `main`, kein HACS-Release und keine Behauptung
 der vollständigen Fertigstellung, bevor diese Punkte erledigt sind.
+
+## Warmwasserspeicher nur bei hinterlegtem Messwert
+
+Die ursprüngliche WW-Anzeige wird wiederhergestellt: Ein WW-Speicher
+erscheint im Hydraulikplan erst dann, wenn eine Temperaturentität für
+**oben, Mitte oder unten** oder ein zusätzlicher Temperaturfühler
+hinterlegt ist. Auch automatisch aufgelöste Original-Presets können
+diesen Messwert liefern. Ein gespeicherter WW-Speicher ohne Messwert
+bleibt im **Editor** mit seinen Leitungen, Pumpen und Ventilen
+unverändert bearbeitbar, wird aber in der **Kartenzeichnung** ausgelassen.
+
+Nur für die Darstellung erzeugt die Karte eine gefilterte Kopie des
+Anlagenplans. Zu einem versteckten WW-Speicher führende Leitungen und
+ausschließlich ihm zugeordnete Ladepumpen/-ventile verschwinden
+ebenfalls aus der Darstellung. Ein geteiltes 3-Wege-Ventil, das auch
+einen Pufferspeicher bedient, bleibt mit seinem Heizungszweig erhalten.
+Ist ein Wert zugeordnet, wird der Speicher angezeigt, selbst wenn
+Home Assistant den Sensor vorübergehend als „unavailable“ meldet –
+damit die Hydraulik nicht bei jedem Messwertausfall umspringt.
+
+Die Sichtbarkeitsprüfung muss im Live-Dashboard noch optisch bestätigt
+werden, einschließlich des originalen WW-Ankers.
