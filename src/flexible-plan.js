@@ -600,9 +600,18 @@ const HPC_FREE = (function makeFreeHelpers() {
   const format=s=>s?(s.number!==null?
     s.number.toLocaleString("de-DE",{maximumFractionDigits:1})+(s.unit?" "+s.unit:""):
     s.text.slice(0,16)):"–";
+  // Colour scale is selected per card before its synchronous SVG render.
+  // Invalid or missing bounds keep the historical temperature palette.
   function color(s) {
     if(!s||s.number===null||!["°c","c","°f","k"].includes(s.unit.toLowerCase()))return "#718096";
-    const t=s.unit==="°F"?(s.number-32)*5/9:s.unit==="K"?s.number-273.15:s.number;
+    const measured=s.unit==="°F"?(s.number-32)*5/9:s.unit==="K"?s.number-273.15:s.number;
+    const bounds=HPC_FREE.colorRange;
+    const min=Number(bounds?.min),max=Number(bounds?.max);
+    // Preserve the existing  -10…90 °C palette as the default. For a custom
+    // range, map the configured lower/upper limits to its endpoints.
+    const t=bounds&&Number.isFinite(min)&&Number.isFinite(max)&&max>min
+      ?-10+100*Math.max(0,Math.min(1,(measured-min)/(max-min)))
+      :measured;
     // Shared palette for ALL water circuits, storage and heat sources.
     // The 30–50 °C range is deliberately resolved more finely so a
     // typical heat-pump 40/35 °C circuit has a visible supply/return gradient.
